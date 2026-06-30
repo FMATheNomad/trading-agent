@@ -5,8 +5,8 @@ class RiskManager:
         self.daily_start_balance = config.PLAY_CAPITAL_IDR
         self.today_peak = config.PLAY_CAPITAL_IDR
 
-    def should_stop_trading(self, current_balance_idr: float) -> bool:
-        if current_balance_idr < config.DAILY_LOSS_FLOOR_IDR:
+    def should_stop_trading(self, total_equity: float) -> bool:
+        if total_equity < config.DAILY_LOSS_FLOOR_IDR:
             return True
         return False
 
@@ -36,6 +36,8 @@ class RiskManager:
         return round(sl, 2), round(tp, 2)
 
     def check_sl_tp(self, entry_price: float, current_price: float, side: str) -> str | None:
+        if entry_price <= 0:
+            return None
         if side.upper() == "BUY":
             pnl_pct = (current_price - entry_price) / entry_price
         else:
@@ -63,17 +65,13 @@ class PortfolioRiskManager:
     def validate_allocation(self, trades: list[dict], current_positions: list[dict],
                              balance_idr: float) -> list[dict]:
         valid = []
-        used_pct = sum(p.get("allocation_pct", 0) for p in current_positions)
         for t in trades:
-            if t["allocation_pct"] > config.MAX_POSITION_PCT_PER_ASSET * 100:
-                t["allocation_pct"] = config.MAX_POSITION_PCT_PER_ASSET * 100
-            if used_pct + t["allocation_pct"] > 90:
-                t["allocation_pct"] = 90 - used_pct
-            if t["allocation_pct"] <= 0:
-                continue
-            amount = balance_idr * (t["allocation_pct"] / 100)
+            pct = t.get("allocation_pct", 0)
+            if pct > config.MAX_POSITION_PCT_PER_ASSET * 100:
+                pct = config.MAX_POSITION_PCT_PER_ASSET * 100
+            amount = balance_idr * (pct / 100)
             if amount < config.MIN_ORDER_IDR:
                 continue
+            t["allocation_pct"] = pct
             valid.append(t)
-            used_pct += t["allocation_pct"]
         return valid

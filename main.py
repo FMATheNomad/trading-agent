@@ -26,9 +26,28 @@ def handle_sig(*_):
     shutdown_flag = True
 
 def pnl_pct(entry: float, current: float, side: str) -> float:
+    if entry <= 0:
+        return 0
     if side.upper() == "BUY":
         return (current - entry) / entry * 100
     return (entry - current) / entry * 100
+
+async def retry_get(client: httpx.AsyncClient, url: str, params: dict | None = None, retries: int = 3) -> httpx.Response:
+    for attempt in range(retries):
+        try:
+            r = await client.get(url, params=params)
+            if r.status_code == 429:
+                wait = 5 * (attempt + 1)
+                print(f"Rate limited, waiting {wait}s...", flush=True)
+                await asyncio.sleep(wait)
+                continue
+            r.raise_for_status()
+            return r
+        except (httpx.HTTPStatusError, httpx.RequestError) as e:
+            if attempt == retries - 1:
+                raise
+            await asyncio.sleep(2 * (attempt + 1))
+    raise RuntimeError("Max retries exceeded")
 
 async def portfolio_cycle(client: httpx.AsyncClient):
     global positions
@@ -72,37 +91,40 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 actual_idr_balance = float(bal.get("idr", 0))
                 for coin, raw_qty in bal.items():
                     qty = float(raw_qty)
-                    if qty <= 0:
-                        continue
-                    if coin == "idr":
+                    if qty <= 0 or coin == "idr":
                         continue
                     pair = f"{coin}_idr"
                     if any(p["pair"] == pair for p in positions):
                         continue
                     last_price = ticker_map.get(pair, {}).get("last", 0)
                     external_positions.append({
-                        "pair": pair, "side": "BUY", "entry_price": last_price or 1,
-                        "qty": qty, "amount_idr": qty * (last_price or 1), "real": True,
+                        "pair": pair, "side": "BUY",
+                        "entry_price": 0,
+                        "qty": qty,
+                        "amount_idr": qty * (last_price or 1),
+                        "current_price": last_price,
+                        "real": True,
                     })
                 if external_positions:
-                    print(f"External positions detected: {[p['pair'] for p in external_positions]}", flush=True)
+                    ext_summary = ", ".join(f"{p['pair']}({p['qty']})" for p in external_positions)
+                    print(f"External positions: {ext_summary}", flush=True)
             except Exception as e:
                 print(f"Balance fetch error: {e}", flush=True)
 
         pending_play_capital_pct = config.DEFAULT_PLAY_CAPITAL_PCT
         balance_idr = int(actual_idr_balance * pending_play_capital_pct)
-
-        total_equity = min(actual_idr_balance, config.PLAY_CAPITAL_IDR) + sum(
+        paper_equity = sum(
             p["qty"] * ticker_map.get(p["pair"], {}).get("last", p["entry_price"])
             for p in positions
         )
+        total_equity = min(actual_idr_balance, config.PLAY_CAPITAL_IDR) + paper_equity
 
         if portfolio_risk.check_portfolio_stop(total_equity):
             msg = (f"PORTFOLIO STOP-LOSS HIT ({config.PORTFOLIO_STOP_LOSS_PCT*100}%)\n"
                    f"Equity: Rp{total_equity:,.0f}\nClosing all positions.")
             await send_message(msg)
             positions.clear()
-            print("Portfolio stop-loss triggered. Positions cleared.", flush=True)
+            print("Portfolio stop-loss triggered.", flush=True)
 
         if risk.should_stop_trading(total_equity):
             await send_message(f"Daily loss limit reached. Bot stopped.")
@@ -110,15 +132,18 @@ async def portfolio_cycle(client: httpx.AsyncClient):
 
         all_positions = positions + external_positions
         for p in all_positions:
-            last = ticker_map.get(p["pair"], {}).get("last", p.get("entry_price") or 0)
-            if last and p.get("entry_price"):
-                p["pnl_pct"] = round(pnl_pct(p["entry_price"], last, p["side"]), 2)
-            else:
-                p["pnl_pct"] = 0
+            last = ticker_map.get(p["pair"], {}).get("last", p.get("current_price") or p.get("entry_price") or 0)
+            p["pnl_pct"] = round(pnl_pct(p.get("entry_price") or 0, last, p["side"]), 2) if last else 0
 
         current_positions_info = [
-            {"pair": p["pair"], "side": p["side"], "entry_price": p.get("entry_price") or 0,
-             "qty": p["qty"], "pnl_pct": p.get("pnl_pct", 0)}
+            {
+                "pair": p["pair"],
+                "side": p["side"],
+                "entry_price": p.get("entry_price") or 0,
+                "qty": p["qty"],
+                "pnl_pct": p.get("pnl_pct", 0),
+                "current_value": p["qty"] * ticker_map.get(p["pair"], {}).get("last", 0),
+            }
             for p in all_positions
         ]
 
@@ -208,7 +233,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     if sell_result.get("success") == 1:
                         received = sell_result["return"].get("receive_rp", 0)
                         external_positions.remove(ext)
-                        log_trade("sell", price, qty, received, status="closed",
+                        log_trade("sell", price, qty, float(received), status="closed",
                                   pnl=float(received) - ext.get("amount_idr", 0),
                                   reason=f"CIO decision: {t.get('reason', '')}")
                         executed_trades.append(t)
@@ -315,15 +340,18 @@ async def main():
                             cid = upd.get("message", {}).get("chat", {}).get("id")
                             if txt in ("/start", "/status"):
                                 pos_text = "No positions"
+                                ext_text = ""
                                 if positions:
                                     pos_text = "\n".join(
                                         f"{p['pair']} {p['side']} @ {p['entry_price']} ({p.get('pnl_pct', 0):+.2f}%)"
                                         for p in positions[:10]
                                     )
+                                if external_positions:
+                                    ext_text = "\nExt: " + ", ".join(f"{p['pair']}({p['qty']})" for p in external_positions[:5])
                                 text = (f"AI Hedge Fund Manager\n"
                                         f"Status: {'PAPER' if config.PAPER_TRADING else 'LIVE'}\n"
                                         f"CIO manages play capital\n"
-                                        f"Portfolio positions: {len(all_positions) if 'all_positions' in dir() else 0}\n{pos_text}")
+                                        f"Paper: {len(positions)} pos\n{pos_text}{ext_text}")
                                 async with httpx.AsyncClient() as cc:
                                     await cc.post(
                                         f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
