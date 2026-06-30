@@ -97,7 +97,6 @@ async def portfolio_cycle(client: httpx.AsyncClient):
     _t0 = time.time()
 
     try:
-        _t = time.time()
         print("Scanning market for viable pairs...", flush=True)
         viable = await fetch_viable_pairs(client)
         print(f"Found {len(viable)} viable IDR pairs", flush=True)
@@ -370,7 +369,6 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             print(f"Limited buys to {slots_left} (max {config.MAX_OPEN_POSITIONS} positions)", flush=True)
 
         if not trades:
-            elapsed = int(time.time() - _t0)
             brief = (f"CIO: {decision.get('decision')} | Regime: {regime_info.get('regime', 'N/A')}\n"
                      f"Play: {play_capital_pct}% | Pairs: {len(all_signals)}\n"
                      f"{(decision.get('reasoning') or '')[:200]}")
@@ -505,6 +503,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             await send_message(f"Portfolio cycle error: {e}")
         except Exception:
             pass
+    finally:
+        print(f"⏱ Cycle #{cycle_counter} finished in {int(time.time() - _t0)}s", flush=True)
 
 _latest_balance: float = 100_000
 
