@@ -5,8 +5,6 @@ from urllib.parse import urlencode
 import httpx
 import config
 
-TAPI_V2 = config.INDODAX_TAPI_V2_URL
-
 def _sign(body: str, secret: str) -> str:
     return hmac.new(secret.encode(), body.encode(), hashlib.sha512).hexdigest()
 
@@ -97,24 +95,4 @@ async def get_open_orders(client: httpx.AsyncClient, pair: str | None = None) ->
     return data["return"].get("orders", [])
 
 
-def _v2_headers(qs: str) -> dict:
-    return {
-        "X-APIKEY": config.INDODAX_API_KEY,
-        "Sign": _sign(qs, config.INDODAX_SECRET_KEY),
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-    }
 
-
-async def get_trade_history_v2(client: httpx.AsyncClient, symbol: str, limit: int = 100) -> list[dict]:
-    ts = int(time.time() * 1000)
-    qs = urlencode({"symbol": symbol, "limit": str(limit), "timestamp": str(ts)})
-    r = await client.get(f"{TAPI_V2}/api/v2/myTrades?{qs}", headers=_v2_headers(qs))
-    return r.json().get("data", [])
-
-
-async def get_order_history_v2(client: httpx.AsyncClient, symbol: str, limit: int = 100) -> list[dict]:
-    ts = int(time.time() * 1000)
-    qs = urlencode({"symbol": symbol, "limit": str(limit), "timestamp": str(ts)})
-    r = await client.get(f"{TAPI_V2}/api/v2/order/histories?{qs}", headers=_v2_headers(qs))
-    return r.json().get("data", [])

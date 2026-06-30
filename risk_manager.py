@@ -7,6 +7,8 @@ class RiskManager:
         self.today_peak = config.PLAY_CAPITAL_IDR
 
     def should_stop_trading(self, total_equity: float) -> bool:
+        if total_equity > self.today_peak:
+            self.today_peak = total_equity
         if total_equity < config.DAILY_LOSS_FLOOR_IDR:
             return True
         return False
@@ -78,8 +80,6 @@ class PortfolioRiskManager:
     def check_portfolio_stop(self, total_equity: float) -> bool:
         if total_equity > self.peak_capital:
             self.peak_capital = total_equity
-        if self.peak_capital < config.PLAY_CAPITAL_IDR:
-            self.peak_capital = config.PLAY_CAPITAL_IDR
         drawdown = (self.peak_capital - total_equity) / self.peak_capital
         if drawdown >= abs(config.PORTFOLIO_STOP_LOSS_PCT):
             return True

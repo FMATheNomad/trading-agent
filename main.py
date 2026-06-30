@@ -208,7 +208,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     ext_summary = ", ".join(f"{p['pair']}({p['qty']})" for p in external_positions)
                     print(f"External positions: {ext_summary}", flush=True)
             except Exception as e:
-                print(f"Balance fetch error: {e}", flush=True)
+                print(f"Balance fetch error: {e} (using previous balance: Rp{actual_idr_balance:,.0f})", flush=True)
 
         pending_play_capital_pct = config.DEFAULT_PLAY_CAPITAL_PCT
         balance_idr = int(actual_idr_balance * pending_play_capital_pct)
@@ -289,9 +289,11 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             print(f"PM decision: {decision.get('decision')} | {decision.get('reasoning', '')[:100]}", flush=True)
 
         play_capital_pct = decision.get("play_capital_pct", pending_play_capital_pct * 100)
-        if actual_idr_balance < config.MIN_ORDER_IDR * 4:
-            play_capital_pct = max(play_capital_pct, 60)
+        min_balance_needed = config.MIN_ORDER_IDR * 1.2
+        if actual_idr_balance < min_balance_needed * 3:
+            play_capital_pct = max(play_capital_pct, 80)
         balance_idr = int(actual_idr_balance * play_capital_pct / 100)
+        balance_idr = max(balance_idr, config.MIN_ORDER_IDR)
         print(f"CIO play capital: {play_capital_pct}% of Rp{actual_idr_balance:,.0f} = Rp{balance_idr:,}", flush=True)
 
         log_decision("PORTFOLIO", decision.get("decision", "HOLD"),
@@ -378,9 +380,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             await send_message("SL/TP triggered:\n" + "\n".join(sl_hits))
 
         trades = decision.get("trades", [])
-        held_pairs = {p["pair"] for p in positions} | {p["pair"] for p in external_positions}
-        trades = [t for t in trades if t.get("action") != "SELL" or t["pair"] in held_pairs]
         all_held = {p["pair"] for p in positions} | {p["pair"] for p in external_positions}
+        trades = [t for t in trades if t.get("action") != "SELL" or t["pair"] in all_held]
         extra_buys = [t for t in trades if t.get("action") == "BUY" and t["pair"] in all_held]
         new_buys = [t for t in trades if t.get("action") == "BUY" and t["pair"] not in all_held]
         slots_left = max(0, config.MAX_OPEN_POSITIONS - len(all_held))
@@ -539,8 +540,8 @@ async def _balance_poller(client: httpx.AsyncClient):
         try:
             info = await get_balance(client)
             _latest_balance = float(info.get("balance", {}).get("idr", 0))
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"Balance poller error: {e}", flush=True)
         await asyncio.sleep(30)
 
 async def main():
@@ -566,16 +567,8 @@ async def main():
             positions.extend(saved)
             print(f"Loaded {len(saved)} persisted positions", flush=True)
         print("DB init OK", flush=True)
-        loaded = load_ext_entry_prices()
-        if loaded:
-            _ext_entry_prices.update(loaded)
-            print(f"Loaded {len(loaded)} entry prices", flush=True)
-        if not _ext_entry_prices.get("eth_idr"):
-            _ext_entry_prices["myro_idr"] = 115
-            _ext_entry_prices["stik_idr"] = 209
-            _ext_entry_prices["eth_idr"] = 35_262_000
-            save_ext_entry_prices(_ext_entry_prices)
-            print("Seeded initial entry prices", flush=True)
+        _ext_entry_prices.update(load_ext_entry_prices())
+        print(f"Loaded {len(_ext_entry_prices)} entry prices from DB", flush=True)
     except Exception as e:
         print(f"DB init failed: {e}", flush=True)
 

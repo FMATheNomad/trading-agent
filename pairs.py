@@ -4,7 +4,7 @@ import config
 
 def compute_pair_signal(ohlcv_a: list[dict], ohlcv_b: list[dict],
                          pair_name: str, window: int = 50) -> dict:
-    if len(ohlcv_a) < window + 10 or len(ohlcv_b) < window + 10:
+    if len(ohlcv_a) < window or len(ohlcv_b) < window:
         return {"pair": pair_name, "signal": "HOLD", "z_score": 0, "ratio": 0}
 
     df_a = pd.DataFrame(ohlcv_a)

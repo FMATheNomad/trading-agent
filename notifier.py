@@ -15,7 +15,7 @@ async def send_message(text: str) -> bool:
                 json={
                     "chat_id": config.TELEGRAM_CHAT_ID,
                     "text": text,
-                    "parse_mode": "HTML",
+
                 },
             )
             if r.status_code != 200:

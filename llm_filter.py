@@ -20,9 +20,9 @@ BASE_PROMPT = """You are a veteran crypto quant trader. Aggressive on edge, pati
 
 ## OUTPUT (json)
 {"decision":"HOLD|REBALANCE","play_capital_pct":0-100,"reasoning":"...","trades":[{"pair":"","action":"BUY|SELL","allocation_pct":N,"reason":""}]}
-- Max 2 bot trades (user external don't count)
+- Max 3 total positions (bot + user external combined)
 - play_capital_pct must be ≥50% when cash <Rp100k (need enough for min order Rp25k)
-- allocation_pct per BUY must be ≥70% with current capital (min order Rp25k, cash ~Rp60k)
+- allocation_pct per BUY must be ≥70% (min order Rp25k, cash limited — use high allocation)
 - Total allocation ≤ play_capital_pct"""
 
 ALPHA_PROMPT = """
