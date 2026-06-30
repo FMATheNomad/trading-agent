@@ -38,17 +38,15 @@ def classify_regime(all_signals: dict) -> dict:
     avg_vol = sum(vols) / len(vols) if vols else 0
     high_conviction = sum(1 for s in all_signals.values() if s.get("conviction") == "HIGH")
 
-    if buys / total >= 0.6 and avg_score > 0:
-        regime = "STRONG_BULL"
-    elif buys / total >= 0.4 and avg_score > 0:
+    if buys / total >= 0.4 and avg_score > 0:
         regime = "BULL"
-    elif sells / total >= 0.6 and avg_score < 0:
-        regime = "STRONG_BEAR"
-    elif sells / total >= 0.4 and avg_score < 0:
+    elif buys / total >= 0.25 and avg_score > 0 and high_conviction >= 2:
+        regime = "BULL"
+    elif sells / total >= 0.5 and avg_score < -1:
         regime = "BEAR"
-    elif avg_vol > 1.5:
+    elif avg_vol > 3.5:
         regime = "HIGH_VOL"
-    elif avg_vol < 0.5 and buys / total < 0.3 and sells / total < 0.3:
+    elif avg_vol < 0.5 and buys / total < 0.2 and sells / total < 0.2:
         regime = "SIDEWAYS_LOW_VOL"
     else:
         regime = "SIDEWAYS"
