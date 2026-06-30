@@ -21,14 +21,23 @@ risk = RiskManager()
 
 async def cycle(client: httpx.AsyncClient):
     try:
+        print("Fetching ticker...", flush=True)
         ticker = await fetch_ticker(client)
         if not ticker:
+            print("No ticker data", flush=True)
             return
+        print(f"Ticker: last={ticker.get('last')}", flush=True)
+
+        print("Fetching OHLCV...", flush=True)
+        ohlcv = await fetch_ohlcv(client)
+        print(f"OHLCV: {len(ohlcv)} bars", flush=True)
 
         ohlcv = await fetch_ohlcv(client)
 
+        print("Computing signals...", flush=True)
         signals = compute_signals(ohlcv)
         raw_signal = signals["raw_signal"]
+        print(f"Signal: {raw_signal} | RSI: {signals.get('rsi')} | Reason: {signals.get('signal_reason')}", flush=True)
 
         balances = None
         balance_idr = 100_000
@@ -101,22 +110,44 @@ async def cycle(client: httpx.AsyncClient):
         await send_message(f"Cycle error: {e}")
 
 async def main():
-    print(f"Starting AI Trading Agent — {config.PAIR}")
-    print(f"Paper trading: {config.PAPER_TRADING}")
-    print(f"DeepSeek model: {config.DEEPSEEK_MODEL}")
-    print(f"Loop interval: {config.LOOP_INTERVAL_SECONDS}s")
-    print("-" * 40)
+    print("Starting AI Trading Agent...", flush=True)
+    print(f"  Pair: {config.PAIR}, Paper: {config.PAPER_TRADING}", flush=True)
+    print(f"  DeepSeek model: {config.DEEPSEEK_MODEL}", flush=True)
+    print(f"  Loop interval: {config.LOOP_INTERVAL_SECONDS}s", flush=True)
+    print("-" * 40, flush=True)
 
-    init_db()
-    await send_message(f"Bot started — {config.PAIR}, paper={config.PAPER_TRADING}")
+    try:
+        init_db()
+        print("DB init OK", flush=True)
+    except Exception as e:
+        print(f"DB init FAILED: {e}", flush=True)
+
+    try:
+        ok = await send_message(f"Bot started — {config.PAIR}, paper={config.PAPER_TRADING}")
+        print(f"Telegram notification: {'OK' if ok else 'FAILED'}", flush=True)
+    except Exception as e:
+        print(f"Telegram error: {e}", flush=True)
 
     async with httpx.AsyncClient(timeout=30) as client:
+        cycle_count = 0
         while True:
-            await cycle(client)
+            cycle_count += 1
+            print(f"\n=== Cycle #{cycle_count} ===", flush=True)
+            try:
+                await cycle(client)
+            except Exception as e:
+                print(f"Fatal cycle error: {e}", flush=True)
+                import traceback
+                traceback.print_exc()
+            print(f"Sleeping {config.LOOP_INTERVAL_SECONDS}s...", flush=True)
             await asyncio.sleep(config.LOOP_INTERVAL_SECONDS)
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("\nShutting down...")
+        print("\nShutting down...", flush=True)
+    except Exception as e:
+        print(f"Fatal: {e}", flush=True)
+        import traceback
+        traceback.print_exc()
