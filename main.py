@@ -10,6 +10,7 @@ import config
 from data_layer import fetch_viable_pairs, fetch_ticker, fetch_ohlcv, fetch_ohlcv_both, fetch_all_tickers, fetch_orderbook
 from indicators import compute_signals, compute_batch_signals
 from llm_filter import evaluate_portfolio
+from pairs import compute_all_pairs
 from risk_manager import RiskManager, PortfolioRiskManager
 from executor import place_order, get_balance, get_order
 from deadman import refresh_deadman, cancel_deadman
@@ -135,6 +136,15 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         print(f"Computing signals: {len(ohlcv_map_1h)} pairs (1h) + {len(ohlcv_map_4h)} (4h)...", flush=True)
         all_signals = compute_batch_signals(ohlcv_map_1h, ohlcv_map_4h)
 
+        pair_signals = compute_all_pairs(ohlcv_map_1h)
+        active = [p for p in pair_signals if p["signal"] in ("SHORT_SPREAD", "LONG_SPREAD")]
+        if active:
+            for ps in active:
+                print(f"PAIR SIGNAL: {ps['pair']} → {ps['signal']} (z={ps['z_score']})", flush=True)
+        elif pair_signals:
+            for ps in pair_signals[:3]:
+                print(f"Pair: {ps['pair']} z={ps['z_score']} ({ps['signal']})", flush=True)
+
         regime_info = classify_regime(all_signals)
         regime_history.append(regime_info["regime"])
         if len(regime_history) > config.REGIME_LOOKBACK_CYCLES:
@@ -239,7 +249,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             decision = evaluate_portfolio(all_signals, ticker_map, current_positions_info,
                                            balance_idr, portfolio_pnl,
                                            regime_info, pair_suggestions, regime_history, orderbooks,
-                                           LIVE_TICKERS, new_coins)
+                                           LIVE_TICKERS, new_coins, pair_signals)
             if decision.get("deepseek_error"):
                 await send_message(f"⚠️ DeepSeek API error: {decision.get('reasoning', '')[:200]}")
             print(f"PM decision: {decision.get('decision')} | {decision.get('reasoning', '')[:100]}", flush=True)

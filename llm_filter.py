@@ -16,12 +16,20 @@ SYSTEM_PROMPT = """You are a veteran crypto trader at a top quant fund. You're a
 - **BEAR** (sell ratio ≥50%, avg score <-1): play_capital 10-30%. Selective shorts, high bar for entry.
 - **HIGH_VOL** (vol >3.5% — crypto, this is frequent): Volatility is normal. play_capital 30-60%. Trade as usual but use wider SL. Don't sit out.
 
+## STAT-ARB PAIRS TRADING (Renaissance-style)
+You get z-score signals for correlated pairs (BTC/ETH, SOL/ADA, BNB/XRP):
+- **SHORT_SPREAD** (z > 2) = A is overvalued vs B — SELL A + BUY B expected to converge
+- **LONG_SPREAD** (z < -2) = A is undervalued vs B — BUY A + SELL B
+- **WATCH** (1.5 < |z| < 2) = approaching threshold, prepare to act
+- Pairs trade uses 2 of your 2 max positions — only take if conviction is high
+- If you can only take 1 side (capital limit), choose the stronger directional signal
+
 ## TRADE SELECTION (ranked by conviction)
-1. **🔥 Hot Now** (volume spike + momentum) + **BUY signal** = strongest setup — enter aggressively
-2. **TF_aligned** (1h+4h same direction) = high conviction — size up
-3. **Gainer 24h** + positive 1h momentum = momentum continuation play
-4. **Loser 24h** + oversold RSI + volume spike = bounce play
-5. Single timeframe signal + volume spike = scalp
+1. **⚡ Stat-Arb trigger** (z > 2 or z < -2) + regime supports = enter the pair trade
+2. **🔥 Hot Now** (volume spike + momentum) + **BUY signal** = strongest directional setup
+3. **TF_aligned** (1h+4h same direction) = high conviction directional
+4. **Gainer 24h** + positive 1h momentum = momentum continuation
+5. **Loser 24h** + oversold RSI + volume spike = bounce play
 
 ## SCORING REFERENCE
 - BUY if score ≥ +3 (not +4 — be more willing to trade)
@@ -72,6 +80,7 @@ def _build_portfolio_context(
     orderbooks: dict[str, dict] | None = None,
     live_tickers: dict[str, dict] | None = None,
     new_coins: set[str] | None = None,
+    pair_signals: list[dict] | None = None,
 ) -> str:
     lines = [f"=== PORTFOLIO STATUS ===",
              f"Cash: Rp{balance_idr:,.0f}",
@@ -88,10 +97,18 @@ def _build_portfolio_context(
             lines.append(f"Regime history (last {len(regime_history)}): {' → '.join(regime_history[-8:])}")
         lines.append("")
 
+    if pair_signals:
+        lines.append("-- Stat-Arb Pairs (Renaissance-style) --")
+        for ps in pair_signals:
+            icon = "⚡" if "SHORT" in ps.get("signal", "") or "LONG" in ps.get("signal", "") else " "
+            lines.append(f"  {icon}{ps['pair']}: z={ps['z_score']} ratio={ps['ratio']} "
+                        f"mean={ps.get('mean_ratio', '?')} → {ps['signal']} {ps.get('reason', '')}")
+        lines.append("")
+
     if pair_suggestions:
-        lines.append("-- Pairs Monitor --")
+        lines.append("-- Cross Pairs Monitor --")
         for p in pair_suggestions:
-            lines.append(f"{p['pair']} = {p['ratio']} (A: {p['a_price']}, B: {p['b_price']})")
+            lines.append(f"  {p['pair']} = {p['ratio']} (A: {p['a_price']}, B: {p['b_price']})")
         lines.append("")
 
     if regime_info:
@@ -207,6 +224,7 @@ def evaluate_portfolio(
     orderbooks: dict[str, dict] | None = None,
     live_tickers: dict[str, dict] | None = None,
     new_coins: set[str] | None = None,
+    pair_signals: list[dict] | None = None,
 ) -> dict:
     if not config.DEEPSEEK_API_KEY:
         buys = [{"pair": p, "action": "BUY", "allocation_pct": 40, "reason": "No LLM key"}
@@ -218,7 +236,7 @@ def evaluate_portfolio(
     client = OpenAI(api_key=config.DEEPSEEK_API_KEY, base_url=config.DEEPSEEK_BASE_URL)
     user_prompt = _build_portfolio_context(
         all_signals, all_tickers, current_positions, balance_idr, portfolio_pnl_pct,
-        regime_info, pair_suggestions, regime_history, orderbooks, live_tickers, new_coins,
+        regime_info, pair_suggestions, regime_history, orderbooks, live_tickers, new_coins, pair_signals,
     )
 
     kwargs = {
