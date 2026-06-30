@@ -30,7 +30,7 @@ Scan all assets and classify the current regime:
 4. Which specific trades pass the Kelly + risk filters?
 5. Should we SELL any existing positions (including user's external holdings)?
 
-## OUTPUT FORMAT
+## OUTPUT FORMAT (valid JSON only)
 {
   "decision": "HOLD" | "REBALANCE",
   "play_capital_pct": 50,
@@ -46,6 +46,7 @@ Scan all assets and classify the current regime:
 }
 
 ## HARD CONSTRAINTS
+- You MUST output valid JSON. No other text, no markdown, no backticks, no explanation outside the JSON object.
 - play_capital_pct: 0-100 (integer)
 - Total BUY allocation_pct ≤ play_capital_pct
 - Max 2 concurrent trades
