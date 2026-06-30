@@ -312,9 +312,26 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 if p["side"] == "SELL":
                     pnl = (p["entry_price"] - last) * p["qty"]
                 sl_hits.append(f"{p['pair']} {result}: {pnl:+.0f} IDR")
+                if not config.PAPER_TRADING and config.INDODAX_API_KEY:
+                    try:
+                        coin_name = p["pair"].split("_")[0]
+                        ns = int(time.time() * 1000)
+                        sp = {"method":"trade","nonce":ns,"pair":p["pair"],"type":"sell",
+                              coin_name:f"{p['qty']:.8f}","order_type":"market"}
+                        sb = urlencode(sp)
+                        ss = hmac.new(config.INDODAX_SECRET_KEY.encode(),sb.encode(),hashlib.sha512).hexdigest()
+                        sr = await client.post(config.INDODAX_TAPI_URL, headers={
+                            "Key":config.INDODAX_API_KEY,"Sign":ss,
+                            "Content-Type":"application/x-www-form-urlencoded",
+                        }, content=sb)
+                        if sr.json().get("success") == 1:
+                            print(f"  SOLD {p['pair']} at market", flush=True)
+                    except Exception as e:
+                        print(f"  Auto-sell failed {p['pair']}: {e}", flush=True)
                 positions.remove(p)
                 save_positions(positions)
-                log_trade(p["side"], last, p["qty"], p["amount_idr"],
+                sell_value = last * p["qty"]
+                log_trade("sell", last, p["qty"], sell_value,
                           status="closed", pnl=pnl, reason=result)
 
         for p in list(external_positions):
