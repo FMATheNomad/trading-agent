@@ -30,6 +30,7 @@ known_pairs: set[str] = set()
 _ext_entry_prices: dict[str, float] = {
     "myro_idr": 115,
     "stik_idr": 209,
+    "eth_idr": 35_262_000,
 }
 
 def classify_regime(all_signals: dict) -> dict:
