@@ -382,6 +382,10 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         valid_trades = portfolio_risk.validate_allocation(trades, current_positions_info, balance_idr)
         if not valid_trades:
             print("No valid trades after risk checks.", flush=True)
+            brief = (f"CIO: {decision.get('decision')} | Regime: {regime_info.get('regime', 'N/A')}\n"
+                     f"Play: {play_capital_pct}% | Pairs: {len(all_signals)}\n"
+                     f"Trades rejected by risk checks (allocation/min order)")
+            await send_message(brief)
             return
 
         executed_trades = []
