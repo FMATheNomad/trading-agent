@@ -88,8 +88,11 @@ def pnl_pct(entry: float, current: float, side: str) -> float:
         return (current - entry) / entry * 100
     return (entry - current) / entry * 100
 
+cycle_counter = 0
+
 async def portfolio_cycle(client: httpx.AsyncClient):
-    global positions
+    global positions, cycle_counter
+    cycle_counter += 1
 
     try:
         print("Scanning market for viable pairs...", flush=True)
@@ -242,10 +245,15 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             s.get("raw_signal") in ("BUY", "SELL") and s.get("score", 0) >= 3 for s in all_signals.values()
         )
         has_external = len(external_positions) > 0
+        is_sideways = regime_info["regime"] in ("SIDEWAYS", "SIDEWAYS_LOW_VOL")
+        skip_llm = is_sideways and cycle_counter % 2 == 0
 
-        if not has_active_signal and not has_external:
+        if (not has_active_signal and not has_external) or skip_llm:
+            if skip_llm and (has_active_signal or has_external):
+                print(f"LLM SKIPPED — sideways throttle (cycle {cycle_counter})", flush=True)
+            else:
+                print("LLM SKIPPED — all HOLD, no external positions", flush=True)
             decision = {"decision": "HOLD", "reasoning": "All signals HOLD, no external positions — skipping LLM to save cost", "trades": []}
-            print("LLM SKIPPED — all HOLD, no external positions", flush=True)
         else:
             print("Calling DeepSeek portfolio manager...", flush=True)
             portfolio_pnl = ((total_equity - config.PLAY_CAPITAL_IDR) / config.PLAY_CAPITAL_IDR * 100
@@ -505,11 +513,9 @@ async def main():
 
     async with httpx.AsyncClient(timeout=30) as client:
         poller = asyncio.create_task(telegram_poller())
-        cycle_count = 0
 
         while not shutdown_flag:
-            cycle_count += 1
-            print(f"\n{'='*20} Cycle #{cycle_count} {'='*20}", flush=True)
+            print(f"\n{'='*20} Cycle #{cycle_counter + 1} {'='*20}", flush=True)
             await portfolio_cycle(client)
             for _ in range(config.LOOP_INTERVAL_SECONDS // 5):
                 if shutdown_flag:
