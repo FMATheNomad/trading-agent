@@ -53,7 +53,7 @@ def _compute_single_tf(ohlcv: list[dict]) -> dict:
         else: break
     streak_dir = "up" if streak_val > 0 else "down" if streak_val < 0 else "flat"
 
-    vol_pct = round(closes.pct_change().std() * 100, 2)
+    vol_pct = round(closes.tail(20).pct_change().std() * 100, 2)
     price_range_14 = closes.tail(14)
     range_pct = round((price_range_14.max() - price_range_14.min()) / price_range_14.min() * 100, 2) if price_range_14.min() > 0 else 0
 
