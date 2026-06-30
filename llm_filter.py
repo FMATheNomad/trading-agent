@@ -23,6 +23,15 @@ Scan all assets and classify the current regime:
 - if portfolio in external positions (user holding), treat as part of allocation
 - Priority: capital preservation > steady growth > aggressive returns
 
+## REGIME-BASED STRATEGY
+Your behavior changes based on regime:
+- **STRONG_BULL**: aggressive (play_capital 60-90%), chase breakouts, hold longer
+- **BULL**: moderately aggressive (40-60%), trend-follow
+- **SIDEWAYS/SIDEWAYS_LOW_VOL**: pairs/mean-reversion, quick scalps (20-40%)
+- **BEAR**: defensive (10-30%), only high-conviction shorts, cut fast
+- **STRONG_BEAR/HIGH_VOL**: capital preservation (0-10%), mostly HOLD, wait
+- Regime consistency matters: if regime changed in last 3 cycles, reduce size
+
 ## MULTI-TIMEFRAME ANALYSIS
 Each asset shows TWO timeframes:
 - **1h** (short-term): entry timing, momentum
@@ -76,12 +85,30 @@ def _build_portfolio_context(
     current_positions: list[dict],
     balance_idr: float,
     portfolio_pnl_pct: float,
+    regime_info: dict | None = None,
+    pair_suggestions: list[dict] | None = None,
+    regime_history: list[str] | None = None,
 ) -> str:
     lines = [f"=== PORTFOLIO STATUS ===",
              f"Cash: Rp{balance_idr:,.0f}",
              f"Portfolio PnL: {portfolio_pnl_pct:+.2f}%",
              f"Open positions: {len(current_positions)}",
              ""]
+
+    if regime_info:
+        lines.append(f"-- Market Regime: {regime_info.get('regime', 'N/A')} --")
+        lines.append(f"Buy ratio: {regime_info.get('buy_ratio', 0)} | Sell ratio: {regime_info.get('sell_ratio', 0)}")
+        lines.append(f"Avg score: {regime_info.get('avg_score', 0)} | High conviction: {regime_info.get('high_conviction_count', 0)}")
+        lines.append(f"Avg volatility: {regime_info.get('avg_volatility', 0)}%")
+        if regime_history:
+            lines.append(f"Regime history (last {len(regime_history)}): {' → '.join(regime_history[-8:])}")
+        lines.append("")
+
+    if pair_suggestions:
+        lines.append("-- Pairs Monitor --")
+        for p in pair_suggestions:
+            lines.append(f"{p['pair']} = {p['ratio']} (A: {p['a_price']}, B: {p['b_price']})")
+        lines.append("")
 
     if current_positions:
         lines.append("-- Current Positions --")
@@ -125,6 +152,9 @@ def evaluate_portfolio(
     current_positions: list[dict],
     balance_idr: float,
     portfolio_pnl_pct: float,
+    regime_info: dict | None = None,
+    pair_suggestions: list[dict] | None = None,
+    regime_history: list[str] | None = None,
 ) -> dict:
     if not config.DEEPSEEK_API_KEY:
         buys = [{"pair": p, "action": "BUY", "allocation_pct": 40, "reason": "No LLM key"}
@@ -135,7 +165,8 @@ def evaluate_portfolio(
 
     client = OpenAI(api_key=config.DEEPSEEK_API_KEY, base_url=config.DEEPSEEK_BASE_URL)
     user_prompt = _build_portfolio_context(
-        all_signals, all_tickers, current_positions, balance_idr, portfolio_pnl_pct
+        all_signals, all_tickers, current_positions, balance_idr, portfolio_pnl_pct,
+        regime_info, pair_suggestions, regime_history,
     )
 
     kwargs = {

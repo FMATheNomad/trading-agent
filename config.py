@@ -56,6 +56,14 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 # --- Scheduler ---
 LOOP_INTERVAL_SECONDS = 300
 
+# --- Senior Quant Settings ---
+REGIME_LOOKBACK_CYCLES = 12
+CORRELATION_PAIRS = [
+    ("btc_idr", "eth_idr"),
+    ("sol_idr", "ada_idr"),
+    ("bnb_idr", "xrp_idr"),
+]
+
 # --- WebSocket ---
 WS_MARKET_URL = "wss://ws3.indodax.com/ws/"
 WS_MARKET_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE5NDY2MTg0MTV9.UR1lBM6Eqh0yWz-PVirw1uPCxe60FdchR8eNVdsskeo"

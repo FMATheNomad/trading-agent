@@ -23,6 +23,59 @@ positions: list[dict] = []
 external_positions: list[dict] = []
 shutdown_flag = False
 
+regime_history: list[str] = []
+
+def classify_regime(all_signals: dict) -> dict:
+    signals = [s.get("raw_signal") for s in all_signals.values() if s.get("raw_signal")]
+    scores = [s.get("score", 0) for s in all_signals.values() if s.get("score") is not None]
+    vols = [s.get("volatility", 0) for s in all_signals.values() if s.get("volatility") is not None]
+
+    buys = signals.count("BUY")
+    sells = signals.count("SELL")
+    total = len(signals) or 1
+    avg_score = sum(scores) / len(scores) if scores else 0
+    avg_vol = sum(vols) / len(vols) if vols else 0
+    high_conviction = sum(1 for s in all_signals.values() if s.get("conviction") == "HIGH")
+
+    if buys / total >= 0.6 and avg_score > 0:
+        regime = "STRONG_BULL"
+    elif buys / total >= 0.4 and avg_score > 0:
+        regime = "BULL"
+    elif sells / total >= 0.6 and avg_score < 0:
+        regime = "STRONG_BEAR"
+    elif sells / total >= 0.4 and avg_score < 0:
+        regime = "BEAR"
+    elif avg_vol > 1.5:
+        regime = "HIGH_VOL"
+    elif avg_vol < 0.5 and buys / total < 0.3 and sells / total < 0.3:
+        regime = "SIDEWAYS_LOW_VOL"
+    else:
+        regime = "SIDEWAYS"
+
+    return {
+        "regime": regime,
+        "buy_ratio": round(buys / total, 2),
+        "sell_ratio": round(sells / total, 2),
+        "avg_score": round(avg_score, 1),
+        "avg_volatility": round(avg_vol, 2),
+        "high_conviction_count": high_conviction,
+        "total_signals": total,
+    }
+
+def compute_pairs_suggestions(all_signals: dict, ticker_map: dict) -> list[dict]:
+    suggestions = []
+    for a, b in config.CORRELATION_PAIRS:
+        ta = ticker_map.get(a, {}).get("last", 0)
+        tb = ticker_map.get(b, {}).get("last", 0)
+        if not ta or not tb:
+            continue
+        ratio = ta / tb
+        suggestions.append({
+            "pair": f"{a}/{b}", "ratio": round(ratio, 4),
+            "a_price": ta, "b_price": tb,
+        })
+    return suggestions
+
 def handle_sig(*_):
     global shutdown_flag
     shutdown_flag = True
@@ -75,6 +128,18 @@ async def portfolio_cycle(client: httpx.AsyncClient):
 
         print(f"Computing signals: {len(ohlcv_map_1h)} pairs (1h) + {len(ohlcv_map_4h)} (4h)...", flush=True)
         all_signals = compute_batch_signals(ohlcv_map_1h, ohlcv_map_4h)
+
+        regime_info = classify_regime(all_signals)
+        regime_history.append(regime_info["regime"])
+        if len(regime_history) > config.REGIME_LOOKBACK_CYCLES:
+            regime_history.pop(0)
+        print(f"Regime: {regime_info['regime']} | B:{regime_info['buy_ratio']} S:{regime_info['sell_ratio']} "
+              f"Score:{regime_info['avg_score']} HC:{regime_info['high_conviction_count']}", flush=True)
+
+        pair_suggestions = compute_pairs_suggestions(all_signals, ticker_map)
+        if pair_suggestions:
+            pair_str = " ".join(f"{p['pair']}={p['ratio']}" for p in pair_suggestions)
+            print(f"Pairs: {pair_str}", flush=True)
 
         external_positions.clear()
         actual_idr_balance = 100_000
@@ -158,7 +223,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             portfolio_pnl = ((total_equity - config.PLAY_CAPITAL_IDR) / config.PLAY_CAPITAL_IDR * 100
                              if config.PLAY_CAPITAL_IDR else 0)
             decision = evaluate_portfolio(all_signals, ticker_map, current_positions_info,
-                                           balance_idr, portfolio_pnl)
+                                           balance_idr, portfolio_pnl,
+                                           regime_info, pair_suggestions, regime_history)
             if decision.get("deepseek_error"):
                 await send_message(f"⚠️ DeepSeek API error: {decision.get('reasoning', '')[:200]}")
             print(f"PM decision: {decision.get('decision')} | {decision.get('reasoning', '')[:100]}", flush=True)
