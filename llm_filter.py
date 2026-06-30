@@ -42,11 +42,12 @@ Each asset shows TWO timeframes:
 - **Range14**: 14-period range % — narrow range = potential breakout
 
 ## TRENDING / MOMENTUM DETECTION
-Assets ranked by 1h change. Key signals:
+Assets ranked by combined momentum+24h score. Key signals:
+- **24h%** = big moves in last day (pump/dump detection)
+- **1h%** = recent momentum (short-term entry timing)
 - **Conviction:HIGH** = 1h + 4h aligned = strongest signal
 - **🚀 Volume spike** = vol > 2x average
-- **Range14 narrowing + volume spike** = breakout imminent
-- Highest conviction: HIGH conviction + volume spike + top rank + buy signal
+- A coin with: **big 24h pump + positive 1h momentum + HIGH conviction + volume spike** = highest conviction
 
 ## DECISION PROCESS
 1. Market regime? (check 4h trends across assets)
@@ -99,6 +100,7 @@ def _build_portfolio_context(
     pair_suggestions: list[dict] | None = None,
     regime_history: list[str] | None = None,
     orderbooks: dict[str, dict] | None = None,
+    live_tickers: dict[str, dict] | None = None,
 ) -> str:
     lines = [f"=== PORTFOLIO STATUS ===",
              f"Cash: Rp{balance_idr:,.0f}",
@@ -140,31 +142,45 @@ def _build_portfolio_context(
                         f"Qty: {p['qty']} | PnL: {p.get('pnl_pct', 0):+.2f}%")
         lines.append("")
 
-    sorted_pairs = sorted(
-        all_signals.items(),
-        key=lambda x: x[1].get("price_change_pct", 0) if x[1].get("price_change_pct") is not None else 0,
-        reverse=True,
-    )
+    def _chg24(t: dict, live: dict | None) -> float:
+        if live and live.get("change_24h") is not None:
+            return live["change_24h"]
+        hi = t.get("high_24h", 0) or t.get("high", 0)
+        lo = t.get("low_24h", 0) or t.get("low", 0)
+        last = t.get("last", 0)
+        if hi and last:
+            return round((last / ((hi + lo) / 2) - 1) * 100, 2)
+        return 0
 
-    lines.append(f"-- Market Scan ({len(all_signals)} pairs, ranked by 1h change) --")
-    for rank, (pair, sig) in enumerate(sorted_pairs, 1):
+    scored = []
+    for pair, sig in all_signals.items():
         t = all_tickers.get(pair, {})
         if not t:
             continue
-        vol_spike = "🚀" if sig.get("volume_ratio", 0) > 2 else " " if sig.get("volume_ratio", 0) > 1 else " "
+        lt = live_tickers.get(pair) if live_tickers else None
+        chg24 = _chg24(t, lt)
+        combined_score = abs(sig.get("score", 0)) + abs(chg24 / 5)
+        scored.append((combined_score, pair, sig, t, chg24))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+
+    lines.append(f"-- Market Scan ({len(all_signals)} pairs, ranked by momentum+24h) --")
+    for rank, (_, pair, sig, t, chg24) in enumerate(scored, 1):
+        vol_spike = "🚀" if sig.get("volume_ratio", 0) > 2 else " "
         lines.append(
             f"#{rank} {vol_spike}[{pair}] Price: {t.get('last')} | "
-            f"1hChg: {sig.get('price_change_pct', 0):+.2f}% | "
+            f"24h:{chg24:+.2f}% | "
+            f"1h:{sig.get('price_change_pct', 0):+.2f}% | "
             f"Vol:Rp{t.get('vol_idr', 0):,.0f} (x{sig.get('volume_ratio', 1)}avg) | "
             f"1h:{sig.get('raw_signal')}({sig.get('score', 0)}) | "
             f"4h:{sig.get('4h_signal', 'N/A')}({sig.get('4h_score', 0)}) | "
-            f"TF_aligned:{sig.get('timeframe_aligned', False)} | "
-            f"Conviction:{sig.get('conviction', 'LOW')} | "
+            f"TF:{'Y' if sig.get('timeframe_aligned') else 'N'} | "
+            f"CV:{sig.get('conviction', 'LOW')} | "
             f"RSI:{sig.get('rsi')} | MACD:{sig.get('macd_line')}/{sig.get('macd_signal')} | "
             f"BB:{sig.get('bb_lower')}-{sig.get('bb_upper')} | "
-            f"Vol:{sig.get('volatility')}% | Range14:{sig.get('range_14_pct')}% | "
-            f"Mmtm:{sig.get('momentum_streak', 0)}{sig.get('momentum_dir', '')} | "
-            f"Reason:{sig.get('signal_reason')}"
+            f"Vol:{sig.get('volatility')}% | R14:{sig.get('range_14_pct')}% | "
+            f"M:{sig.get('momentum_streak', 0)}{sig.get('momentum_dir', '')} | "
+            f"R:{sig.get('signal_reason')}"
         )
 
     return "\n".join(lines)
@@ -179,6 +195,7 @@ def evaluate_portfolio(
     pair_suggestions: list[dict] | None = None,
     regime_history: list[str] | None = None,
     orderbooks: dict[str, dict] | None = None,
+    live_tickers: dict[str, dict] | None = None,
 ) -> dict:
     if not config.DEEPSEEK_API_KEY:
         buys = [{"pair": p, "action": "BUY", "allocation_pct": 40, "reason": "No LLM key"}
@@ -190,7 +207,7 @@ def evaluate_portfolio(
     client = OpenAI(api_key=config.DEEPSEEK_API_KEY, base_url=config.DEEPSEEK_BASE_URL)
     user_prompt = _build_portfolio_context(
         all_signals, all_tickers, current_positions, balance_idr, portfolio_pnl_pct,
-        regime_info, pair_suggestions, regime_history, orderbooks,
+        regime_info, pair_suggestions, regime_history, orderbooks, live_tickers,
     )
 
     kwargs = {

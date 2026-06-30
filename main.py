@@ -234,7 +234,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                              if config.PLAY_CAPITAL_IDR else 0)
             decision = evaluate_portfolio(all_signals, ticker_map, current_positions_info,
                                            balance_idr, portfolio_pnl,
-                                           regime_info, pair_suggestions, regime_history, orderbooks)
+                                           regime_info, pair_suggestions, regime_history, orderbooks,
+                                           LIVE_TICKERS)
             if decision.get("deepseek_error"):
                 await send_message(f"⚠️ DeepSeek API error: {decision.get('reasoning', '')[:200]}")
             print(f"PM decision: {decision.get('decision')} | {decision.get('reasoning', '')[:100]}", flush=True)
