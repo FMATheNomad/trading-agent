@@ -245,15 +245,14 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             s.get("raw_signal") in ("BUY", "SELL") and s.get("score", 0) >= 3 for s in all_signals.values()
         )
         has_external = len(external_positions) > 0
-        is_sideways = regime_info["regime"] in ("SIDEWAYS", "SIDEWAYS_LOW_VOL")
-        skip_llm = is_sideways and cycle_counter % 2 == 0
+        nothing_interesting = not has_active_signal and not has_external
+        skip_llm = nothing_interesting and (
+            (regime_info["regime"] in ("SIDEWAYS", "SIDEWAYS_LOW_VOL") and cycle_counter % 2 == 0)
+        )
 
-        if (not has_active_signal and not has_external) or skip_llm:
-            if skip_llm and (has_active_signal or has_external):
-                print(f"LLM SKIPPED — sideways throttle (cycle {cycle_counter})", flush=True)
-            else:
-                print("LLM SKIPPED — all HOLD, no external positions", flush=True)
-            decision = {"decision": "HOLD", "reasoning": "All signals HOLD, no external positions — skipping LLM to save cost", "trades": []}
+        if skip_llm:
+            print(f"LLM SKIPPED — sideways throttle (cycle {cycle_counter})", flush=True)
+            decision = {"decision": "HOLD", "reasoning": "Sideways, nothing new — skipping LLM", "trades": []}
         else:
             print("Calling DeepSeek portfolio manager...", flush=True)
             portfolio_pnl = ((total_equity - config.PLAY_CAPITAL_IDR) / config.PLAY_CAPITAL_IDR * 100
