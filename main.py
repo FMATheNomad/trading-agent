@@ -372,8 +372,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             brief = (f"CIO: {decision.get('decision')} | Regime: {regime_info.get('regime', 'N/A')}\n"
                      f"Play: {play_capital_pct}% | Pairs: {len(all_signals)}\n"
                      f"{(decision.get('reasoning') or '')[:200]}")
-            await send_message(brief)
-            print(f"Cycle done in {int(time.time() - _t0)}s. Sleeping.", flush=True)
+            ok = await send_message(brief)
+            print(f"Cycle done in {int(time.time() - _t0)}s. Telegram: {'OK' if ok else 'FAIL'}. Sleeping.", flush=True)
             if positions and config.INDODAX_API_KEY:
                 pair_str = ",".join(p["pair"] for p in positions[:5])
                 await refresh_deadman(client, pair_str)
@@ -385,7 +385,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             brief = (f"CIO: {decision.get('decision')} | Regime: {regime_info.get('regime', 'N/A')}\n"
                      f"Play: {play_capital_pct}% | Pairs: {len(all_signals)}\n"
                      f"Trades rejected by risk checks (allocation/min order)")
-            await send_message(brief)
+            ok = await send_message(brief)
+            print(f"Telegram: {'OK' if ok else 'FAIL'}", flush=True)
             return
 
         executed_trades = []
