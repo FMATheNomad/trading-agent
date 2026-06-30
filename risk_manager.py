@@ -79,7 +79,7 @@ class PortfolioRiskManager:
         if total_equity > self.peak_capital:
             self.peak_capital = total_equity
         if self.peak_capital < config.PLAY_CAPITAL_IDR:
-            self.peak_capital = config.INITIAL_CAPITAL_IDR
+            self.peak_capital = config.PLAY_CAPITAL_IDR
         drawdown = (self.peak_capital - total_equity) / self.peak_capital
         if drawdown >= abs(config.PORTFOLIO_STOP_LOSS_PCT):
             return True

@@ -97,14 +97,10 @@ async def get_open_orders(client: httpx.AsyncClient, pair: str | None = None) ->
     return data["return"].get("orders", [])
 
 
-def _sign_v2(qs: str) -> str:
-    return hmac.new(config.INDODAX_SECRET_KEY.encode(), qs.encode(), hashlib.sha512).hexdigest()
-
-
 def _v2_headers(qs: str) -> dict:
     return {
         "X-APIKEY": config.INDODAX_API_KEY,
-        "Sign": _sign_v2(qs),
+        "Sign": _sign(qs, config.INDODAX_SECRET_KEY),
         "Accept": "application/json",
         "Content-Type": "application/json",
     }

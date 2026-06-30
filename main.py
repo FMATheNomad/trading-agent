@@ -166,7 +166,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             if p.get("entry_price", 0) > 0:
                 _ext_entry_prices[p["pair"]] = p["entry_price"]
         external_positions.clear()
-        actual_idr_balance = 100_000
+        actual_idr_balance = config.PLAY_CAPITAL_IDR
 
         db_pos_pairs = {p.get("pair") for p in load_positions()}
 
@@ -373,7 +373,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                      f"Play: {play_capital_pct}% | Pairs: {len(all_signals)}\n"
                      f"{(decision.get('reasoning') or '')[:200]}")
             await send_message(brief)
-            print(f"Cycle done in {elapsed}s. Sleeping.", flush=True)
+            print(f"Cycle done in {int(time.time() - _t0)}s. Sleeping.", flush=True)
             if positions and config.INDODAX_API_KEY:
                 pair_str = ",".join(p["pair"] for p in positions[:5])
                 await refresh_deadman(client, pair_str)
@@ -458,13 +458,13 @@ async def portfolio_cycle(client: httpx.AsyncClient):
 
             try:
                 order = await place_order(client, action.lower(), price, amount,
-                                           pair=pid, order_type="market" if config.PAPER_TRADING else "limit")
+                                           pair=pid, order_type="limit" if config.PAPER_TRADING else "market")
             except Exception as e:
                 print(f"  Order failed {pid}: {e}", flush=True)
                 await send_message(f"Order failed {pid}: {e}")
                 continue
             log_trade(action.lower(), price, qty, amount,
-                      order_type="market" if config.PAPER_TRADING else "limit",
+                      order_type="limit" if config.PAPER_TRADING else "market",
                       status="simulated" if config.PAPER_TRADING else "placed",
                        reason=t.get("reason", ""))
             executed_trades.append(t)
