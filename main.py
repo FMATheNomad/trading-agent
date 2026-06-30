@@ -18,12 +18,7 @@ from db import init_db, log_trade, log_decision
 risk = RiskManager()
 portfolio_risk = PortfolioRiskManager()
 positions: list[dict] = []
-
-external_positions: list[dict] = [
-    {"pair": "eth_idr", "side": "BUY", "entry_price": 0, "qty": 0.00028242,
-     "amount_idr": 0, "real": True},
-]
-
+external_positions: list[dict] = []
 shutdown_flag = False
 
 def handle_sig(*_):
@@ -68,12 +63,31 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         print(f"Computing signals for {len(ohlcv_map)} pairs...", flush=True)
         all_signals = compute_batch_signals(ohlcv_map)
 
+        external_positions.clear()
         actual_idr_balance = 100_000
-        if not config.PAPER_TRADING and config.INDODAX_API_KEY:
+        if config.INDODAX_API_KEY and config.INDODAX_SECRET_KEY:
             try:
                 info = await get_balance(client)
                 bal = info.get("balance", {})
                 actual_idr_balance = float(bal.get("idr", 0))
+                for coin, raw_qty in bal.items():
+                    qty = float(raw_qty)
+                    if qty <= 0:
+                        continue
+                    if coin == "idr":
+                        continue
+                    pair = f"{coin}_idr"
+                    if pair not in config.FUNDAMENTAL_COINS:
+                        continue
+                    if any(p["pair"] == pair for p in positions):
+                        continue
+                    last_price = ticker_map.get(pair, {}).get("last", 0)
+                    external_positions.append({
+                        "pair": pair, "side": "BUY", "entry_price": last_price or 1,
+                        "qty": qty, "amount_idr": qty * (last_price or 1), "real": True,
+                    })
+                if external_positions:
+                    print(f"External positions detected: {[p['pair'] for p in external_positions]}", flush=True)
             except Exception as e:
                 print(f"Balance fetch error: {e}", flush=True)
 
@@ -86,14 +100,6 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             for p in positions
         )
 
-        all_positions = positions + external_positions
-        for p in all_positions:
-            last = ticker_map.get(p["pair"], {}).get("last", p.get("entry_price") or 0)
-            if last and p.get("entry_price"):
-                p["pnl_pct"] = round(pnl_pct(p["entry_price"], last, p["side"]), 2)
-            else:
-                p["pnl_pct"] = 0
-
         if portfolio_risk.check_portfolio_stop(total_equity):
             msg = (f"PORTFOLIO STOP-LOSS HIT ({config.PORTFOLIO_STOP_LOSS_PCT*100}%)\n"
                    f"Equity: Rp{total_equity:,.0f}\nClosing all positions.")
@@ -104,6 +110,14 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         if risk.should_stop_trading(balance_idr):
             await send_message(f"Daily loss limit reached. Bot stopped.")
             sys.exit(0)
+
+        all_positions = positions + external_positions
+        for p in all_positions:
+            last = ticker_map.get(p["pair"], {}).get("last", p.get("entry_price") or 0)
+            if last and p.get("entry_price"):
+                p["pnl_pct"] = round(pnl_pct(p["entry_price"], last, p["side"]), 2)
+            else:
+                p["pnl_pct"] = 0
 
         current_positions_info = [
             {"pair": p["pair"], "side": p["side"], "entry_price": p.get("entry_price") or 0,
