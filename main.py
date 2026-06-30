@@ -162,6 +162,10 @@ async def portfolio_cycle(client: httpx.AsyncClient):
 
         external_positions.clear()
         actual_idr_balance = 100_000
+
+        db_pos_pairs = {p.get("pair") for p in load_positions()}
+        existing_ext_pairs = {p["pair"]: p for p in external_positions}
+
         if config.INDODAX_API_KEY and config.INDODAX_SECRET_KEY:
             try:
                 info = await get_balance(client)
@@ -176,14 +180,20 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                         continue
                     if any(p["pair"] == pair for p in positions):
                         continue
-                    if pair in {p.get("pair") for p in load_positions()}:
+                    if pair in db_pos_pairs:
                         continue
                     last_price = ticker_map.get(pair, {}).get("last", 0)
+
+                    prev_ext = existing_ext_pairs.get(pair)
+                    entry_price = prev_ext.get("entry_price") if prev_ext else 0
+                    if entry_price == 0 and last_price:
+                        entry_price = last_price
+
                     external_positions.append({
                         "pair": pair, "side": "BUY",
-                        "entry_price": 0,
+                        "entry_price": entry_price,
                         "qty": qty,
-                        "amount_idr": qty * (last_price or 1),
+                        "amount_idr": qty * (entry_price or 1),
                         "current_price": last_price,
                         "real": True,
                     })
@@ -295,6 +305,32 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 save_positions(positions)
                 log_trade(p["side"], last, p["qty"], p["amount_idr"],
                           status="closed", pnl=pnl, reason=result)
+
+        for p in list(external_positions):
+            if p.get("entry_price", 0) <= 0:
+                continue
+            last = ticker_map.get(p["pair"], {}).get("last", p.get("current_price", 0))
+            result = risk.check_sl_tp(p["entry_price"], last, p["side"])
+            if result:
+                pnl = (last - p["entry_price"]) * p["qty"]
+                sl_hits.append(f"{p['pair']} {result} (ext): {pnl:+.0f} IDR")
+                try:
+                    coin_name = p["pair"].split("_")[0]
+                    nonce_s = int(time.time() * 1000)
+                    s_params = {"method":"trade","nonce":nonce_s,"pair":p["pair"],"type":"sell",
+                                coin_name:f"{p['qty']:.8f}","order_type":"market"}
+                    s_body = urlencode(s_params)
+                    s_sig = hmac.new(config.INDODAX_SECRET_KEY.encode(),s_body.encode(),hashlib.sha512).hexdigest()
+                    sr = await client.post(config.INDODAX_TAPI_URL, headers={
+                        "Key":config.INDODAX_API_KEY,"Sign":s_sig,
+                        "Content-Type":"application/x-www-form-urlencoded",
+                    }, content=s_body)
+                    if sr.json().get("success") == 1:
+                        external_positions.remove(p)
+                        log_trade("sell", last, p["qty"], last * p["qty"],
+                                  status="closed", pnl=pnl, reason=result)
+                except Exception as e:
+                    print(f"  Ext sell failed {p['pair']}: {e}", flush=True)
 
         if sl_hits:
             await send_message("SL/TP triggered:\n" + "\n".join(sl_hits))
