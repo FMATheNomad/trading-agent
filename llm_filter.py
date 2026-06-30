@@ -158,11 +158,8 @@ def _build_portfolio_context(
 
     scored.sort(key=lambda x: x[0], reverse=True)
 
-    max_show = 20
-    lines.append(f"-- Market Scan ({len(all_signals)} pairs, showing top {max_show} by momentum+24h) --")
+    lines.append(f"-- Market Scan ({len(all_signals)} pairs, ranked by momentum+24h) --")
     for rank, (_, pair, sig, t, chg24) in enumerate(scored, 1):
-        if rank > max_show:
-            break
         vol_spike = "🚀" if sig.get("volume_ratio", 0) > 2 else " "
         lines.append(
             f"#{rank} {vol_spike}[{pair}] Price: {t.get('last')} | "
