@@ -34,23 +34,6 @@ def pnl_pct(entry: float, current: float, side: str) -> float:
         return (current - entry) / entry * 100
     return (entry - current) / entry * 100
 
-async def retry_get(client: httpx.AsyncClient, url: str, params: dict | None = None, retries: int = 3) -> httpx.Response:
-    for attempt in range(retries):
-        try:
-            r = await client.get(url, params=params)
-            if r.status_code == 429:
-                wait = 5 * (attempt + 1)
-                print(f"Rate limited, waiting {wait}s...", flush=True)
-                await asyncio.sleep(wait)
-                continue
-            r.raise_for_status()
-            return r
-        except (httpx.HTTPStatusError, httpx.RequestError) as e:
-            if attempt == retries - 1:
-                raise
-            await asyncio.sleep(2 * (attempt + 1))
-    raise RuntimeError("Max retries exceeded")
-
 async def portfolio_cycle(client: httpx.AsyncClient):
     global positions
 
@@ -102,6 +85,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     if qty <= 0 or coin == "idr":
                         continue
                     pair = f"{coin}_idr"
+                    if pair in config.STABLECOINS:
+                        continue
                     if any(p["pair"] == pair for p in positions):
                         continue
                     last_price = ticker_map.get(pair, {}).get("last", 0)
@@ -125,7 +110,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             p["qty"] * ticker_map.get(p["pair"], {}).get("last", p["entry_price"])
             for p in positions
         )
-        total_equity = min(actual_idr_balance, config.PLAY_CAPITAL_IDR) + paper_equity
+        total_equity = actual_idr_balance + paper_equity
 
         if portfolio_risk.check_portfolio_stop(total_equity):
             msg = (f"PORTFOLIO STOP-LOSS HIT ({config.PORTFOLIO_STOP_LOSS_PCT*100}%)\n"
@@ -196,6 +181,13 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             await send_message("SL/TP triggered:\n" + "\n".join(sl_hits))
 
         trades = decision.get("trades", [])
+        buy_count = sum(1 for t in trades if t.get("action") == "BUY")
+        slots_left = max(0, config.MAX_OPEN_POSITIONS - len(positions))
+        if buy_count > slots_left:
+            trades = [t for t in trades if t.get("action") == "SELL"] + \
+                     [t for t in trades if t.get("action") == "BUY"][:slots_left]
+            print(f"Limited buys to {slots_left} (max {config.MAX_OPEN_POSITIONS} positions)", flush=True)
+
         if not trades:
             print("No trades suggested. Sleeping.", flush=True)
             if positions and config.INDODAX_API_KEY:
