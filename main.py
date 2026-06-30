@@ -125,12 +125,21 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             for p in all_positions
         ]
 
-        print("Calling DeepSeek portfolio manager...", flush=True)
-        portfolio_pnl = ((total_equity - config.PLAY_CAPITAL_IDR) / config.PLAY_CAPITAL_IDR * 100
-                         if config.PLAY_CAPITAL_IDR else 0)
-        decision = evaluate_portfolio(all_signals, ticker_map, current_positions_info,
-                                       balance_idr, portfolio_pnl)
-        print(f"PM decision: {decision.get('decision')} | {decision.get('reasoning', '')[:100]}", flush=True)
+        has_active_signal = any(
+            s.get("raw_signal") in ("BUY", "SELL") for s in all_signals.values()
+        )
+        has_external = len(external_positions) > 0
+
+        if not has_active_signal and not has_external:
+            decision = {"decision": "HOLD", "reasoning": "All signals HOLD, no external positions — skipping LLM to save cost", "trades": []}
+            print("LLM SKIPPED — all HOLD, no external positions", flush=True)
+        else:
+            print("Calling DeepSeek portfolio manager...", flush=True)
+            portfolio_pnl = ((total_equity - config.PLAY_CAPITAL_IDR) / config.PLAY_CAPITAL_IDR * 100
+                             if config.PLAY_CAPITAL_IDR else 0)
+            decision = evaluate_portfolio(all_signals, ticker_map, current_positions_info,
+                                           balance_idr, portfolio_pnl)
+            print(f"PM decision: {decision.get('decision')} | {decision.get('reasoning', '')[:100]}", flush=True)
 
         log_decision("PORTFOLIO", decision.get("decision", "HOLD"),
                      decision.get("reasoning", ""),
