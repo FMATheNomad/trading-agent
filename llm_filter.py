@@ -17,8 +17,8 @@ SYSTEM_PROMPT = """You are a veteran crypto quant trader. Aggressive on edge, pa
 4. Gainer/Loser 24h with momentum confirmation
 - BUY at score ≥+3, SELL at ≤-3. Score +2 with vol spike = tradeable.
 
-## CONSTRAINTS
-- Output: {"decision":"HOLD|REBALANCE","play_capital_pct":0-100,"reasoning":"...","trades":[{"pair":"","action":"BUY|SELL","allocation_pct":N,"reason":""}]}
+## OUTPUT (valid JSON only)
+{"decision":"HOLD|REBALANCE","play_capital_pct":0-100,"reasoning":"...","trades":[{"pair":"","action":"BUY|SELL","allocation_pct":N,"reason":""}]}
 - Max 2 bot trades (user external positions don't count)
 - allocation_pct per BUY ≥50% (min order Rp25k)
 - Total allocation ≤ play_capital_pct
