@@ -23,12 +23,20 @@ Scan all assets and classify the current regime:
 - if portfolio in external positions (user holding), treat as part of allocation
 - Priority: capital preservation > steady growth > aggressive returns
 
+## TRENDING / MOMENTUM DETECTION
+Assets are ranked by 1h price change. Pay attention to:
+- **Top-ranked assets** = momentum leaders — potential breakout candidates
+- **Volume spike (🚀)** = vol > 2x average — unusual activity, investigate
+- **Momentum streak** = consecutive candles in same direction (+/-)
+- A coin with high rank + volume spike + bullish signal = highest conviction setup
+
 ## DECISION PROCESS (think step by step before outputting)
 1. What regime are we in? (trending/mean-reverting/sideways/high vol)
 2. Which assets have edge? (check RSI + MACD + BB + EMA alignment)
-3. What is the right play_capital_pct given regime + conviction?
-4. Which specific trades pass the Kelly + risk filters?
-5. Should we SELL any existing positions (including user's external holdings)?
+3. Which assets are trending (high rank, volume spike, momentum streak)?
+4. What is the right play_capital_pct given regime + conviction?
+5. Which specific trades pass the Kelly + risk filters?
+6. Should we SELL any existing positions (including user's external holdings)?
 
 ## OUTPUT FORMAT (valid JSON only)
 {
@@ -73,18 +81,27 @@ def _build_portfolio_context(
                         f"Qty: {p['qty']} | PnL: {p.get('pnl_pct', 0):+.2f}%")
         lines.append("")
 
-    lines.append("-- Full Market Scan (sorted by volume) --")
-    for pair, sig in sorted(all_signals.items()):
+    sorted_pairs = sorted(
+        all_signals.items(),
+        key=lambda x: x[1].get("price_change_pct", 0) if x[1].get("price_change_pct") is not None else 0,
+        reverse=True,
+    )
+
+    lines.append(f"-- Market Scan ({len(all_signals)} pairs, ranked by 1h change) --")
+    for rank, (pair, sig) in enumerate(sorted_pairs, 1):
         t = all_tickers.get(pair, {})
         if not t:
             continue
+        vol_spike = "🚀" if sig.get("volume_ratio", 0) > 2 else " " if sig.get("volume_ratio", 0) > 1 else " "
         lines.append(
-            f"[{pair}] Price: {t.get('last')} | Vol 24h: Rp{t.get('vol_idr', 0):,.0f} | "
+            f"#{rank} {vol_spike}[{pair}] Price: {t.get('last')} | "
+            f"1hChg: {sig.get('price_change_pct', 0):+.2f}% | "
+            f"Vol:Rp{t.get('vol_idr', 0):,.0f} (x{sig.get('volume_ratio', 1)}avg) | "
             f"Signal: {sig.get('raw_signal')} | RSI: {sig.get('rsi')} | "
             f"MACD: {sig.get('macd_line')}/{sig.get('macd_signal')} | "
             f"BB: {sig.get('bb_lower')}-{sig.get('bb_upper')} | "
             f"Volatility: {sig.get('volatility')}% | "
-            f"Change: {sig.get('price_change_pct')}% | "
+            f"Mmtm: {sig.get('momentum_streak', 0)}{sig.get('momentum_dir', '')} | "
             f"Reason: {sig.get('signal_reason')}"
         )
 
