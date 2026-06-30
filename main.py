@@ -14,6 +14,8 @@ from executor import place_order, get_balance
 from deadman import refresh_deadman, cancel_deadman
 from notifier import send_message
 from db import init_db, log_trade, log_decision
+from market_ws import market_ws_loop, LIVE_TICKERS, stop as mws_stop
+from private_ws import private_ws_loop, stop as pws_stop
 
 risk = RiskManager()
 portfolio_risk = PortfolioRiskManager()
@@ -56,6 +58,12 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         print("Scanning market for viable pairs...", flush=True)
         viable = await fetch_viable_pairs(client)
         print(f"Found {len(viable)} viable IDR pairs", flush=True)
+        live = LIVE_TICKERS.copy()
+        if live:
+            for v in viable:
+                pid = v["pair"]
+                if pid in live and v["ticker"].get("last", 0) == 0:
+                    v["ticker"] = live[pid]
 
         if not viable:
             print("No viable pairs. Skipping cycle.", flush=True)
@@ -361,6 +369,10 @@ async def main():
                 pass
             await asyncio.sleep(5)
 
+    ws_task = asyncio.create_task(market_ws_loop())
+    pws_task = asyncio.create_task(private_ws_loop())
+    await asyncio.sleep(3)
+
     async with httpx.AsyncClient(timeout=30) as client:
         poller = asyncio.create_task(telegram_poller())
         cycle_count = 0
@@ -375,6 +387,8 @@ async def main():
                 await asyncio.sleep(5)
 
     poller.cancel()
+    mws_stop()
+    pws_stop()
     if config.INDODAX_API_KEY:
         await cancel_deadman(client)
     print("Shutdown complete.", flush=True)

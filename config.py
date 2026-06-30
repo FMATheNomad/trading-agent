@@ -22,7 +22,7 @@ POSITION_SIZE_PCT = 0.85
 STOP_LOSS_PCT = -0.03
 TAKE_PROFIT_PCT = 0.03
 DAILY_LOSS_FLOOR_IDR = 80_000
-TAKER_FEE_PCT = 0.003
+TAKER_FEE_PCT = 0.0035
 PORTFOLIO_STOP_LOSS_PCT = -0.10
 
 # --- Hanya koin fundamental — tidak ada meme/shitcoin ---
@@ -54,3 +54,8 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 
 # --- Scheduler ---
 LOOP_INTERVAL_SECONDS = 300
+
+# --- WebSocket ---
+WS_MARKET_URL = "wss://ws3.indodax.com/ws/"
+WS_MARKET_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE5NDY2MTg0MTV9.UR1lBM6Eqh0yWz-PVirw1uPCxe60FdchR8eNVdsskeo"
+WS_PRIVATE_URL = "wss://pws.indodax.com/ws/?cf_ws_frame_ping_pong=true"
