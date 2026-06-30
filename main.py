@@ -351,12 +351,21 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     print(f"  Failed sell {pid}: {e}", flush=True)
                 continue
 
-            amount = balance_idr * (alloc / 100)
-            ticker = ticker_map.get(pid, {})
-            price = ticker.get("sell" if action == "BUY" else "buy", 0)
-            if not price:
-                continue
-            qty = amount / price
+            match = next((e for e in positions if e["pair"] == pid), None)
+            if action == "SELL" and match:
+                qty = match["qty"]
+                ticker = ticker_map.get(pid, {})
+                price = ticker.get("buy", 0)
+                if not price:
+                    continue
+                amount = qty * price
+            else:
+                amount = balance_idr * (alloc / 100)
+                ticker = ticker_map.get(pid, {})
+                price = ticker.get("sell" if action == "BUY" else "buy", 0)
+                if not price:
+                    continue
+                qty = amount / price
 
             if not risk.is_profit_viable(price, qty, action):
                 print(f"  {pid}: skipped - fees eat profit", flush=True)
