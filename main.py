@@ -35,6 +35,10 @@ regime_history: list[str] = []
 known_pairs: set[str] = set()
 _ext_entry_prices: dict[str, float] = {}
 _hmm_trained_cycle = 0
+_prev_regime: str = ""
+_prev_equity: float = 0
+_prev_signal_count: int = 0
+_report_sent_count: int = 0
 
 def classify_regime(all_signals: dict, ohlcv_map_1h: dict | None = None) -> dict:
     signals = [s.get("raw_signal") for s in all_signals.values() if s.get("raw_signal")]
@@ -108,7 +112,7 @@ def pnl_pct(entry: float, current: float, side: str) -> float:
 cycle_counter = 0
 
 async def portfolio_cycle(client: httpx.AsyncClient):
-    global positions, cycle_counter
+    global positions, cycle_counter, _prev_regime, _prev_equity, _prev_signal_count, _report_sent_count
     cycle_counter += 1
     _t0 = time.time()
 
@@ -306,10 +310,19 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             s.get("raw_signal") in ("BUY", "SELL") and s.get("score", 0) >= 3 for s in all_signals.values()
         )
         has_external = len(external_positions) > 0
+        has_positions = len(positions) > 0 or has_external
         nothing_interesting = not has_active_signal and not has_external
-        skip_llm = nothing_interesting and (
-            (regime_info["regime"] in ("SIDEWAYS", "SIDEWAYS_LOW_VOL") and cycle_counter % 2 == 0)
-        )
+        equity_changed = abs(total_equity - _prev_equity) / max(_prev_equity, 1) > 0.05 if _prev_equity > 0 else False
+        regime_changed = regime_info["regime"] != _prev_regime if _prev_regime else False
+        signal_count = sum(1 for s in all_signals.values() if s.get("raw_signal") in ("BUY", "SELL"))
+        new_signals = signal_count > _prev_signal_count + 1 if _prev_signal_count > 0 else False
+
+        needs_deepseek = has_active_signal or has_positions or regime_changed or equity_changed or new_signals or (cycle_counter % 3 == 0)
+        skip_llm = not needs_deepseek and nothing_interesting
+
+        _prev_equity = total_equity
+        _prev_regime = regime_info["regime"]
+        _prev_signal_count = signal_count
 
         if skip_llm:
             print(f"LLM SKIPPED — sideways throttle (cycle {cycle_counter})", flush=True)
@@ -436,11 +449,35 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             print(f"Limited new buys to {slots_left} (max {config.MAX_OPEN_POSITIONS} unique)", flush=True)
 
         if not trades:
-            brief = (f"CIO: HOLD | Regime: {regime_info.get('regime', 'N/A')}\n"
-                     f"Play: {play_capital_pct}% | Pairs: {len(all_signals)}\n"
-                     f"{(decision.get('reasoning') or '')[:200]}")
-            ok = await send_message(brief)
-            print(f"Cycle done in {int(time.time() - _t0)}s. Telegram: {'OK' if ok else 'FAIL'}. Sleeping.", flush=True)
+            msg_lines = []
+            needs_report = False
+            if regime_changed and _prev_regime:
+                msg_lines.append(f"🔄 Regime shift: {_prev_regime} → {regime_info['regime']}")
+                msg_lines.append(f"B:{regime_info['buy_ratio']} S:{regime_info['sell_ratio']} | {len(all_signals)} pairs scanned")
+                needs_report = True
+            if equity_changed and _prev_equity > 0:
+                eq_change = ((total_equity - _prev_equity) / _prev_equity * 100)
+                msg_lines.append(f"💰 Equity: Rp{total_equity:,.0f} ({eq_change:+.1f}%)")
+                needs_report = True
+            if new_signals:
+                msg_lines.append(f"📊 New actionable signals: {signal_count}")
+                needs_report = True
+            if has_active_signal and not skip_llm:
+                top = sorted(all_signals.items(), key=lambda x: abs(x[1].get("score", 0)), reverse=True)[:3]
+                msg_lines.append("🔥 Top setups:")
+                for p, s in top:
+                    msg_lines.append(f"  {p}: {s.get('raw_signal')}({s.get('score', 0)}) {s.get('conviction', '')}")
+                needs_report = True
+            if cycle_counter % 60 == 0:
+                msg_lines.append(f"📋 CIO Summary (Cycle #{cycle_counter})")
+                msg_lines.append(f"Regime: {regime_info['regime']} | Equity: Rp{total_equity:,.0f}")
+                msg_lines.append(f"Positions: {len(positions)} bot + {len(external_positions)} ext | Cash: Rp{actual_idr_balance:,.0f}")
+                needs_report = True
+            if needs_report or (msg_lines and _report_sent_count == 0):
+                _report_sent_count += 1
+                msg_lines.append(f"Cycle #{cycle_counter}")
+                await send_message("\n".join(msg_lines))
+            print(f"Cycle done in {int(time.time() - _t0)}s. Sleeping.", flush=True)
             if positions and config.INDODAX_API_KEY:
                 pair_str = ",".join(p["pair"] for p in positions[:5])
                 await refresh_deadman(client, pair_str)
@@ -449,11 +486,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         valid_trades = portfolio_risk.validate_allocation(trades, current_positions_info, balance_idr)
         if not valid_trades:
             print("No valid trades after risk checks.", flush=True)
-            brief = (f"CIO: HOLD | Regime: {regime_info.get('regime', 'N/A')}\n"
-                     f"Play: {play_capital_pct}% | Pairs: {len(all_signals)}\n"
-                     f"Trades rejected by risk checks (min order)")
-            ok = await send_message(brief)
-            print(f"Telegram: {'OK' if ok else 'FAIL'}", flush=True)
+            print(f"Cycle done in {int(time.time() - _t0)}s. Sleeping.", flush=True)
             return
 
         executed_trades = []
@@ -627,7 +660,9 @@ async def main():
         f"🤖 FMA ALPHA QUANT LABS started\n"
         f"CIO aktif — target Rp200k → Rp500k 🔥\n"
         f"CIO scans top {config.MAX_SCAN_PAIRS} pairs by volume\n"
-        f"Mode: {'PAPER' if config.PAPER_TRADING else 'LIVE'} | Alpha Mode ON"
+        f"Mode: {'PAPER' if config.PAPER_TRADING else 'LIVE'} | Alpha Mode ON\n"
+        f"SL 8% | TP 25% | Max {config.MAX_OPEN_POSITIONS} positions\n"
+        f"Notifikasi hanya event-based (no spam tiap 5 menit)"
     )
     print(f"Telegram: {'OK' if ok else 'FAILED'}", flush=True)
 
