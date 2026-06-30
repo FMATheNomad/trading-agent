@@ -92,6 +92,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 print(f"Balance fetch error: {e}", flush=True)
 
         pending_play_capital_pct = config.DEFAULT_PLAY_CAPITAL_PCT
+        balance_idr = int(actual_idr_balance * pending_play_capital_pct)
 
         total_equity = min(actual_idr_balance, config.PLAY_CAPITAL_IDR) + sum(
             p["qty"] * ticker_map.get(p["pair"], {}).get("last", p["entry_price"])
@@ -139,9 +140,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                                            balance_idr, portfolio_pnl)
             print(f"PM decision: {decision.get('decision')} | {decision.get('reasoning', '')[:100]}", flush=True)
 
-        play_capital_pct = decision.get("play_capital_pct", pending_play_capital_pct)
+        play_capital_pct = decision.get("play_capital_pct", pending_play_capital_pct * 100)
         balance_idr = int(actual_idr_balance * play_capital_pct / 100)
-        balance_idr = max(balance_idr, 0)
         print(f"CIO play capital: {play_capital_pct}% of Rp{actual_idr_balance:,.0f} = Rp{balance_idr:,}", flush=True)
 
         log_decision("PORTFOLIO", decision.get("decision", "HOLD"),

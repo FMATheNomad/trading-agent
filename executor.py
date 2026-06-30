@@ -60,8 +60,9 @@ async def get_balance(client: httpx.AsyncClient) -> dict:
     params = {"method": "getInfo", "nonce": nonce}
     body = urlencode(params)
     sign = _sign(body, config.INDODAX_SECRET_KEY)
-    headers = {"Key": config.INDODAX_API_KEY, "Sign": sign}
-    r = await client.post(config.INDODAX_TAPI_URL, headers=headers, data=body)
+    headers = {"Key": config.INDODAX_API_KEY, "Sign": sign,
+               "Content-Type": "application/x-www-form-urlencoded"}
+    r = await client.post(config.INDODAX_TAPI_URL, headers=headers, content=body)
     data = r.json()
     if data.get("success") != 1:
         raise RuntimeError(f"getInfo failed: {data.get('error', 'unknown')}")
