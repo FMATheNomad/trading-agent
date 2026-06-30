@@ -19,6 +19,7 @@ For each viable asset, you receive:
 OUTPUT FORMAT — respond ONLY with valid JSON:
 {
   "decision": "HOLD" | "REBALANCE",
+  "play_capital_pct": 50,
   "reasoning": "Brief strategic rationale",
   "trades": [
     {
@@ -33,13 +34,13 @@ OUTPUT FORMAT — respond ONLY with valid JSON:
 FUNDAMENTAL-ONLY MANDATE — You may ONLY trade these assets: btc_idr, eth_idr, sol_idr, bnb_idr, xrp_idr, ada_idr, dot_idr, link_idr, avax_idr, matic_idr, atom_idr, uni_idr, trx_idr, ltc_idr, doge_idr. IGNORE any pair not in this list.
 
 RULES:
-- If no compelling opportunity: decision = "HOLD", trades = []
-- Total allocation_pct across all BUY trades must not exceed 90%
+- You control the play capital: set **play_capital_pct** (0-100%) based on market conviction. In strong trends use higher %, in uncertainty use lower %.
+- Total allocation_pct across all BUY trades must not exceed play_capital_pct
 - One pair can appear at most once
-- Maximum 2 concurrent open trades (capital limited)
-- Each allocation_pct must be ≥50% (minimum order Rp50.000 from Rp100.000 capital)
+- Maximum 2 concurrent open trades
+- Each allocation_pct must be ≥50% (minimum order Rp50.000)
 - Prefer BTC and ETH as core holdings, others as satellite positions
-- Consider market regime: in high volatility, reduce position sizes
+- Consider market regime: in high volatility, reduce play_capital_pct
 - SELL an asset if its thesis has deteriorated, not just because it's up
 - Think in terms of risk-adjusted return, not just directional bias"""
 

@@ -91,11 +91,9 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             except Exception as e:
                 print(f"Balance fetch error: {e}", flush=True)
 
-        balance_idr = min(actual_idr_balance, config.PLAY_CAPITAL_IDR)
-        if balance_idr < config.MIN_ORDER_IDR and not any(p.get("active") for p in positions):
-            balance_idr = config.PLAY_CAPITAL_IDR
+        pending_play_capital_pct = config.DEFAULT_PLAY_CAPITAL_PCT
 
-        total_equity = balance_idr + sum(
+        total_equity = min(actual_idr_balance, config.PLAY_CAPITAL_IDR) + sum(
             p["qty"] * ticker_map.get(p["pair"], {}).get("last", p["entry_price"])
             for p in positions
         )
@@ -107,7 +105,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             positions.clear()
             print("Portfolio stop-loss triggered. Positions cleared.", flush=True)
 
-        if risk.should_stop_trading(balance_idr):
+        if risk.should_stop_trading(total_equity):
             await send_message(f"Daily loss limit reached. Bot stopped.")
             sys.exit(0)
 
@@ -140,6 +138,11 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             decision = evaluate_portfolio(all_signals, ticker_map, current_positions_info,
                                            balance_idr, portfolio_pnl)
             print(f"PM decision: {decision.get('decision')} | {decision.get('reasoning', '')[:100]}", flush=True)
+
+        play_capital_pct = decision.get("play_capital_pct", pending_play_capital_pct)
+        balance_idr = int(actual_idr_balance * play_capital_pct / 100)
+        balance_idr = max(balance_idr, 0)
+        print(f"CIO play capital: {play_capital_pct}% of Rp{actual_idr_balance:,.0f} = Rp{balance_idr:,}", flush=True)
 
         log_decision("PORTFOLIO", decision.get("decision", "HOLD"),
                      decision.get("reasoning", ""),
@@ -275,7 +278,7 @@ async def main():
     print("=" * 50, flush=True)
     print("  AI HEDGE FUND MANAGER — INDODAX", flush=True)
     print(f"  Mode: {'PAPER' if config.PAPER_TRADING else 'LIVE'}", flush=True)
-    print(f"  Play capital: Rp{config.PLAY_CAPITAL_IDR:,} (FIXED)", flush=True)
+    print(f"  CIO manages play capital dynamically", flush=True)
     print(f"  Model: {config.DEEPSEEK_MODEL}", flush=True)
     print(f"  Max positions: {config.MAX_OPEN_POSITIONS}", flush=True)
     print(f"  Fundamental coins: {len(config.FUNDAMENTAL_COINS)}", flush=True)
@@ -292,8 +295,8 @@ async def main():
 
     ok = await send_message(
         f"Hedge Fund Manager started\n"
-        f"Play capital: Rp{config.PLAY_CAPITAL_IDR:,} (fixed)\n"
-        f"Fundamental coins only ({len(config.FUNDAMENTAL_COINS)} pairs)\n"
+        f"CIO manages play capital dynamically\n"
+        f"Fundamental coins: {len(config.FUNDAMENTAL_COINS)} pairs\n"
         f"Mode: {'PAPER' if config.PAPER_TRADING else 'LIVE'}"
     )
     print(f"Telegram: {'OK' if ok else 'FAILED'}", flush=True)
@@ -321,8 +324,8 @@ async def main():
                                     )
                                 text = (f"AI Hedge Fund Manager\n"
                                         f"Status: {'PAPER' if config.PAPER_TRADING else 'LIVE'}\n"
-                                        f"Play capital: Rp{config.PLAY_CAPITAL_IDR:,} (fixed)\n"
-                                        f"Positions: {len(positions)}\n{pos_text}")
+                                        f"CIO manages play capital\n"
+                                        f"Portfolio positions: {len(all_positions) if 'all_positions' in dir() else 0}\n{pos_text}")
                                 async with httpx.AsyncClient() as cc:
                                     await cc.post(
                                         f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",

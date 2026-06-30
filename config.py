@@ -6,6 +6,7 @@ load_dotenv()
 # --- Dana bot — fixed Rp100rb, tidak peduli berapapun deposit user ---
 PLAY_CAPITAL_IDR = 100_000
 MIN_ORDER_IDR = 50_000
+DEFAULT_PLAY_CAPITAL_PCT = 0.5
 
 # --- Portfolio ---
 PORTFOLIO_MODE = True
