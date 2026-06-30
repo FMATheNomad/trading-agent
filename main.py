@@ -380,10 +380,10 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         trades = decision.get("trades", [])
         held_pairs = {p["pair"] for p in positions} | {p["pair"] for p in external_positions}
         trades = [t for t in trades if t.get("action") != "SELL" or t["pair"] in held_pairs]
-        unique_pairs = {p["pair"] for p in positions}
-        extra_buys = [t for t in trades if t.get("action") == "BUY" and t["pair"] in unique_pairs]
-        new_buys = [t for t in trades if t.get("action") == "BUY" and t["pair"] not in unique_pairs]
-        slots_left = max(0, config.MAX_OPEN_POSITIONS - len(unique_pairs))
+        all_held = {p["pair"] for p in positions} | {p["pair"] for p in external_positions}
+        extra_buys = [t for t in trades if t.get("action") == "BUY" and t["pair"] in all_held]
+        new_buys = [t for t in trades if t.get("action") == "BUY" and t["pair"] not in all_held]
+        slots_left = max(0, config.MAX_OPEN_POSITIONS - len(all_held))
         if len(new_buys) > slots_left:
             trades = [t for t in trades if t.get("action") == "SELL"] + extra_buys + new_buys[:slots_left]
             print(f"Limited new buys to {slots_left} (max {config.MAX_OPEN_POSITIONS} unique)", flush=True)
