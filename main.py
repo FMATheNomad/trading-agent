@@ -199,7 +199,11 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             p["qty"] * ticker_map.get(p["pair"], {}).get("last", p["entry_price"])
             for p in positions
         )
-        total_equity = actual_idr_balance + paper_equity
+        ext_equity = sum(
+            e["qty"] * (ticker_map.get(e["pair"], {}).get("last") or e.get("current_price") or 0)
+            for e in external_positions
+        )
+        total_equity = actual_idr_balance + paper_equity + ext_equity
 
         if portfolio_risk.check_portfolio_stop(total_equity):
             msg = (f"PORTFOLIO STOP-LOSS HIT ({config.PORTFOLIO_STOP_LOSS_PCT*100}%)\n"
