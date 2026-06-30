@@ -547,6 +547,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 qty = ext["qty"]
                 ticker = ticker_map.get(pid, {})
                 price = ticker.get("buy", 0)
+                entry_price_ext = ext.get("entry_price", 0)
                 if not price:
                     continue
                 print(f"  SELL external {pid} @ {price} | {qty} coin", flush=True)
@@ -573,6 +574,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                         log_trade("sell", price, qty, float(received), status="closed",
                                   pnl=float(received) - ext.get("amount_idr", 0),
                                   reason=f"CIO decision: {t.get('reason', '')}")
+                        t["entry_price"] = entry_price_ext
+                        t["exec_price"] = price
                         executed_trades.append(t)
                         await send_message(f"CIO EKSEKUSI: JUAL {pid}\n"
                                            f"Qty: {qty} | Diterima: Rp{received:,}")
@@ -588,6 +591,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 if not price:
                     continue
                 amount = qty * price
+                t["entry_price"] = match.get("entry_price", 0)
+                t["exec_price"] = price
             else:
                 amount = balance_idr * (alloc / 100)
                 ticker = ticker_map.get(pid, {})
@@ -639,7 +644,24 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         if executed_trades:
             msg_lines = [f"{'[PAPER] ' if config.PAPER_TRADING else ''}FMA ALPHA QUANT LABS — EKSEKUSI"]
             for t in executed_trades:
-                msg_lines.append(f"{t['action']} {t['pair']} ({t['allocation_pct']}%) — {t['reason'][:60]}")
+                pid = t["pair"]
+                entry = t.get("entry_price", 0)
+                exec_price = t.get("exec_price", 0)
+                pnl_pct_real = 0
+                if entry and exec_price:
+                    pnl_pct_real = (exec_price - entry) / entry * 100
+                reason = t.get("reason", "")
+                if pnl_pct_real <= -0.1 and any(w in reason.lower() for w in ["take profit", "tp", "profit", "gain"]):
+                    reason = f"Cut loss ({pnl_pct_real:+.1f}%)"
+                elif pnl_pct_real > 0.1 and any(w in reason.lower() for w in ["cut loss", "stop loss", "loss"]):
+                    reason = f"Take profit ({pnl_pct_real:+.1f}%)"
+                elif pnl_pct_real < -0.1:
+                    reason = f"Cut loss ({pnl_pct_real:+.1f}%)"
+                elif pnl_pct_real > 0.1:
+                    reason = f"Take profit ({pnl_pct_real:+.1f}%)"
+                pnl_tag = f" [{pnl_pct_real:+.1f}%]" if t.get("entry_price") and pnl_pct_real else ""
+                action_label = "BUY" if t.get("action") == "BUY" else ("SELL" if t.get("action") == "SELL" else t.get("action", ""))
+                msg_lines.append(f"{action_label} {pid}{pnl_tag} ({t['allocation_pct']}%) — {reason[:80]}")
             total_pos = len(positions) + len(external_positions)
             msg_lines.append(f"Total posisi: {total_pos} (bot: {len(positions)}, ext: {len(external_positions)}) | Cash: Rp{actual_idr_balance:,.0f} (budget: Rp{balance_idr:,})")
             await send_message("\n".join(msg_lines))
