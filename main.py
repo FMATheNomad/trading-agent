@@ -324,7 +324,6 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 print(f"  EXT SL CHECK: {p['pair']} entry={ep:,} last={last:,} result={result}", flush=True)
             if result:
                 pnl = (last - p["entry_price"]) * p["qty"]
-                sl_hits.append(f"{p['pair']} {result} (ext): {pnl:+.0f} IDR")
                 try:
                     coin_name = p["pair"].split("_")[0]
                     nonce_s = int(time.time() * 1000)
@@ -341,6 +340,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                         external_positions.remove(p)
                         log_trade("sell", last, p["qty"], last * p["qty"],
                                   status="closed", pnl=pnl, reason=result)
+                        sl_hits.append(f"{p['pair']} {result} (ext): {pnl:+.0f} IDR")
                         print(f"  SOLD {p['pair']} at market", flush=True)
                     else:
                         err = sell_res.get('error', 'unknown')
