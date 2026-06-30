@@ -42,12 +42,15 @@ Each asset shows TWO timeframes:
 - **Range14**: 14-period range % — narrow range = potential breakout
 
 ## TRENDING / MOMENTUM DETECTION
-Assets ranked by combined momentum+24h score. Key signals:
+Assets ranked by combined momentum+24h score. You also get:
+- **🔥 Hot Now** = volume spike >1.5x + positive 1h momentum + not SELL signal — these are coins ACTIVE right now
+- **Top Gainer 24h** = highest 24h % change — potentially overbought
+- **Top Loser 24h** = lowest 24h % change — potentially oversold
 - **24h%** = big moves in last day (pump/dump detection)
 - **1h%** = recent momentum (short-term entry timing)
 - **Conviction:HIGH** = 1h + 4h aligned = strongest signal
 - **🚀 Volume spike** = vol > 2x average
-- A coin with: **big 24h pump + positive 1h momentum + HIGH conviction + volume spike** = highest conviction
+- Highest conviction: **🔥 Hot Now + HIGH conviction + BUY signal**
 
 ## DECISION PROCESS
 1. Market regime? (check 4h trends across assets)
@@ -101,6 +104,7 @@ def _build_portfolio_context(
     regime_history: list[str] | None = None,
     orderbooks: dict[str, dict] | None = None,
     live_tickers: dict[str, dict] | None = None,
+    new_coins: set[str] | None = None,
 ) -> str:
     lines = [f"=== PORTFOLIO STATUS ===",
              f"Cash: Rp{balance_idr:,.0f}",
@@ -129,10 +133,49 @@ def _build_portfolio_context(
         lines.append("")
 
     if orderbooks:
-        lines.append("-- Order Book Pressure (top 10 levels) --")
+        lines.append("-- Order Book Pressure (top 5 pairs) --")
         for pair, ob in list(orderbooks.items())[:5]:
             lines.append(f"{pair}: {ob.get('pressure', 'N/A')} ({ob.get('imbalance_pct', 0):+.1f}%) | "
                         f"BidVol:{ob.get('bid_vol', 0):.2f} AskVol:{ob.get('ask_vol', 0):.2f}")
+        lines.append("")
+
+    trending = []
+    for pair, sig in all_signals.items():
+        vr = sig.get("volume_ratio", 1)
+        chg = sig.get("price_change_pct", 0) or 0
+        if vr > 1.5 and chg > 1 and sig.get("raw_signal") != "SELL":
+            trending.append((pair, vr, chg, sig.get("raw_signal", "")))
+    trending.sort(key=lambda x: x[1] * x[2], reverse=True)
+
+    if new_coins:
+        lines.append(f"-- 🆕 New Listings ({len(new_coins)}) --")
+        for pid in sorted(new_coins)[:5]:
+            lc = live_tickers.get(pid, {}).get("change_24h", 0) if live_tickers else 0
+            sig = all_signals.get(pid, {}).get("raw_signal", "?")
+            lines.append(f"  {pid}: 24h:{lc:+.2f}% | Sig:{sig}")
+        lines.append("")
+
+    if trending:
+        lines.append("-- 🔥 Hot Now (volume spike + momentum) --")
+        for pair, vr, chg, sig in trending[:5]:
+            lines.append(f"  {pair}: Vol(x{vr:.1f}) | 1h:{chg:+.2f}% | Sig:{sig}")
+        lines.append("")
+
+    if live_tickers:
+        gainers = sorted(live_tickers.items(), key=lambda x: x[1].get("change_24h", 0), reverse=True)[:7]
+        losers = sorted(live_tickers.items(), key=lambda x: x[1].get("change_24h", 0))[:5]
+        lines.append("-- Top 5 Gainer 24h --")
+        for p, t in gainers:
+            sig = all_signals.get(p, {})
+            vr = sig.get("volume_ratio", 1)
+            spike = "🚀" if vr > 2 else " "
+            lines.append(f"  {spike}{p}: {t.get('change_24h', 0):+.2f}% | Vol:1h({vr:.1f}x) | Sig:{sig.get('raw_signal','?')}")
+        lines.append("")
+        lines.append("-- Top 5 Loser 24h --")
+        for p, t in losers:
+            sig = all_signals.get(p, {})
+            vr = sig.get("volume_ratio", 1)
+            lines.append(f"  {p}: {t.get('change_24h', 0):+.2f}% | Vol:({vr:.1f}x) | Sig:{sig.get('raw_signal','?')}")
         lines.append("")
 
     if current_positions:
@@ -196,6 +239,7 @@ def evaluate_portfolio(
     regime_history: list[str] | None = None,
     orderbooks: dict[str, dict] | None = None,
     live_tickers: dict[str, dict] | None = None,
+    new_coins: set[str] | None = None,
 ) -> dict:
     if not config.DEEPSEEK_API_KEY:
         buys = [{"pair": p, "action": "BUY", "allocation_pct": 40, "reason": "No LLM key"}
@@ -207,7 +251,7 @@ def evaluate_portfolio(
     client = OpenAI(api_key=config.DEEPSEEK_API_KEY, base_url=config.DEEPSEEK_BASE_URL)
     user_prompt = _build_portfolio_context(
         all_signals, all_tickers, current_positions, balance_idr, portfolio_pnl_pct,
-        regime_info, pair_suggestions, regime_history, orderbooks, live_tickers,
+        regime_info, pair_suggestions, regime_history, orderbooks, live_tickers, new_coins,
     )
 
     kwargs = {

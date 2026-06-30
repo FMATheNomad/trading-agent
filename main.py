@@ -24,6 +24,7 @@ external_positions: list[dict] = []
 shutdown_flag = False
 
 regime_history: list[str] = []
+known_pairs: set[str] = set()
 
 def classify_regime(all_signals: dict) -> dict:
     signals = [s.get("raw_signal") for s in all_signals.values() if s.get("raw_signal")]
@@ -94,6 +95,12 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         print("Scanning market for viable pairs...", flush=True)
         viable = await fetch_viable_pairs(client)
         print(f"Found {len(viable)} viable IDR pairs", flush=True)
+        current_pairs = {v["pair"] for v in viable}
+        new_coins = current_pairs - known_pairs
+        if new_coins:
+            print(f"New coins detected: {', '.join(new_coins)}", flush=True)
+        known_pairs.update(current_pairs)
+
         live = LIVE_TICKERS.copy()
         if live:
             for v in viable:
@@ -235,7 +242,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             decision = evaluate_portfolio(all_signals, ticker_map, current_positions_info,
                                            balance_idr, portfolio_pnl,
                                            regime_info, pair_suggestions, regime_history, orderbooks,
-                                           LIVE_TICKERS)
+                                           LIVE_TICKERS, new_coins)
             if decision.get("deepseek_error"):
                 await send_message(f"⚠️ DeepSeek API error: {decision.get('reasoning', '')[:200]}")
             print(f"PM decision: {decision.get('decision')} | {decision.get('reasoning', '')[:100]}", flush=True)
