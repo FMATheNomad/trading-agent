@@ -57,12 +57,11 @@ class MicrostructureFeatures:
         perm_entropy = 0
         if len(rets) >= 10:
             try:
-                from math import factorial
                 m = 3
                 patterns = []
                 for i in range(len(rets) - m + 1):
-                    pattern = np.argsort(rets[i:i+m])
-                    patterns.append(tuple(pattern))
+                    pattern = tuple(np.argsort(rets[i:i+m]))
+                    patterns.append(pattern)
                 unique = len(set(patterns))
                 total = len(patterns)
                 perm_entropy = -np.log(unique / total) if total > 0 else 0
@@ -82,21 +81,27 @@ class MicrostructureFeatures:
         vol = df.get("volume", df.get("vol", pd.Series([0] * len(df)))).astype(float)
         if vol.sum() == 0:
             return 0.5
-        delta_p = close - close.shift(1)
-        buy_vol = vol * (delta_p > 0).astype(int)
-        sell_vol = vol * (delta_p < 0).astype(int)
-        vpin = (buy_vol.sum() - sell_vol.sum()).abs() / vol.sum()
+        delta_p = close.diff().fillna(0)
+        buy_vol = vol * (delta_p > 0).astype(float)
+        sell_vol = vol * (delta_p < 0).astype(float)
+        vpin = abs(float(buy_vol.sum() - sell_vol.sum())) / float(vol.sum()) if float(vol.sum()) > 0 else 0.5
         return round(float(vpin), 3)
 
     @staticmethod
     def compute_all(ohlcv: list[dict], orderbook: dict | None = None) -> dict:
-        if len(ohlcv) < 20:
+        if not ohlcv or len(ohlcv) < 20:
             return {}
         closes = np.array([c["close"] for c in ohlcv], dtype=float)
         result = {}
         result.update(MicrostructureFeatures.compute_temporal_features(closes))
         result.update(MicrostructureFeatures.compute_entropy(closes))
-        result["vpin"] = MicrostructureFeatures.compute_vpin(ohlcv)
+        try:
+            result["vpin"] = MicrostructureFeatures.compute_vpin(ohlcv)
+        except Exception:
+            result["vpin"] = 0.5
         if orderbook:
-            result.update(MicrostructureFeatures.compute_orderbook_features(orderbook))
+            try:
+                result.update(MicrostructureFeatures.compute_orderbook_features(orderbook))
+            except Exception:
+                pass
         return result

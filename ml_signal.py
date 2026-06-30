@@ -40,14 +40,14 @@ class XGBoostSignal:
         features["log_ret_10"] = np.log(close / close.shift(10))
         features["vol_5"] = features["log_ret_1"].rolling(5).std()
         features["vol_10"] = features["log_ret_1"].rolling(10).std()
-        features["vol_ratio"] = features["vol_5"] / features["vol_10"].replace(0, np.nan)
+        features["vol_ratio"] = features["vol_5"] / features["vol_10"].replace(0, np.nan).replace(np.nan, 1)
         features["high_low_ratio"] = high / low
         features["close_position"] = (close - low) / (high - low + 1e-10)
         features["volume_log"] = np.log(vol + 1)
-        features["volume_ratio"] = vol / vol.rolling(20).mean().replace(0, np.nan)
+        features["volume_ratio"] = vol / vol.rolling(20).mean().replace(0, np.nan).replace(np.nan, 1)
         features["rsi_14"] = self._rsi(close, 14)
-        features["ema_ratio_9_21"] = close.ewm(span=9).mean() / close.ewm(span=21).mean().replace(0, np.nan)
-        features["ema_ratio_21_50"] = close.ewm(span=21).mean() / close.ewm(span=50).mean().replace(0, np.nan)
+        features["ema_ratio_9_21"] = close.ewm(span=9).mean() / close.ewm(span=21).mean().replace(0, np.nan).replace(np.nan, 1)
+        features["ema_ratio_21_50"] = close.ewm(span=21).mean() / close.ewm(span=50).mean().replace(0, np.nan).replace(np.nan, 1)
         features["bb_position"] = (close - close.rolling(20).mean()) / (close.rolling(20).std() * 2 + 1e-10)
         features.fillna(0, inplace=True)
         features.replace([np.inf, -np.inf], 0, inplace=True)
@@ -60,8 +60,9 @@ class XGBoostSignal:
         loss = -delta.clip(upper=0)
         avg_gain = gain.rolling(period).mean()
         avg_loss = loss.rolling(period).mean()
-        rs = avg_gain / avg_loss.replace(0, np.nan)
-        return 100 - (100 / (1 + rs))
+        rs = avg_gain / avg_loss.replace(0, np.nan).replace(np.nan, 1)
+        rsi = 100 - (100 / (1 + rs))
+        return rsi.fillna(50)
 
     def train(self, ohlcv_by_pair: dict[str, list[dict]]):
         if not HAS_XGB:
