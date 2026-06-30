@@ -634,15 +634,17 @@ async def main():
                                         ],
                                     )
                                     reply = resp.choices[0].message.content or "Gak tau."
-                                    await cc.post(
-                                        f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
-                                        json={"chat_id": cid, "text": reply[:400]},
-                                    )
+                                    async with httpx.AsyncClient() as cc2:
+                                        await cc2.post(
+                                            f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
+                                            json={"chat_id": cid, "text": reply[:400]},
+                                        )
                                 except Exception as e:
-                                    await cc.post(
-                                        f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
-                                        json={"chat_id": cid, "text": f"Error: {str(e)[:60]}"},
-                                    )
+                                    async with httpx.AsyncClient() as cc2:
+                                        await cc2.post(
+                                            f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
+                                            json={"chat_id": cid, "text": f"Error: {str(e)[:60]}"},
+                                        )
             except Exception:
                 pass
             await asyncio.sleep(5)
