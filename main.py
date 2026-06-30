@@ -592,7 +592,8 @@ async def main():
                     if r.status_code == 200:
                         for upd in r.json().get("result", []):
                             last_id = upd["update_id"]
-                            txt = (upd.get("message", {}).get("text") or "").strip().lower()
+                            raw = (upd.get("message", {}).get("text") or "").strip()
+                            txt = raw.lower()
                             cid = upd.get("message", {}).get("chat", {}).get("id")
                             if txt in ("/start", "/status"):
                                 pos_text = "No positions"
@@ -612,6 +613,35 @@ async def main():
                                     await cc.post(
                                         f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
                                         json={"chat_id": cid, "text": text},
+                                    )
+                            elif not txt.startswith("/") and config.DEEPSEEK_API_KEY:
+                                bal = f"Rp{_latest_balance:,.0f}" if _latest_balance else "?"
+                                coins = ", ".join(f"{p['pair']}({p['qty']})" for p in external_positions[:8])
+                                ctx = f"Cash: {bal} | Coins: {coins or 'none'}" if external_positions else f"Cash: {bal}"
+                                async with httpx.AsyncClient() as cc:
+                                    await cc.post(
+                                        f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
+                                        json={"chat_id": cid, "text": "CIO mikir dulu..."},
+                                    )
+                                try:
+                                    from openai import OpenAI
+                                    cl = OpenAI(api_key=config.DEEPSEEK_API_KEY, base_url=config.DEEPSEEK_BASE_URL)
+                                    resp = cl.chat.completions.create(
+                                        model=config.DEEPSEEK_MODEL,
+                                        messages=[
+                                            {"role": "system", "content": f"Kamu adalah CIO hedge fund. Jawab PENDEX, max 2-3 kalimat. Natural kayak ngobrol, gak usah formal. Portfolio: {ctx}"},
+                                            {"role": "user", "content": raw},
+                                        ],
+                                    )
+                                    reply = resp.choices[0].message.content or "Gak tau."
+                                    await cc.post(
+                                        f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
+                                        json={"chat_id": cid, "text": reply[:400]},
+                                    )
+                                except Exception as e:
+                                    await cc.post(
+                                        f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
+                                        json={"chat_id": cid, "text": f"Error: {str(e)[:60]}"},
                                     )
             except Exception:
                 pass
