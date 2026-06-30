@@ -87,8 +87,12 @@ class PortfolioRiskManager:
 
     def validate_allocation(self, trades: list[dict], current_positions: list[dict],
                              balance_idr: float) -> list[dict]:
+        held = {p["pair"]: p.get("current_value", 0) or (p["qty"] * p.get("entry_price", 0)) for p in current_positions if not p.get("real")}
         valid = []
         for t in trades:
+            if t.get("action") == "SELL":
+                valid.append(t)
+                continue
             pct = t.get("allocation_pct", 0)
             if pct > config.MAX_POSITION_PCT_PER_ASSET * 100:
                 pct = config.MAX_POSITION_PCT_PER_ASSET * 100
