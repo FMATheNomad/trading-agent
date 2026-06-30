@@ -361,12 +361,13 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         trades = decision.get("trades", [])
         held_pairs = {p["pair"] for p in positions} | {p["pair"] for p in external_positions}
         trades = [t for t in trades if t.get("action") != "SELL" or t["pair"] in held_pairs]
-        buy_count = sum(1 for t in trades if t.get("action") == "BUY")
-        slots_left = max(0, config.MAX_OPEN_POSITIONS - len(positions))
-        if buy_count > slots_left:
-            trades = [t for t in trades if t.get("action") == "SELL"] + \
-                     [t for t in trades if t.get("action") == "BUY"][:slots_left]
-            print(f"Limited buys to {slots_left} (max {config.MAX_OPEN_POSITIONS} positions)", flush=True)
+        unique_pairs = {p["pair"] for p in positions}
+        extra_buys = [t for t in trades if t.get("action") == "BUY" and t["pair"] in unique_pairs]
+        new_buys = [t for t in trades if t.get("action") == "BUY" and t["pair"] not in unique_pairs]
+        slots_left = max(0, config.MAX_OPEN_POSITIONS - len(unique_pairs))
+        if len(new_buys) > slots_left:
+            trades = [t for t in trades if t.get("action") == "SELL"] + extra_buys + new_buys[:slots_left]
+            print(f"Limited new buys to {slots_left} (max {config.MAX_OPEN_POSITIONS} unique)", flush=True)
 
         if not trades:
             brief = (f"CIO: {decision.get('decision')} | Regime: {regime_info.get('regime', 'N/A')}\n"
