@@ -26,6 +26,8 @@ def compute_signals(ohlcv: list[dict]) -> dict:
     prev_price = closes.iloc[-2] if len(closes) > 1 else last_price
 
     volumes = df.get("volume", df.get("vol", None))
+    if volumes is not None:
+        volumes = volumes.astype(float)
     vol_current = float(volumes.iloc[-1]) if volumes is not None else 0
     vol_avg = float(volumes.tail(20).mean()) if volumes is not None else 1
     vol_ratio = round(vol_current / vol_avg, 2) if vol_avg > 0 else 1
