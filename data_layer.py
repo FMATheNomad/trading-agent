@@ -74,6 +74,11 @@ async def fetch_all_tickers(client: httpx.AsyncClient) -> dict:
         }
     return result
 
+async def fetch_ohlcv_both(client: httpx.AsyncClient, pair: str) -> tuple[list[dict], list[dict]]:
+    ohlcv_1h = await fetch_ohlcv(client, pair=pair, tf=60, limit=100)
+    ohlcv_4h = await fetch_ohlcv(client, pair=pair, tf=240, limit=100)
+    return ohlcv_1h or [], ohlcv_4h or []
+
 async def fetch_viable_pairs(client: httpx.AsyncClient) -> list[dict]:
     pairs = await fetch_all_pairs(client)
     tickers = await fetch_all_tickers(client)

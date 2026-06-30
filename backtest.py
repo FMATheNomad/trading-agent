@@ -13,7 +13,7 @@ import argparse
 import asyncio
 import httpx
 from data_layer import fetch_ohlcv
-from indicators import compute_signals
+from indicators import compute_single as compute_signals
 from risk_manager import RiskManager
 import config
 

@@ -23,20 +23,29 @@ Scan all assets and classify the current regime:
 - if portfolio in external positions (user holding), treat as part of allocation
 - Priority: capital preservation > steady growth > aggressive returns
 
-## TRENDING / MOMENTUM DETECTION
-Assets are ranked by 1h price change. Pay attention to:
-- **Top-ranked assets** = momentum leaders — potential breakout candidates
-- **Volume spike (🚀)** = vol > 2x average — unusual activity, investigate
-- **Momentum streak** = consecutive candles in same direction (+/-)
-- A coin with high rank + volume spike + bullish signal = highest conviction setup
+## MULTI-TIMEFRAME ANALYSIS
+Each asset shows TWO timeframes:
+- **1h** (short-term): entry timing, momentum
+- **4h** (medium-term): macro trend, conviction
+- **TF_aligned**: when 1h and 4h agree on same direction = HIGH CONVICTION setup
+- **Score**: multi-factor score (RSI + EMA + MACD + BB + volume + momentum)
+  - BUY ≥ +4, SELL ≤ -3, HOLD in between
+- **Range14**: 14-period range % — narrow range = potential breakout
 
-## DECISION PROCESS (think step by step before outputting)
-1. What regime are we in? (trending/mean-reverting/sideways/high vol)
-2. Which assets have edge? (check RSI + MACD + BB + EMA alignment)
-3. Which assets are trending (high rank, volume spike, momentum streak)?
-4. What is the right play_capital_pct given regime + conviction?
-5. Which specific trades pass the Kelly + risk filters?
-6. Should we SELL any existing positions (including user's external holdings)?
+## TRENDING / MOMENTUM DETECTION
+Assets ranked by 1h change. Key signals:
+- **Conviction:HIGH** = 1h + 4h aligned = strongest signal
+- **🚀 Volume spike** = vol > 2x average
+- **Range14 narrowing + volume spike** = breakout imminent
+- Highest conviction: HIGH conviction + volume spike + top rank + buy signal
+
+## DECISION PROCESS
+1. Market regime? (check 4h trends across assets)
+2. Which assets have HIGH conviction? (timeframe aligned + score ≥4)
+3. Any breakout candidates? (narrow range + volume spike)
+4. What play_capital_pct based on regime strength?
+5. Which specific trades pass Kelly + risk filters?
+6. SELL any external positions if thesis broken?
 
 ## OUTPUT FORMAT (valid JSON only)
 {
@@ -97,12 +106,15 @@ def _build_portfolio_context(
             f"#{rank} {vol_spike}[{pair}] Price: {t.get('last')} | "
             f"1hChg: {sig.get('price_change_pct', 0):+.2f}% | "
             f"Vol:Rp{t.get('vol_idr', 0):,.0f} (x{sig.get('volume_ratio', 1)}avg) | "
-            f"Signal: {sig.get('raw_signal')} | RSI: {sig.get('rsi')} | "
-            f"MACD: {sig.get('macd_line')}/{sig.get('macd_signal')} | "
-            f"BB: {sig.get('bb_lower')}-{sig.get('bb_upper')} | "
-            f"Volatility: {sig.get('volatility')}% | "
-            f"Mmtm: {sig.get('momentum_streak', 0)}{sig.get('momentum_dir', '')} | "
-            f"Reason: {sig.get('signal_reason')}"
+            f"1h:{sig.get('raw_signal')}({sig.get('score', 0)}) | "
+            f"4h:{sig.get('4h_signal', 'N/A')}({sig.get('4h_score', 0)}) | "
+            f"TF_aligned:{sig.get('timeframe_aligned', False)} | "
+            f"Conviction:{sig.get('conviction', 'LOW')} | "
+            f"RSI:{sig.get('rsi')} | MACD:{sig.get('macd_line')}/{sig.get('macd_signal')} | "
+            f"BB:{sig.get('bb_lower')}-{sig.get('bb_upper')} | "
+            f"Vol:{sig.get('volatility')}% | Range14:{sig.get('range_14_pct')}% | "
+            f"Mmtm:{sig.get('momentum_streak', 0)}{sig.get('momentum_dir', '')} | "
+            f"Reason:{sig.get('signal_reason')}"
         )
 
     return "\n".join(lines)

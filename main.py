@@ -6,7 +6,7 @@ import signal
 from urllib.parse import urlencode
 import httpx
 import config
-from data_layer import fetch_viable_pairs, fetch_ticker, fetch_ohlcv, fetch_all_tickers
+from data_layer import fetch_viable_pairs, fetch_ticker, fetch_ohlcv, fetch_ohlcv_both, fetch_all_tickers
 from indicators import compute_signals, compute_batch_signals
 from llm_filter import evaluate_portfolio
 from risk_manager import RiskManager, PortfolioRiskManager
@@ -52,26 +52,29 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             print("No viable pairs. Skipping cycle.", flush=True)
             return
 
-        print("Fetching OHLCV with concurrency limit...", flush=True)
+        print("Fetching OHLCV (1h + 4h) with concurrency limit...", flush=True)
         sem = asyncio.Semaphore(config.OHLCV_FETCH_CONCURRENCY)
-        ohlcv_map: dict[str, list[dict]] = {}
+        ohlcv_map_1h: dict[str, list[dict]] = {}
+        ohlcv_map_4h: dict[str, list[dict]] = {}
         ticker_map: dict[str, dict] = {}
 
         async def fetch_one(v: dict):
             pid = v["pair"]
             async with sem:
                 try:
-                    ohlcv = await fetch_ohlcv(client, pair=pid, tf=60, limit=100)
-                    if ohlcv and len(ohlcv) >= 30:
-                        ohlcv_map[pid] = ohlcv
+                    o1, o4 = await fetch_ohlcv_both(client, pair=pid)
+                    if len(o1) >= 30:
+                        ohlcv_map_1h[pid] = o1
                         ticker_map[pid] = v["ticker"]
+                    if len(o4) >= 30:
+                        ohlcv_map_4h[pid] = o4
                 except Exception as e:
                     print(f"  {pid}: {e}", flush=True)
 
         await asyncio.gather(*[fetch_one(v) for v in viable])
 
-        print(f"Computing signals for {len(ohlcv_map)} pairs...", flush=True)
-        all_signals = compute_batch_signals(ohlcv_map)
+        print(f"Computing signals: {len(ohlcv_map_1h)} pairs (1h) + {len(ohlcv_map_4h)} (4h)...", flush=True)
+        all_signals = compute_batch_signals(ohlcv_map_1h, ohlcv_map_4h)
 
         external_positions.clear()
         actual_idr_balance = 100_000
@@ -141,7 +144,9 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         ]
 
         has_active_signal = any(
-            s.get("raw_signal") in ("BUY", "SELL") for s in all_signals.values()
+            s.get("conviction") == "HIGH" for s in all_signals.values()
+        ) or any(
+            s.get("raw_signal") in ("BUY", "SELL") and s.get("score", 0) >= 3 for s in all_signals.values()
         )
         has_external = len(external_positions) > 0
 
