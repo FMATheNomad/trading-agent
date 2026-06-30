@@ -186,7 +186,8 @@ DeepSeek return JSON:
 
 ## Catatan Penting
 
-- **Modal Rp60.906** — bot berjalan LIVE dengan Alpha Mode
+- **Modal Rp105.204** (cash) + INJ + HUMANITY + ETH = **~Rp235.000 equity**
+- **Posisi saat ini:** INJ (0.324), HUMANITY (55.28), ETH (0.00028) — STIK & ZEREBRO sudah dijual (cut loss)
 - **API key hanya perlu permission "trade"** — jangan pernah beri permission "withdraw"
 - **Telegram bot** — jika ganti nama/token, update env Railway
 - **Database SQLite** — file `trades.db` di direktori project

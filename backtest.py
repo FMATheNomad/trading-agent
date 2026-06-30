@@ -28,7 +28,7 @@ class BacktestEngine:
     def run(self, ohlcv: list[dict]):
         for i in range(30, len(ohlcv)):
             window = ohlcv[:i]
-            sig = compute_signals(window)
+            sig = compute_single(window)
             price = float(ohlcv[i - 1]["close"])
 
             if self.position:

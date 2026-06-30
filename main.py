@@ -317,7 +317,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 if not config.PAPER_TRADING and config.INDODAX_API_KEY:
                     try:
                         coin_name = p["pair"].split("_")[0]
-                        ns = int(time.time() * 1000)
+                        ns = _next_nonce()
                         sp = {"method":"trade","nonce":ns,"pair":p["pair"],"type":"sell",
                               coin_name:f"{p['qty']:.8f}","order_type":"market"}
                         sb = urlencode(sp)
@@ -348,7 +348,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 pnl = (last - p["entry_price"]) * p["qty"]
                 try:
                     coin_name = p["pair"].split("_")[0]
-                    nonce_s = int(time.time() * 1000)
+                    nonce_s = _next_nonce()
                     s_params = {"method":"trade","nonce":nonce_s,"pair":p["pair"],"type":"sell",
                                 coin_name:f"{p['qty']:.8f}","order_type":"market"}
                     s_body = urlencode(s_params)
@@ -425,7 +425,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     continue
                 print(f"  SELL external {pid} @ {price} | {qty} coin", flush=True)
                 try:
-                    nonce_sell = int(time.time() * 1000)
+                    nonce_sell = _next_nonce()
                     coin_name = pid.split("_")[0]
                     sell_params = {
                         "method": "trade", "nonce": nonce_sell,
@@ -533,6 +533,12 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         print(f"⏱ Cycle #{cycle_counter} finished in {int(time.time() - _t0)}s", flush=True)
 
 _latest_balance: float = 100_000
+_nonce_counter: int = 0
+
+def _next_nonce() -> int:
+    global _nonce_counter
+    _nonce_counter += 1
+    return int(time.time() * 1000000) + _nonce_counter
 
 async def _balance_poller(client: httpx.AsyncClient):
     global _latest_balance
@@ -672,7 +678,11 @@ async def main():
     mws_stop()
     pws_stop()
     if config.INDODAX_API_KEY:
-        await cancel_deadman(client)
+        try:
+            async with httpx.AsyncClient() as _dc:
+                await cancel_deadman(_dc)
+        except Exception:
+            pass
     print("Shutdown complete.", flush=True)
 
 if __name__ == "__main__":
