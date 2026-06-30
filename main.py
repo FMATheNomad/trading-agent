@@ -277,7 +277,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             print(f"Limited buys to {slots_left} (max {config.MAX_OPEN_POSITIONS} positions)", flush=True)
 
         if not trades:
-            regime = (decision.get("reasoning", "") or "").split(".")[0].strip()[:200] if decision.get("reasoning") else "N/A"
+            regime = (decision.get("reasoning") or "")[:200]
             brief = (f"CIO: {decision.get('decision')}\n"
                      f"Play: {play_capital_pct}% | Pairs: {len(all_signals)}\n"
                      f"{regime}")
