@@ -1,3 +1,4 @@
+import pandas as pd
 import config
 
 class RiskManager:
@@ -26,14 +27,34 @@ class RiskManager:
         fee_roundtrip = (entry_price * qty * config.TAKER_FEE_PCT) + (target * qty * config.TAKER_FEE_PCT)
         return gross > fee_roundtrip
 
-    def get_sl_tp(self, entry_price: float, side: str) -> tuple[float, float]:
+    def get_sl_tp(self, entry_price: float, side: str, atr_pct: float | None = None) -> tuple[float, float]:
+        sl_mult = atr_pct if atr_pct else abs(config.STOP_LOSS_PCT) * 100
+        tp_mult = sl_mult * 1.5
         if side.upper() == "BUY":
-            sl = entry_price * (1 + config.STOP_LOSS_PCT)
-            tp = entry_price * (1 + config.TAKE_PROFIT_PCT)
+            sl = entry_price * (1 - sl_mult / 100)
+            tp = entry_price * (1 + tp_mult / 100)
         else:
-            sl = entry_price * (1 - config.STOP_LOSS_PCT)
-            tp = entry_price * (1 - config.TAKE_PROFIT_PCT)
+            sl = entry_price * (1 + sl_mult / 100)
+            tp = entry_price * (1 - tp_mult / 100)
         return round(sl, 2), round(tp, 2)
+
+    def compute_atr(self, ohlcv: list[dict], period: int = 14) -> float:
+        if len(ohlcv) < period + 1:
+            return abs(config.STOP_LOSS_PCT) * 100
+        df = pd.DataFrame(ohlcv[-period - 1:])
+        df.columns = [c.lower() for c in df.columns]
+        high = df["high"].astype(float)
+        low = df["low"].astype(float)
+        close = df["close"].astype(float)
+        prev_close = close.shift(1)
+        tr = pd.concat([
+            (high - low).abs(),
+            (high - prev_close).abs(),
+            (low - prev_close).abs(),
+        ], axis=1).max(axis=1)
+        atr = tr.mean()
+        atr_pct = round(atr / close.iloc[-1] * 100, 2) if close.iloc[-1] else 1
+        return min(max(atr_pct, 0.5), 10)
 
     def check_sl_tp(self, entry_price: float, current_price: float, side: str) -> str | None:
         if entry_price <= 0:

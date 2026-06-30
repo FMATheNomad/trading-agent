@@ -25,14 +25,23 @@ async def fetch_ticker(client: httpx.AsyncClient, pair: str | None = None) -> di
         "server_time": int(t["server_time"]),
     }
 
-async def fetch_orderbook(client: httpx.AsyncClient, pair: str | None = None) -> dict | None:
+async def fetch_orderbook(client: httpx.AsyncClient, pair: str | None = None, depth: int = 10) -> dict | None:
     pair = pair or config.PAIR
     r = await client.get(f"{PUBLIC_URL}/api/depth/{pair}")
     r.raise_for_status()
     data = r.json()
+    bids = [[float(p), float(q)] for p, q in data.get("buy", [])][:depth]
+    asks = [[float(p), float(q)] for p, q in data.get("sell", [])][:depth]
+    bid_vol = sum(q for _, q in bids)
+    ask_vol = sum(q for _, q in asks)
+    imbalance = round((bid_vol - ask_vol) / (bid_vol + ask_vol + 1e-9) * 100, 1) if (bid_vol + ask_vol) > 0 else 0
     return {
-        "bids": [[float(p), float(q)] for p, q in data.get("buy", [])],
-        "asks": [[float(p), float(q)] for p, q in data.get("sell", [])],
+        "bids": bids,
+        "asks": asks,
+        "bid_vol": bid_vol,
+        "ask_vol": ask_vol,
+        "imbalance_pct": imbalance,
+        "pressure": "BUY" if imbalance > 10 else "SELL" if imbalance < -10 else "NEUTRAL",
     }
 
 async def fetch_ohlcv(client: httpx.AsyncClient, pair: str | None = None,

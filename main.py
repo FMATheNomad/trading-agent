@@ -6,7 +6,7 @@ import signal
 from urllib.parse import urlencode
 import httpx
 import config
-from data_layer import fetch_viable_pairs, fetch_ticker, fetch_ohlcv, fetch_ohlcv_both, fetch_all_tickers
+from data_layer import fetch_viable_pairs, fetch_ticker, fetch_ohlcv, fetch_ohlcv_both, fetch_all_tickers, fetch_orderbook
 from indicators import compute_signals, compute_batch_signals
 from llm_filter import evaluate_portfolio
 from risk_manager import RiskManager, PortfolioRiskManager
@@ -208,6 +208,16 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             for p in all_positions
         ]
 
+        orderbooks = {}
+        top_pairs = list(ohlcv_map_1h.keys())[:5]
+        for pid in top_pairs:
+            try:
+                ob = await fetch_orderbook(client, pair=pid, depth=10)
+                if ob:
+                    orderbooks[pid] = ob
+            except Exception:
+                pass
+
         has_active_signal = any(
             s.get("conviction") == "HIGH" for s in all_signals.values()
         ) or any(
@@ -224,7 +234,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                              if config.PLAY_CAPITAL_IDR else 0)
             decision = evaluate_portfolio(all_signals, ticker_map, current_positions_info,
                                            balance_idr, portfolio_pnl,
-                                           regime_info, pair_suggestions, regime_history)
+                                           regime_info, pair_suggestions, regime_history, orderbooks)
             if decision.get("deepseek_error"):
                 await send_message(f"⚠️ DeepSeek API error: {decision.get('reasoning', '')[:200]}")
             print(f"PM decision: {decision.get('decision')} | {decision.get('reasoning', '')[:100]}", flush=True)
@@ -240,7 +250,12 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         sl_hits = []
         for p in list(positions):
             last = ticker_map.get(p["pair"], {}).get("last", p["entry_price"])
+            atr = p.get("atr_pct")
             result = risk.check_sl_tp(p["entry_price"], last, p["side"])
+            if not result and atr:
+                dyn_sl = p["entry_price"] * (1 - atr / 100) if p["side"] == "BUY" else p["entry_price"] * (1 + atr / 100)
+                if (p["side"] == "BUY" and last <= dyn_sl) or (p["side"] == "SELL" and last >= dyn_sl):
+                    result = "ATR_SL"
             if result:
                 pnl = (last - p["entry_price"]) * p["qty"]
                 if p["side"] == "SELL":
@@ -334,6 +349,12 @@ async def portfolio_cycle(client: httpx.AsyncClient):
 
             print(f"  {action} {pid} @ {price} | Rp{amount:,.0f} ({qty:.6f}) | alloc: {alloc}%", flush=True)
 
+            ohlcv = ohlcv_map_1h.get(pid)
+            if ohlcv and action == "BUY":
+                atr_pct = risk.compute_atr(ohlcv)
+                sl, tp = risk.get_sl_tp(price, action, atr_pct)
+                print(f"  ATR: {atr_pct}% | SL: {sl} | TP: {tp}", flush=True)
+
             order = await place_order(client, action.lower(), price, amount,
                                        pair=pid, order_type="market" if config.PAPER_TRADING else "limit")
             log_trade(action.lower(), price, qty, amount,
@@ -349,6 +370,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     "entry_price": price,
                     "qty": qty,
                     "amount_idr": amount,
+                    "atr_pct": atr_pct if ohlcv else None,
                 })
             elif action == "SELL":
                 positions = [p for p in positions if p["pair"] != pid]

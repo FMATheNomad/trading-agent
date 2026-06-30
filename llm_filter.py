@@ -79,6 +79,16 @@ Assets ranked by 1h change. Key signals:
 - Each allocation_pct ≥ 50% (minimum order Rp50.000)
 - If ALL raw_signals are HOLD and no external position needs closing: set HOLD, trades=[]"""
 
+_strategy_map = {
+    "STRONG_BULL": "TREND_FOLLOW (aggressive, hold winners)",
+    "BULL": "TREND_FOLLOW (moderate)",
+    "SIDEWAYS": "MEAN_REVERSION (fade extremes, quick exits)",
+    "SIDEWAYS_LOW_VOL": "MEAN_REVERSION (tight stops, small targets)",
+    "BEAR": "DEFENSIVE (short only, high conviction)",
+    "STRONG_BEAR": "CAPITAL_PRESERVATION (mostly cash)",
+    "HIGH_VOL": "REDUCED_SIZE (wide stops, low leverage)",
+}
+
 def _build_portfolio_context(
     all_signals: dict[str, dict],
     all_tickers: dict[str, dict],
@@ -88,6 +98,7 @@ def _build_portfolio_context(
     regime_info: dict | None = None,
     pair_suggestions: list[dict] | None = None,
     regime_history: list[str] | None = None,
+    orderbooks: dict[str, dict] | None = None,
 ) -> str:
     lines = [f"=== PORTFOLIO STATUS ===",
              f"Cash: Rp{balance_idr:,.0f}",
@@ -108,6 +119,18 @@ def _build_portfolio_context(
         lines.append("-- Pairs Monitor --")
         for p in pair_suggestions:
             lines.append(f"{p['pair']} = {p['ratio']} (A: {p['a_price']}, B: {p['b_price']})")
+        lines.append("")
+
+    if regime_info:
+        strat = _strategy_map.get(regime_info.get("regime", ""), "NEUTRAL")
+        lines.append(f"-- Active Strategy: {strat} --")
+        lines.append("")
+
+    if orderbooks:
+        lines.append("-- Order Book Pressure (top 10 levels) --")
+        for pair, ob in list(orderbooks.items())[:5]:
+            lines.append(f"{pair}: {ob.get('pressure', 'N/A')} ({ob.get('imbalance_pct', 0):+.1f}%) | "
+                        f"BidVol:{ob.get('bid_vol', 0):.2f} AskVol:{ob.get('ask_vol', 0):.2f}")
         lines.append("")
 
     if current_positions:
@@ -155,6 +178,7 @@ def evaluate_portfolio(
     regime_info: dict | None = None,
     pair_suggestions: list[dict] | None = None,
     regime_history: list[str] | None = None,
+    orderbooks: dict[str, dict] | None = None,
 ) -> dict:
     if not config.DEEPSEEK_API_KEY:
         buys = [{"pair": p, "action": "BUY", "allocation_pct": 40, "reason": "No LLM key"}
@@ -166,7 +190,7 @@ def evaluate_portfolio(
     client = OpenAI(api_key=config.DEEPSEEK_API_KEY, base_url=config.DEEPSEEK_BASE_URL)
     user_prompt = _build_portfolio_context(
         all_signals, all_tickers, current_positions, balance_idr, portfolio_pnl_pct,
-        regime_info, pair_suggestions, regime_history,
+        regime_info, pair_suggestions, regime_history, orderbooks,
     )
 
     kwargs = {
