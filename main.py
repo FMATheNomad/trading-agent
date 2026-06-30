@@ -10,7 +10,7 @@ from data_layer import fetch_viable_pairs, fetch_ticker, fetch_ohlcv, fetch_ohlc
 from indicators import compute_signals, compute_batch_signals
 from llm_filter import evaluate_portfolio
 from risk_manager import RiskManager, PortfolioRiskManager
-from executor import place_order, get_balance
+from executor import place_order, get_balance, get_order
 from deadman import refresh_deadman, cancel_deadman
 from notifier import send_message
 from db import init_db, log_trade, log_decision
@@ -284,7 +284,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             await send_message(brief)
             print("No trades suggested. Sleeping.", flush=True)
             if positions and config.INDODAX_API_KEY:
-                await refresh_deadman(client)
+                pair_str = ",".join(p["pair"] for p in positions[:5])
+                await refresh_deadman(client, pair_str)
             return
 
         valid_trades = portfolio_risk.validate_allocation(trades, current_positions_info, balance_idr)
@@ -384,7 +385,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             print(f"Portfolio: {len(positions)} positions | Cash: Rp{balance_idr:,.0f}", flush=True)
 
         if positions and config.INDODAX_API_KEY:
-            await refresh_deadman(client)
+            pair_str = ",".join(p["pair"] for p in positions[:5])
+            await refresh_deadman(client, pair_str)
 
     except Exception as e:
         print(f"Portfolio cycle error: {e}", flush=True)

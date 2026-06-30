@@ -55,6 +55,7 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 
 # --- Scheduler ---
 LOOP_INTERVAL_SECONDS = 300
+DEADMAN_COUNTDOWN_MS = 900_000
 
 # --- Senior Quant Settings ---
 REGIME_LOOKBACK_CYCLES = 12

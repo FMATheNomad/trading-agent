@@ -56,11 +56,11 @@ async def place_order(client: httpx.AsyncClient, side: str, price: float, amount
         raise RuntimeError(f"Order failed {pair}: {data.get('error', 'unknown')}")
     return data["return"]
 
-async def cancel_order(client: httpx.AsyncClient, order_id: int, pair: str | None = None) -> dict:
+async def cancel_order(client: httpx.AsyncClient, order_id: int, pair: str | None = None, side: str = "buy") -> dict:
     pair = pair or config.PAIR
     nonce = int(time.time() * 1000)
     params = {"method": "cancelOrder", "nonce": nonce, "pair": pair,
-              "order_id": str(order_id), "type": "buy"}
+              "order_id": str(order_id), "type": side}
     body = urlencode(params)
     r = await client.post(config.INDODAX_TAPI_URL, headers=_headers(body), content=body)
     return r.json()
@@ -74,6 +74,16 @@ async def get_balance(client: httpx.AsyncClient) -> dict:
     if data.get("success") != 1:
         raise RuntimeError(f"getInfo failed: {data.get('error', 'unknown')}")
     return data["return"]
+
+async def get_order(client: httpx.AsyncClient, order_id: int, pair: str = config.PAIR) -> dict | None:
+    nonce = int(time.time() * 1000)
+    params = {"method": "getOrder", "nonce": nonce, "pair": pair, "order_id": str(order_id)}
+    body = urlencode(params)
+    r = await client.post(config.INDODAX_TAPI_URL, headers=_headers(body), content=body)
+    data = r.json()
+    if data.get("success") == 1:
+        return data["return"].get("order")
+    return None
 
 async def get_open_orders(client: httpx.AsyncClient, pair: str | None = None) -> list:
     pair = pair or config.PAIR
