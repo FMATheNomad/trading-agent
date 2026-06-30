@@ -24,7 +24,7 @@ OUTPUT FORMAT — respond ONLY with valid JSON:
     {
       "pair": "btc_idr",
       "action": "BUY" | "SELL",
-      "allocation_pct": 40,
+      "allocation_pct": 60,
       "reason": "Why this trade"
     }
   ]
@@ -34,7 +34,8 @@ RULES:
 - If no compelling opportunity: decision = "HOLD", trades = []
 - Total allocation_pct across all BUY trades must not exceed 90%
 - One pair can appear at most once
-- Maximum 3 concurrent open trades
+- Maximum 2 concurrent open trades (capital limited)
+- Each allocation_pct must be ≥50% (minimum order Rp50.000 from Rp100.000 capital)
 - Prefer established assets (BTC, ETH) over memecoins
 - Consider market regime: in high volatility, reduce position sizes
 - SELL an asset if its thesis has deteriorated, not just because it's up
