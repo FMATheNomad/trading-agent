@@ -38,18 +38,23 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             print("No viable pairs. Skipping cycle.", flush=True)
             return
 
-        print("Fetching tickers & OHLCV for all viable pairs...", flush=True)
+        print("Fetching OHLCV with concurrency limit...", flush=True)
+        sem = asyncio.Semaphore(config.OHLCV_FETCH_CONCURRENCY)
         ohlcv_map: dict[str, list[dict]] = {}
         ticker_map: dict[str, dict] = {}
-        for v in viable:
+
+        async def fetch_one(v: dict):
             pid = v["pair"]
-            try:
-                ohlcv = await fetch_ohlcv(client, pair=pid, tf=60, limit=100)
-                if ohlcv and len(ohlcv) >= 30:
-                    ohlcv_map[pid] = ohlcv
-                    ticker_map[pid] = v["ticker"]
-            except Exception as e:
-                print(f"  {pid}: fetch failed - {e}", flush=True)
+            async with sem:
+                try:
+                    ohlcv = await fetch_ohlcv(client, pair=pid, tf=60, limit=100)
+                    if ohlcv and len(ohlcv) >= 30:
+                        ohlcv_map[pid] = ohlcv
+                        ticker_map[pid] = v["ticker"]
+                except Exception as e:
+                    print(f"  {pid}: {e}", flush=True)
+
+        await asyncio.gather(*[fetch_one(v) for v in viable])
 
         print(f"Computing signals for {len(ohlcv_map)} pairs...", flush=True)
         all_signals = compute_batch_signals(ohlcv_map)

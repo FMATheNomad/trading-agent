@@ -77,10 +77,9 @@ async def fetch_all_tickers(client: httpx.AsyncClient) -> dict:
 async def fetch_viable_pairs(client: httpx.AsyncClient) -> list[dict]:
     pairs = await fetch_all_pairs(client)
     tickers = await fetch_all_tickers(client)
-    viable = []
+    candidates = []
     for p in pairs:
         pid = p.get("ticker_id", "")
-        tid = pid.replace("_", "").lower()
         if not pid.endswith("_idr"):
             continue
         t = tickers.get(pid)
@@ -89,14 +88,14 @@ async def fetch_viable_pairs(client: httpx.AsyncClient) -> list[dict]:
         vol_idr = t.get("vol_idr", 0)
         if vol_idr < config.MIN_24H_VOLUME_IDR:
             continue
-        viable.append({
+        candidates.append({
             "pair": pid,
-            "symbol": tid,
-            "base": p.get("base_currency", ""),
             "traded": p.get("traded_currency", ""),
             "price_precision": p.get("price_precision", 1000),
             "trade_min_base": p.get("trade_min_base_currency", 50000),
             "trade_min_traded": p.get("trade_min_traded_currency", 0.0001),
             "ticker": t,
+            "_vol": vol_idr,
         })
-    return viable
+    candidates.sort(key=lambda x: x["_vol"], reverse=True)
+    return candidates[:config.MAX_SCAN_PAIRS]
