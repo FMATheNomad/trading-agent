@@ -132,7 +132,7 @@ def _score_signal(ind: dict) -> tuple[str, str, int]:
     if streak >= 3: score += 1; reasons.append(f"streak_{streak}")
     elif streak <= -3: score -= 1; reasons.append(f"streak_{streak}")
 
-    if score >= 4:
+    if score >= 3:
         return ("BUY", "; ".join(reasons), score)
     elif score <= -3:
         return ("SELL", "; ".join(reasons), score)

@@ -3,6 +3,7 @@ import hashlib
 import hmac
 import sys
 import signal
+import time
 from urllib.parse import urlencode
 import httpx
 import config
@@ -44,7 +45,7 @@ def classify_regime(all_signals: dict) -> dict:
         regime = "BULL"
     elif sells / total >= 0.5 and avg_score < -1:
         regime = "BEAR"
-    elif avg_vol > 3.5:
+    elif avg_vol > config.HIGH_VOL_THRESHOLD:
         regime = "HIGH_VOL"
     elif avg_vol < 0.5 and buys / total < 0.2 and sells / total < 0.2:
         regime = "SIDEWAYS_LOW_VOL"
@@ -224,8 +225,6 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 pass
 
         has_active_signal = any(
-            s.get("conviction") == "HIGH" for s in all_signals.values()
-        ) or any(
             s.get("raw_signal") in ("BUY", "SELL") and s.get("score", 0) >= 3 for s in all_signals.values()
         )
         has_external = len(external_positions) > 0
@@ -283,10 +282,9 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             print(f"Limited buys to {slots_left} (max {config.MAX_OPEN_POSITIONS} positions)", flush=True)
 
         if not trades:
-            regime = (decision.get("reasoning") or "")[:200]
-            brief = (f"CIO: {decision.get('decision')}\n"
+            brief = (f"CIO: {decision.get('decision')} | Regime: {regime_info.get('regime', 'N/A')}\n"
                      f"Play: {play_capital_pct}% | Pairs: {len(all_signals)}\n"
-                     f"{regime}")
+                     f"{(decision.get('reasoning') or '')[:200]}")
             await send_message(brief)
             print("No trades suggested. Sleeping.", flush=True)
             if positions and config.INDODAX_API_KEY:
