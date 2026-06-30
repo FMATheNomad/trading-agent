@@ -91,6 +91,10 @@ KELLY_FRACTION = 0.25
 MAX_KELLY_ALLOC = 0.95
 MIN_KELLY_ALLOC = 0.3
 
+# --- Auto Compound ---
+AUTO_COMPOUND = True
+CAPITAL_GROWTH_MULTIPLIER = 1.0
+
 # --- WebSocket ---
 WS_MARKET_URL = "wss://ws3.indodax.com/ws/"
 WS_MARKET_TOKEN = os.getenv("WS_MARKET_TOKEN", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE5NDY2MTg0MTV9.UR1lBM6Eqh0yWz-PVirw1uPCxe60FdchR8eNVdsskeo")

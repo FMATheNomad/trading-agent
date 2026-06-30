@@ -39,6 +39,15 @@ async def place_order(client: httpx.AsyncClient, side: str, price: float, amount
         else:
             coin_qty = round(amount_idr / price, 8)
             params[coin] = f"{coin_qty:.8f}"
+    elif order_type == "maker":
+        buy_price = int(price * 0.998)
+        sell_price = int(price * 1.002)
+        side_price = buy_price if side == "buy" else sell_price
+        params["price"] = str(side_price)
+        coin_qty = round(amount_idr / side_price, 8)
+        params[coin] = f"{coin_qty:.8f}"
+        params["order_type"] = "limit"
+        params["time_in_force"] = "MOC"
     else:
         coin_qty = round(amount_idr / price, 8)
         params[coin] = f"{coin_qty:.8f}"

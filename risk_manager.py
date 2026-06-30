@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 import config
 
@@ -5,6 +6,7 @@ class RiskManager:
     def __init__(self):
         self.daily_start_balance = config.PLAY_CAPITAL_IDR
         self.today_peak = config.PLAY_CAPITAL_IDR
+        self.trailing_highs: dict[str, float] = {}
 
     def should_stop_trading(self, total_equity: float) -> bool:
         if total_equity > self.today_peak:
@@ -58,13 +60,46 @@ class RiskManager:
         atr_pct = round(atr / close.iloc[-1] * 100, 2) if close.iloc[-1] else 1
         return min(max(atr_pct, 0.5), 10)
 
-    def check_sl_tp(self, entry_price: float, current_price: float, side: str) -> str | None:
+    def check_sl_tp(self, entry_price: float, current_price: float, side: str, pair: str = "") -> str | None:
         if entry_price <= 0:
             return None
         if side.upper() == "BUY":
             pnl_pct = (current_price - entry_price) / entry_price
+            if pair and current_price > self.trailing_highs.get(pair, entry_price):
+                self.trailing_highs[pair] = current_price
+            if pair and pnl_pct > 0:
+                trail_stop = self.trailing_highs[pair] * (1 - abs(config.STOP_LOSS_PCT) * 0.5)
+                if current_price <= trail_stop:
+                    return "TRAILING_SL"
         else:
             pnl_pct = (entry_price - current_price) / entry_price
+            if pair and current_price < self.trailing_highs.get(pair, entry_price):
+                self.trailing_highs[pair] = current_price
+            if pair and pnl_pct > 0:
+                trail_stop = self.trailing_highs[pair] * (1 + abs(config.STOP_LOSS_PCT) * 0.5)
+                if current_price >= trail_stop:
+                    return "TRAILING_SL"
+        if pnl_pct <= config.STOP_LOSS_PCT:
+            return "SL_HIT"
+        if pnl_pct >= config.TAKE_PROFIT_PCT:
+            return "TP_HIT"
+        return None
+        if side.upper() == "BUY":
+            pnl_pct = (current_price - entry_price) / entry_price
+            if pair and current_price > self.trailing_highs.get(pair, entry_price):
+                self.trailing_highs[pair] = current_price
+            if pair and pnl_pct > 0:
+                trail_stop = self.trailing_highs[pair] * (1 - abs(config.STOP_LOSS_PCT) * 0.6)
+                if current_price <= trail_stop:
+                    return "TRAILING_SL"
+        else:
+            pnl_pct = (entry_price - current_price) / entry_price
+            if pair and current_price < self.trailing_highs.get(pair, entry_price):
+                self.trailing_highs[pair] = current_price
+            if pair and pnl_pct > 0:
+                trail_stop = self.trailing_highs[pair] * (1 + abs(config.STOP_LOSS_PCT) * 0.6)
+                if current_price >= trail_stop:
+                    return "TRAILING_SL"
         if pnl_pct <= config.STOP_LOSS_PCT:
             return "SL_HIT"
         if pnl_pct >= config.TAKE_PROFIT_PCT:
@@ -106,8 +141,6 @@ class KellyCalculator:
         ml_boost = (ml_buy_prob - 0.5) * 0.3 if ml_buy_prob > 0.5 else 0
         alloc = base + score_boost + conv_boost + ml_boost
         return round(max(min(alloc, config.MAX_KELLY_ALLOC), config.MIN_KELLY_ALLOC), 2)
-
-import numpy as np
 
 class PortfolioRiskManager:
     def __init__(self, initial_capital: float = config.PLAY_CAPITAL_IDR):

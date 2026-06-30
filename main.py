@@ -98,6 +98,29 @@ def compute_pairs_suggestions(all_signals: dict, ticker_map: dict) -> list[dict]
         })
     return suggestions
 
+def correlation_risk(positions: list[dict], ticker_map: dict, threshold: float = 0.85) -> list[str]:
+    if len(positions) < 2:
+        return []
+    high_risk = []
+    prices = []
+    labels = []
+    for p in positions:
+        pid = p["pair"]
+        t = ticker_map.get(pid, {})
+        price = t.get("last", p.get("entry_price", 0))
+        if price:
+            prices.append(price)
+            labels.append(pid)
+    if len(prices) < 2:
+        return []
+    for i in range(len(prices)):
+        for j in range(i + 1, len(prices)):
+            if prices[i] > 0 and prices[j] > 0:
+                ratio = max(prices[i], prices[j]) / min(prices[i], prices[j])
+                if ratio < 1.1:
+                    high_risk.append(f"{labels[i]}+{labels[j]}")
+    return high_risk
+
 def handle_sig(*_):
     global shutdown_flag
     shutdown_flag = True
@@ -363,7 +386,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         for p in list(positions):
             last = ticker_map.get(p["pair"], {}).get("last", p["entry_price"])
             atr = p.get("atr_pct")
-            result = risk.check_sl_tp(p["entry_price"], last, p["side"])
+            result = risk.check_sl_tp(p["entry_price"], last, p["side"], pair=p["pair"])
             if not result and atr:
                 dyn_sl = p["entry_price"] * (1 - atr / 100) if p["side"] == "BUY" else p["entry_price"] * (1 + atr / 100)
                 if (p["side"] == "BUY" and last <= dyn_sl) or (p["side"] == "SELL" and last >= dyn_sl):
@@ -400,7 +423,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             if ep <= 0:
                 continue
             last = ticker_map.get(p["pair"], {}).get("last", p.get("current_price", 0))
-            result = risk.check_sl_tp(ep, last, p["side"])
+            result = risk.check_sl_tp(ep, last, p["side"], pair=p["pair"])
             if result:
                 print(f"  EXT SL CHECK: {p['pair']} entry={ep:,} last={last:,} result={result}", flush=True)
             if result:
@@ -437,6 +460,18 @@ async def portfolio_cycle(client: httpx.AsyncClient):
 
         if sl_hits:
             await send_message("SL/TP triggered:\n" + "\n".join(sl_hits))
+            if config.AUTO_COMPOUND:
+                for sl_hit in sl_hits:
+                    if "+" in sl_hit.split(":")[-1]:
+                        try:
+                            pnl_str = sl_hit.split(":")[-1].strip().split(" ")[0]
+                            pnl_val = float(pnl_str.replace("+", "").replace(",", ""))
+                            if pnl_val > 0:
+                                new_capital = min(config.PLAY_CAPITAL_IDR + pnl_val * 0.5, 500_000)
+                                config.PLAY_CAPITAL_IDR = new_capital
+                                print(f"COMPOUND: Capital grown to Rp{new_capital:,.0f}", flush=True)
+                        except Exception:
+                            pass
 
         trades = decision.get("trades", [])
         all_held = {p["pair"] for p in positions} | {p["pair"] for p in external_positions}
@@ -488,6 +523,18 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             print("No valid trades after risk checks.", flush=True)
             print(f"Cycle done in {int(time.time() - _t0)}s. Sleeping.", flush=True)
             return
+
+        correlated = correlation_risk(all_positions + [{"pair": t["pair"], "entry_price": 0} for t in valid_trades if t.get("action") == "BUY"], ticker_map)
+        if correlated:
+            corr_pairs = set()
+            for c in correlated:
+                for pair in c.split("+"):
+                    corr_pairs.add(pair)
+            valid_trades = [t for t in valid_trades if t["action"] == "SELL" or t["pair"] not in corr_pairs or len(corr_pairs) <= 1]
+            if not valid_trades:
+                print("All BUY trades eliminated by correlation check.", flush=True)
+                print(f"Cycle done in {int(time.time() - _t0)}s. Sleeping.", flush=True)
+                return
 
         executed_trades = []
         for t in valid_trades:
@@ -562,8 +609,9 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 print(f"  ATR: {atr_pct}% | SL: {sl} | TP: {tp}", flush=True)
 
             try:
+                use_maker = not config.PAPER_TRADING and action == "BUY"
                 order = await place_order(client, action.lower(), price, amount,
-                                           pair=pid, order_type="limit" if config.PAPER_TRADING else "market")
+                                           pair=pid, order_type="maker" if use_maker else "market")
             except Exception as e:
                 print(f"  Order failed {pid}: {e}", flush=True)
                 await send_message(f"Order failed {pid}: {e}")
