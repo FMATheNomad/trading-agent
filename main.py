@@ -348,8 +348,11 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                         if "minimum" in str(err).lower():
                             external_positions.remove(p)
                             print(f"  Removed {p['pair']} from tracking (below minimum order)", flush=True)
+                        else:
+                            sl_hits.append(f"{p['pair']} {result} (ext): {pnl:+.0f} IDR (sell failed: {err[:30]})")
                 except Exception as e:
                     print(f"  Ext sell failed {p['pair']}: {e}", flush=True)
+                    sl_hits.append(f"{p['pair']} {result} (ext): {pnl:+.0f} IDR (sell error: {str(e)[:30]})")
 
         if sl_hits:
             await send_message("SL/TP triggered:\n" + "\n".join(sl_hits))
