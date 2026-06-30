@@ -17,13 +17,22 @@ OHLCV_FETCH_CONCURRENCY = 10
 MAX_POSITION_PCT_PER_ASSET = 0.9
 MAX_SECTOR_EXPOSURE_PCT = 0.6
 
+# --- Mode Profile ---
+ALPHA_MODE = os.getenv("ALPHA_MODE", "false").strip().lower() == "true"
+
 # --- Risk per trade ---
 POSITION_SIZE_PCT = 0.85
-STOP_LOSS_PCT = -0.05
-TAKE_PROFIT_PCT = 0.05
-DAILY_LOSS_FLOOR_IDR = 60_000
+if ALPHA_MODE:
+    STOP_LOSS_PCT = -0.10
+    TAKE_PROFIT_PCT = 0.20
+    DAILY_LOSS_FLOOR_IDR = 40_000
+    PORTFOLIO_STOP_LOSS_PCT = -0.30
+else:
+    STOP_LOSS_PCT = -0.05
+    TAKE_PROFIT_PCT = 0.05
+    DAILY_LOSS_FLOOR_IDR = 60_000
+    PORTFOLIO_STOP_LOSS_PCT = -0.20
 TAKER_FEE_PCT = 0.0035
-PORTFOLIO_STOP_LOSS_PCT = -0.20
 
 # --- Hanya koin fundamental — tidak ada meme/shitcoin ---
 FUNDAMENTAL_COINS: set[str] = set()
