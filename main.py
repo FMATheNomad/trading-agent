@@ -15,7 +15,7 @@ from risk_manager import RiskManager, PortfolioRiskManager
 from executor import place_order, get_balance, get_order
 from deadman import refresh_deadman, cancel_deadman
 from notifier import send_message
-from db import init_db, log_trade, log_decision, save_positions, load_positions, save_peak_capital, load_peak_capital
+from db import init_db, log_trade, log_decision, save_positions, load_positions, save_peak_capital, load_peak_capital, save_ext_entry_prices, load_ext_entry_prices
 from market_ws import market_ws_loop, LIVE_TICKERS, stop as mws_stop
 from private_ws import private_ws_loop, stop as pws_stop
 
@@ -27,11 +27,10 @@ shutdown_flag = False
 
 regime_history: list[str] = []
 known_pairs: set[str] = set()
-_ext_entry_prices: dict[str, float] = {
-    "myro_idr": 115,
-    "stik_idr": 209,
-    "eth_idr": 35_262_000,
-}
+_ext_entry_prices: dict[str, float] = load_ext_entry_prices()
+if not _ext_entry_prices:
+    _ext_entry_prices = {"myro_idr": 115, "stik_idr": 209, "eth_idr": 35_262_000}
+    save_ext_entry_prices(_ext_entry_prices)
 
 def classify_regime(all_signals: dict) -> dict:
     signals = [s.get("raw_signal") for s in all_signals.values() if s.get("raw_signal")]
@@ -195,6 +194,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     if entry_price == 0 and last_price:
                         entry_price = last_price
                         _ext_entry_prices[pair] = entry_price
+                        save_ext_entry_prices(_ext_entry_prices)
 
                     external_positions.append({
                         "pair": pair, "side": "BUY",

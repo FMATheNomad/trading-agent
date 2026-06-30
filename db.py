@@ -1,3 +1,4 @@
+import json
 import sqlite3
 import os
 from datetime import datetime, timezone
@@ -94,6 +95,18 @@ def load_positions() -> list[dict]:
          "amount_idr": r[4], "atr_pct": r[5]}
         for r in rows
     ]
+
+def save_ext_entry_prices(prices: dict[str, float]):
+    with _conn() as conn:
+        conn.execute("DELETE FROM meta WHERE key='ext_entry_prices'")
+        conn.execute("INSERT INTO meta (key, value) VALUES (?, ?)", ("ext_entry_prices", json.dumps(prices)))
+
+def load_ext_entry_prices() -> dict[str, float]:
+    with _conn() as conn:
+        row = conn.execute("SELECT value FROM meta WHERE key='ext_entry_prices'").fetchone()
+    if row:
+        return json.loads(row[0])
+    return {}
 
 def save_peak_capital(value: float):
     with _conn() as conn:
