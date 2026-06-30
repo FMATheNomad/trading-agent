@@ -5,7 +5,7 @@ load_dotenv()
 
 # --- Dana bot — fixed Rp100rb, tidak peduli berapapun deposit user ---
 PLAY_CAPITAL_IDR = 100_000
-MIN_ORDER_IDR = 50_000
+MIN_ORDER_IDR = 25_000
 DEFAULT_PLAY_CAPITAL_PCT = 0.5
 
 # --- Portfolio ---
@@ -14,7 +14,7 @@ MAX_OPEN_POSITIONS = 2
 MIN_24H_VOLUME_IDR = 100_000_000
 MAX_SCAN_PAIRS = 40
 OHLCV_FETCH_CONCURRENCY = 10
-MAX_POSITION_PCT_PER_ASSET = 0.4
+MAX_POSITION_PCT_PER_ASSET = 0.9
 MAX_SECTOR_EXPOSURE_PCT = 0.6
 
 # --- Risk per trade ---

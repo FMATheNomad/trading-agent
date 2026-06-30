@@ -57,7 +57,8 @@ You get z-score signals for correlated pairs (BTC/ETH, SOL/ADA, BNB/XRP):
 - play_capital_pct: 0-100 (integer)
 - Total BUY allocation_pct ≤ play_capital_pct
 - Max 2 concurrent trades
-- Each allocation_pct ≥ 50% (min order Rp50.000)
+- Each allocation_pct must be LARGE. **With Rp130k capital, minimum is 50% (Rp65k)** — small allocations waste fee.
+- If play_capital is small (<Rp100k), allocation_pct per trade must be at least 50% to meet min order. Preferably 60-85%.
 - If HOLD, explain why briefly in reasoning."""
 
 _strategy_map = {
