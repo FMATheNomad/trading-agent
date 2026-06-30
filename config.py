@@ -3,30 +3,30 @@ import os
 
 load_dotenv()
 
-# --- Dana bot — fixed Rp100rb, tidak peduli berapapun deposit user ---
-PLAY_CAPITAL_IDR = 100_000
-MIN_ORDER_IDR = 25_000
-DEFAULT_PLAY_CAPITAL_PCT = 0.5
+# --- Dana bot — Rp200rb target -> Rp500rb dalam beberapa hari ---
+PLAY_CAPITAL_IDR = 200_000
+MIN_ORDER_IDR = 20_000
+DEFAULT_PLAY_CAPITAL_PCT = 0.8
 
 # --- Portfolio ---
 PORTFOLIO_MODE = True
-MAX_OPEN_POSITIONS = 3
+MAX_OPEN_POSITIONS = 4
 MIN_24H_VOLUME_IDR = 100_000_000
 MAX_SCAN_PAIRS = 40
 OHLCV_FETCH_CONCURRENCY = 10
-MAX_POSITION_PCT_PER_ASSET = 0.9
-MAX_SECTOR_EXPOSURE_PCT = 0.6
+MAX_POSITION_PCT_PER_ASSET = 0.95
+MAX_SECTOR_EXPOSURE_PCT = 0.7
 
 # --- Mode Profile ---
-ALPHA_MODE = os.getenv("ALPHA_MODE", "false").strip().lower() == "true"
+ALPHA_MODE = os.getenv("ALPHA_MODE", "true").strip().lower() == "true"
 
 # --- Risk per trade ---
 POSITION_SIZE_PCT = 0.85
 if ALPHA_MODE:
-    STOP_LOSS_PCT = -0.10
-    TAKE_PROFIT_PCT = 0.20
-    DAILY_LOSS_FLOOR_IDR = 40_000
-    PORTFOLIO_STOP_LOSS_PCT = -0.30
+    STOP_LOSS_PCT = -0.08
+    TAKE_PROFIT_PCT = 0.25
+    DAILY_LOSS_FLOOR_IDR = 60_000
+    PORTFOLIO_STOP_LOSS_PCT = -0.35
 else:
     STOP_LOSS_PCT = -0.05
     TAKE_PROFIT_PCT = 0.05

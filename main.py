@@ -405,7 +405,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             print("No valid trades after risk checks.", flush=True)
             brief = (f"CIO: HOLD | Regime: {regime_info.get('regime', 'N/A')}\n"
                      f"Play: {play_capital_pct}% | Pairs: {len(all_signals)}\n"
-                     f"Trades rejected by risk checks (allocation/min order)")
+                     f"Trades rejected by risk checks (min order)")
             ok = await send_message(brief)
             print(f"Telegram: {'OK' if ok else 'FAIL'}", flush=True)
             return
@@ -510,11 +510,11 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 save_positions(positions)
 
         if executed_trades:
-            msg_lines = [f"{'[PAPER] ' if config.PAPER_TRADING else ''}PORTFOLIO REBALANCE"]
+            msg_lines = [f"{'[PAPER] ' if config.PAPER_TRADING else ''}FMA ALPHA QUANT LABS — EKSEKUSI"]
             for t in executed_trades:
                 msg_lines.append(f"{t['action']} {t['pair']} ({t['allocation_pct']}%) — {t['reason'][:60]}")
             total_pos = len(positions) + len(external_positions)
-            msg_lines.append(f"Total positions: {total_pos} (bot: {len(positions)}, ext: {len(external_positions)}) | Cash: Rp{actual_idr_balance:,.0f} (budget: Rp{balance_idr:,})")
+            msg_lines.append(f"Total posisi: {total_pos} (bot: {len(positions)}, ext: {len(external_positions)}) | Cash: Rp{actual_idr_balance:,.0f} (budget: Rp{balance_idr:,})")
             await send_message("\n".join(msg_lines))
             print(f"Portfolio: {total_pos} total positions | Cash: Rp{actual_idr_balance:,.0f} (budget: Rp{balance_idr:,})", flush=True)
 
@@ -549,7 +549,8 @@ async def main():
     global _latest_balance, shutdown_flag
 
     print("=" * 50, flush=True)
-    print("  AI HEDGE FUND MANAGER — INDODAX", flush=True)
+    print("  FMA ALPHA QUANT LABS — INDODAX", flush=True)
+    print(f"  Target: Rp200.000 → Rp500.000 🔥", flush=True)
     print(f"  Mode: {'PAPER' if config.PAPER_TRADING else 'LIVE'}", flush=True)
     print(f"  CIO manages play capital dynamically", flush=True)
     print(f"  Model: {config.DEEPSEEK_MODEL}", flush=True)
@@ -574,10 +575,10 @@ async def main():
         print(f"DB init failed: {e}", flush=True)
 
     ok = await send_message(
-        f"Hedge Fund Manager started\n"
-        f"CIO manages play capital dynamically\n"
+        f"🤖 FMA ALPHA QUANT LABS started\n"
+        f"CIO aktif — target Rp200k → Rp500k 🔥\n"
         f"CIO scans top {config.MAX_SCAN_PAIRS} pairs by volume\n"
-        f"Mode: {'PAPER' if config.PAPER_TRADING else 'LIVE'}"
+        f"Mode: {'PAPER' if config.PAPER_TRADING else 'LIVE'} | Alpha Mode ON"
     )
     print(f"Telegram: {'OK' if ok else 'FAILED'}", flush=True)
 
@@ -606,10 +607,11 @@ async def main():
                                     )
                                 if external_positions:
                                     ext_text = "\nExt: " + ", ".join(f"{p['pair']}({p['qty']})" for p in external_positions[:5])
-                                text = (f"AI Hedge Fund Manager\n"
+                                text = (f"FMA ALPHA QUANT LABS 🤖\n"
+                                        f"Target: Rp200k → Rp500k 🔥\n"
                                         f"Status: {'PAPER' if config.PAPER_TRADING else 'LIVE'}\n"
                                         f"CIO manages play capital\n"
-                                        f"Paper positions: {len(positions)}\n{pos_text}{ext_text}")
+                                        f"Bot positions: {len(positions)}\n{pos_text}{ext_text}")
                                 async with httpx.AsyncClient() as cc:
                                     await cc.post(
                                         f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
@@ -630,7 +632,7 @@ async def main():
                                     resp = cl.chat.completions.create(
                                         model=config.DEEPSEEK_MODEL,
                                         messages=[
-                                            {"role": "system", "content": f"Kamu CIO hedge fund profesional. Bicara sopan pakai 'aku', singkat, santai. Portfolio: {ctx}. Jawab 1-2 kalimat."},
+                                            {"role": "system", "content": f"Kamu CIO FMA ALPHA QUANT LABS. Target: Rp200k→Rp500k. Bicara sopan pakai 'aku', singkat, santai. Portfolio: {ctx}. Jawab 1-2 kalimat."},
                                             {"role": "user", "content": raw},
                                         ],
                                     )
@@ -661,7 +663,7 @@ async def main():
         bal_poller = asyncio.create_task(_balance_poller(client))
 
         while not shutdown_flag:
-            print(f"\n{'='*20} Cycle #{cycle_counter + 1} {'='*20}", flush=True)
+            print(f"\n{'='*20} FMA ALPHA QUANT LABS — Cycle #{cycle_counter + 1} {'='*20}", flush=True)
             await portfolio_cycle(client)
             for _ in range(config.LOOP_INTERVAL_SECONDS // 5):
                 if shutdown_flag:

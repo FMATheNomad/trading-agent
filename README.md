@@ -1,6 +1,6 @@
-# FMA Alpha Quant Labs — AI Hedge Fund Manager
+# FMA ALPHA QUANT LABS 🤖 — Rp200k → Rp500k 🔥
 
-**Auto-trading bot untuk Indodax** dengan AI Chief Investment Officer (CIO) berbasis DeepSeek V4 Flash. Menggabungkan multi-timeframe technical analysis, statistical arbitrage, regime detection, dan portfolio risk management.
+**Auto-trading bot untuk Indodax** dengan AI Chief Investment Officer (CIO) berbasis DeepSeek V4 Flash. Target agresif: menumbuhkan Rp200.000 menjadi Rp500.000 dalam hitungan hari. Menggabungkan multi-timeframe technical analysis, statistical arbitrage, regime detection, dan portfolio risk management.
 
 ## Arsitektur
 
@@ -50,14 +50,17 @@
 - Market-neutral strategy
 
 ### 📉 Risk Management
-| Parameter | Standard | Alpha |
+| Parameter | Standard | Alpha (AKTIF) 🔴 |
 |-----------|----------|-------|
-| Stop Loss | 5% | 10% |
-| Take Profit | 5% | 20% |
-| Daily Loss Floor | Rp60.000 | Rp40.000 |
-| Portfolio Drawdown | 20% | 30% |
-| Max Positions | 3 | 3 |
-| Position Cap | 90% per asset | 90% per asset |
+| Stop Loss | 5% | **8%** |
+| Take Profit | 5% | **25%** |
+| Risk:Reward | 1:1 | **1:3** |
+| Daily Loss Floor | Rp60.000 | Rp60.000 |
+| Portfolio Drawdown | 20% | **35%** |
+| Max Positions | 3 | **4** |
+| Position Cap | 90% per asset | **95% per asset** |
+| Min Buy Score | ≥+3 | **≥+2** |
+| Play Capital | 30-60% | **70-95%** |
 | Fee Estimate | 0.35% taker | 0.35% taker |
 
 ### 🔌 Koneksi Real-Time
@@ -142,10 +145,10 @@ Service sudah terhubung ke `FMATheNomad/trading-agent`. Push ke `main` → auto-
 
 | Mode | SL | TP | Min Buy Score | Play Capital | Cocok Untuk |
 |------|----|----|---------------|-------------|-------------|
-| **Standard** | 5% | 5% | ≥+3 | 30-60% | Konservatif |
-| **Alpha** 🔴 | 10% | 20% | ≥+2 | 60-90% | Risk taker |
+| **Alpha** 🔴 **(AKTIF)** | 8% | **25%** | ≥+2 | **70-95%** | **Target 200k→500k dalam hari** |
+| Standard | 5% | 5% | ≥+3 | 30-60% | Konservatif |
 
-Aktifkan Alpha Mode: `railway variables set ALPHA_MODE=true --service trading-agent`
+Alpha Mode aktif secara default. Untuk nonaktifkan: `railway variables set ALPHA_MODE=false --service trading-agent`
 
 ## Cara Kerja (1 Cycle = 5 menit)
 
@@ -186,7 +189,7 @@ DeepSeek return JSON:
 
 ## Catatan Penting
 
-- **Modal Rp105.204** (cash) + INJ + HUMANITY + ETH = **~Rp235.000 equity**
+- **Target: Rp200.000 → Rp500.000** dalam hitungan hari 🔥
 - **Posisi saat ini:** INJ (0.324), HUMANITY (55.28), ETH (0.00028) — STIK & ZEREBRO sudah dijual (cut loss)
 - **API key hanya perlu permission "trade"** — jangan pernah beri permission "withdraw"
 - **Telegram bot** — jika ganti nama/token, update env Railway
