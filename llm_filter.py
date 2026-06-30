@@ -21,7 +21,7 @@ BASE_PROMPT = """You are a veteran crypto quant trader. Aggressive on edge, pati
 ## OUTPUT (json)
 {"decision":"HOLD|REBALANCE","play_capital_pct":0-100,"reasoning":"...","trades":[{"pair":"","action":"BUY|SELL","allocation_pct":N,"reason":""}]}
 - Max 2 bot trades (user external don't count)
-- allocation_pct per BUY ≥50% (min order Rp25k)
+- allocation_pct per BUY must be ≥70% with current capital (min order Rp25k, cash ~Rp60k)
 - Total allocation ≤ play_capital_pct"""
 
 ALPHA_PROMPT = """
@@ -206,7 +206,7 @@ def evaluate_portfolio(
     pair_signals: list[dict] | None = None,
 ) -> dict:
     if not config.DEEPSEEK_API_KEY:
-        buys = [{"pair": p, "action": "BUY", "allocation_pct": 40, "reason": "No LLM key"}
+        buys = [{"pair": p, "action": "BUY", "allocation_pct": 80, "reason": "No LLM key"}
                 for p, s in all_signals.items() if s.get("raw_signal") == "BUY"]
         return {"decision": "REBALANCE" if buys else "HOLD",
                 "reasoning": "No DeepSeek key — rule-based fallback",
