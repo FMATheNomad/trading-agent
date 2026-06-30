@@ -192,6 +192,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                         entry_price = last_price
                         _ext_entry_prices[pair] = entry_price
                         save_ext_entry_prices(_ext_entry_prices)
+                    if entry_price > 0:
+                        print(f"  {pair}: entry_price={entry_price:,}", flush=True)
 
                     external_positions.append({
                         "pair": pair, "side": "BUY",
@@ -313,10 +315,13 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                           status="closed", pnl=pnl, reason=result)
 
         for p in list(external_positions):
-            if p.get("entry_price", 0) <= 0:
+            ep = p.get("entry_price", 0)
+            if ep <= 0:
                 continue
             last = ticker_map.get(p["pair"], {}).get("last", p.get("current_price", 0))
-            result = risk.check_sl_tp(p["entry_price"], last, p["side"])
+            result = risk.check_sl_tp(ep, last, p["side"])
+            if result:
+                print(f"  EXT SL CHECK: {p['pair']} entry={ep:,} last={last:,} result={result}", flush=True)
             if result:
                 pnl = (last - p["entry_price"]) * p["qty"]
                 sl_hits.append(f"{p['pair']} {result} (ext): {pnl:+.0f} IDR")
