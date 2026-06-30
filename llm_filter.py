@@ -56,7 +56,7 @@ You get z-score signals for correlated pairs (BTC/ETH, SOL/ADA, BNB/XRP):
 - Output valid JSON only.
 - play_capital_pct: 0-100 (integer)
 - Total BUY allocation_pct ≤ play_capital_pct
-- Max 2 concurrent trades
+- Max 2 concurrent trades (external/user positions in portfolio don't count toward this limit — bot can still open 2 positions even if user holds other coins)
 - Each allocation_pct must be LARGE. **With Rp130k capital, minimum is 50% (Rp65k)** — small allocations waste fee.
 - If play_capital is small (<Rp100k), allocation_pct per trade must be at least 50% to meet min order. Preferably 60-85%.
 - If HOLD, explain why briefly in reasoning."""
@@ -164,10 +164,12 @@ def _build_portfolio_context(
         lines.append("")
 
     if current_positions:
-        lines.append("-- Current Positions --")
+        lines.append("-- Portfolio Breakdown --")
         for p in current_positions:
-            lines.append(f"{p['pair']} | {p['side']} | Entry: {p['entry_price']} | "
-                        f"Qty: {p['qty']} | PnL: {p.get('pnl_pct', 0):+.2f}%")
+            is_ext = " [USER POSITION]" if p.get("real") else ""
+            lines.append(f"  {p['pair']} {p['side']} | Entry:{p['entry_price']} | "
+                        f"Qty:{p['qty']} | PnL:{p.get('pnl_pct', 0):+.2f}% | "
+                        f"Value:Rp{p.get('current_value', 0):,.0f}{is_ext}")
         lines.append("")
 
     def _chg24(t: dict, live: dict | None) -> float:

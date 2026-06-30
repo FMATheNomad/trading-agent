@@ -220,6 +220,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 "qty": p["qty"],
                 "pnl_pct": p.get("pnl_pct", 0),
                 "current_value": p["qty"] * ticker_map.get(p["pair"], {}).get("last", 0),
+                "real": p.get("real", False),
             }
             for p in all_positions
         ]
