@@ -27,10 +27,7 @@ shutdown_flag = False
 
 regime_history: list[str] = []
 known_pairs: set[str] = set()
-_ext_entry_prices: dict[str, float] = load_ext_entry_prices()
-if not _ext_entry_prices:
-    _ext_entry_prices = {"myro_idr": 115, "stik_idr": 209, "eth_idr": 35_262_000}
-    save_ext_entry_prices(_ext_entry_prices)
+_ext_entry_prices: dict[str, float] = {}
 
 def classify_regime(all_signals: dict) -> dict:
     signals = [s.get("raw_signal") for s in all_signals.values() if s.get("raw_signal")]
@@ -525,6 +522,16 @@ async def main():
             positions.extend(saved)
             print(f"Loaded {len(saved)} persisted positions", flush=True)
         print("DB init OK", flush=True)
+        loaded = load_ext_entry_prices()
+        if loaded:
+            _ext_entry_prices.update(loaded)
+            print(f"Loaded {len(loaded)} entry prices", flush=True)
+        if not _ext_entry_prices.get("eth_idr"):
+            _ext_entry_prices["myro_idr"] = 115
+            _ext_entry_prices["stik_idr"] = 209
+            _ext_entry_prices["eth_idr"] = 35_262_000
+            save_ext_entry_prices(_ext_entry_prices)
+            print("Seeded initial entry prices", flush=True)
     except Exception as e:
         print(f"DB init failed: {e}", flush=True)
 
