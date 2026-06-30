@@ -251,7 +251,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             portfolio_pnl = ((total_equity - config.PLAY_CAPITAL_IDR) / config.PLAY_CAPITAL_IDR * 100
                              if config.PLAY_CAPITAL_IDR else 0)
             decision = evaluate_portfolio(all_signals, ticker_map, current_positions_info,
-                                           balance_idr, portfolio_pnl,
+                                           actual_idr_balance, portfolio_pnl,
                                            regime_info, pair_suggestions, regime_history, orderbooks,
                                            LIVE_TICKERS, new_coins, pair_signals)
             if decision.get("deepseek_error"):
