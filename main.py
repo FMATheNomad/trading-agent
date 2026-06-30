@@ -1,6 +1,9 @@
 import asyncio
+import hashlib
+import hmac
 import sys
 import signal
+from urllib.parse import urlencode
 import httpx
 import config
 from data_layer import fetch_viable_pairs, fetch_ticker, fetch_ohlcv, fetch_all_tickers
@@ -15,6 +18,12 @@ from db import init_db, log_trade, log_decision
 risk = RiskManager()
 portfolio_risk = PortfolioRiskManager()
 positions: list[dict] = []
+
+external_positions: list[dict] = [
+    {"pair": "eth_idr", "side": "BUY", "entry_price": 0, "qty": 0.00028242,
+     "amount_idr": 0, "real": True},
+]
+
 shutdown_flag = False
 
 def handle_sig(*_):
@@ -77,9 +86,13 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             for p in positions
         )
 
-        for p in positions:
-            last = ticker_map.get(p["pair"], {}).get("last", p["entry_price"])
-            p["pnl_pct"] = round(pnl_pct(p["entry_price"], last, p["side"]), 2)
+        all_positions = positions + external_positions
+        for p in all_positions:
+            last = ticker_map.get(p["pair"], {}).get("last", p.get("entry_price") or 0)
+            if last and p.get("entry_price"):
+                p["pnl_pct"] = round(pnl_pct(p["entry_price"], last, p["side"]), 2)
+            else:
+                p["pnl_pct"] = 0
 
         if portfolio_risk.check_portfolio_stop(total_equity):
             msg = (f"PORTFOLIO STOP-LOSS HIT ({config.PORTFOLIO_STOP_LOSS_PCT*100}%)\n"
@@ -93,9 +106,9 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             sys.exit(0)
 
         current_positions_info = [
-            {"pair": p["pair"], "side": p["side"], "entry_price": p["entry_price"],
+            {"pair": p["pair"], "side": p["side"], "entry_price": p.get("entry_price") or 0,
              "qty": p["qty"], "pnl_pct": p.get("pnl_pct", 0)}
-            for p in positions
+            for p in all_positions
         ]
 
         print("Calling DeepSeek portfolio manager...", flush=True)
@@ -142,6 +155,45 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             pid = t["pair"]
             action = t["action"]
             alloc = t["allocation_pct"]
+
+            ext = next((e for e in external_positions if e["pair"] == pid), None)
+            if ext and action == "SELL":
+                qty = ext["qty"]
+                ticker = ticker_map.get(pid, {})
+                price = ticker.get("buy", 0)
+                if not price:
+                    continue
+                print(f"  SELL external {pid} @ {price} | {qty} coin", flush=True)
+                try:
+                    nonce_sell = int(time.time() * 1000)
+                    coin_name = pid.split("_")[0]
+                    sell_params = {
+                        "method": "trade", "nonce": nonce_sell,
+                        "pair": pid, "type": "sell",
+                        coin_name: f"{qty:.8f}", "order_type": "market",
+                    }
+                    sell_body = urlencode(sell_params)
+                    sell_sig = hmac.new(config.INDODAX_SECRET_KEY.encode(),
+                                         sell_body.encode(), hashlib.sha512).hexdigest()
+                    sr = await client.post(config.INDODAX_TAPI_URL, headers={
+                        "Key": config.INDODAX_API_KEY, "Sign": sell_sig,
+                        "Content-Type": "application/x-www-form-urlencoded",
+                    }, content=sell_body)
+                    sell_result = sr.json()
+                    print(f"  Real sell result: {sell_result}", flush=True)
+                    if sell_result.get("success") == 1:
+                        received = sell_result["return"].get("receive_rp", 0)
+                        external_positions.remove(ext)
+                        log_trade("sell", price, qty, received, status="closed",
+                                  pnl=float(received) - ext.get("amount_idr", 0),
+                                  reason=f"CIO decision: {t.get('reason', '')}")
+                        executed_trades.append(t)
+                        await send_message(f"CIO EKSEKUSI: JUAL {pid}\n"
+                                           f"Qty: {qty} | Diterima: Rp{received:,}")
+                except Exception as e:
+                    print(f"  Failed sell {pid}: {e}", flush=True)
+                continue
+
             amount = balance_idr * (alloc / 100)
             ticker = ticker_map.get(pid, {})
             price = ticker.get("sell" if action == "BUY" else "buy", 0)
