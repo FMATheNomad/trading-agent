@@ -5,11 +5,8 @@ from urllib.parse import urlencode
 import httpx
 import config
 
-_nonce_seq: int = 0
-def _nonce() -> int:
-    global _nonce_seq
-    _nonce_seq += 1
-    return int(time.time() * 1000000) + _nonce_seq
+def _ts() -> int:
+    return int(time.time() * 1000)
 
 def _sign(body: str, secret: str) -> str:
     return hmac.new(secret.encode(), body.encode(), hashlib.sha512).hexdigest()
@@ -26,11 +23,10 @@ async def place_order(client: httpx.AsyncClient, side: str, price: float, amount
                       pair: str | None = None, order_type: str = "limit") -> dict:
     pair = pair or config.PAIR
     coin = pair.split("_")[0]
-    nonce = _nonce()
-
     params = {
         "method": "trade",
-        "nonce": nonce,
+        "timestamp": _ts(),
+        "recvWindow": "5000",
         "pair": pair,
         "type": side,
         "price": str(int(price)),
@@ -52,7 +48,7 @@ async def place_order(client: httpx.AsyncClient, side: str, price: float, amount
 
     if config.PAPER_TRADING:
         return {"paper_trade": True, "side": side, "pair": pair, "price": price,
-                "amount_idr": amount_idr, "order_type": order_type, "nonce": nonce}
+                 "amount_idr": amount_idr, "order_type": order_type}
 
     r = await client.post(config.INDODAX_TAPI_URL, headers=_headers(body), content=body)
     data = r.json()
@@ -62,16 +58,14 @@ async def place_order(client: httpx.AsyncClient, side: str, price: float, amount
 
 async def cancel_order(client: httpx.AsyncClient, order_id: int, pair: str | None = None, side: str = "buy") -> dict:
     pair = pair or config.PAIR
-    nonce = _nonce()
-    params = {"method": "cancelOrder", "nonce": nonce, "pair": pair,
+    params = {"method": "cancelOrder", "timestamp": _ts(), "recvWindow": "5000", "pair": pair,
               "order_id": str(order_id), "type": side}
     body = urlencode(params)
     r = await client.post(config.INDODAX_TAPI_URL, headers=_headers(body), content=body)
     return r.json()
 
 async def get_balance(client: httpx.AsyncClient) -> dict:
-    nonce = _nonce()
-    params = {"method": "getInfo", "nonce": nonce}
+    params = {"method": "getInfo", "timestamp": _ts(), "recvWindow": "5000"}
     body = urlencode(params)
     r = await client.post(config.INDODAX_TAPI_URL, headers=_headers(body), content=body)
     data = r.json()
@@ -80,8 +74,7 @@ async def get_balance(client: httpx.AsyncClient) -> dict:
     return data["return"]
 
 async def get_order(client: httpx.AsyncClient, order_id: int, pair: str = config.PAIR) -> dict | None:
-    nonce = _nonce()
-    params = {"method": "getOrder", "nonce": nonce, "pair": pair, "order_id": str(order_id)}
+    params = {"method": "getOrder", "timestamp": _ts(), "recvWindow": "5000", "pair": pair, "order_id": str(order_id)}
     body = urlencode(params)
     r = await client.post(config.INDODAX_TAPI_URL, headers=_headers(body), content=body)
     data = r.json()
@@ -91,8 +84,7 @@ async def get_order(client: httpx.AsyncClient, order_id: int, pair: str = config
 
 async def get_open_orders(client: httpx.AsyncClient, pair: str | None = None) -> list:
     pair = pair or config.PAIR
-    nonce = _nonce()
-    params = {"method": "openOrders", "nonce": nonce, "pair": pair}
+    params = {"method": "openOrders", "timestamp": _ts(), "recvWindow": "5000", "pair": pair}
     body = urlencode(params)
     r = await client.post(config.INDODAX_TAPI_URL, headers=_headers(body), content=body)
     data = r.json()

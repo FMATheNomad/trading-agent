@@ -317,8 +317,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 if not config.PAPER_TRADING and config.INDODAX_API_KEY:
                     try:
                         coin_name = p["pair"].split("_")[0]
-                        ns = _next_nonce()
-                        sp = {"method":"trade","nonce":ns,"pair":p["pair"],"type":"sell",
+                        _ts_s = int(time.time() * 1000)
+                        sp = {"method":"trade","timestamp":_ts_s,"recvWindow":"5000","pair":p["pair"],"type":"sell",
                               coin_name:f"{p['qty']:.8f}","order_type":"market"}
                         sb = urlencode(sp)
                         ss = hmac.new(config.INDODAX_SECRET_KEY.encode(),sb.encode(),hashlib.sha512).hexdigest()
@@ -348,8 +348,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 pnl = (last - p["entry_price"]) * p["qty"]
                 try:
                     coin_name = p["pair"].split("_")[0]
-                    nonce_s = _next_nonce()
-                    s_params = {"method":"trade","nonce":nonce_s,"pair":p["pair"],"type":"sell",
+                    _ts_ext = int(time.time() * 1000)
+                    s_params = {"method":"trade","timestamp":_ts_ext,"recvWindow":"5000","pair":p["pair"],"type":"sell",
                                 coin_name:f"{p['qty']:.8f}","order_type":"market"}
                     s_body = urlencode(s_params)
                     s_sig = hmac.new(config.INDODAX_SECRET_KEY.encode(),s_body.encode(),hashlib.sha512).hexdigest()
@@ -425,10 +425,10 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     continue
                 print(f"  SELL external {pid} @ {price} | {qty} coin", flush=True)
                 try:
-                    nonce_sell = _next_nonce()
+                    _ts_cio = int(time.time() * 1000)
                     coin_name = pid.split("_")[0]
                     sell_params = {
-                        "method": "trade", "nonce": nonce_sell,
+                        "method": "trade", "timestamp": _ts_cio, "recvWindow": "5000",
                         "pair": pid, "type": "sell",
                         coin_name: f"{qty:.8f}", "order_type": "market",
                     }
@@ -533,12 +533,6 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         print(f"⏱ Cycle #{cycle_counter} finished in {int(time.time() - _t0)}s", flush=True)
 
 _latest_balance: float = 100_000
-_nonce_counter: int = 0
-
-def _next_nonce() -> int:
-    global _nonce_counter
-    _nonce_counter += 1
-    return int(time.time() * 1000000) + _nonce_counter
 
 async def _balance_poller(client: httpx.AsyncClient):
     global _latest_balance
