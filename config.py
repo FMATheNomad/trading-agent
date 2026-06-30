@@ -3,11 +3,11 @@ import os
 
 load_dotenv()
 
-# --- Modal ---
-INITIAL_CAPITAL_IDR = 100_000
+# --- Dana bot — fixed Rp100rb, tidak peduli berapapun deposit user ---
+PLAY_CAPITAL_IDR = 100_000
 MIN_ORDER_IDR = 50_000
 
-# --- Portfolio Mode ---
+# --- Portfolio ---
 PORTFOLIO_MODE = True
 MAX_OPEN_POSITIONS = 2
 MIN_24H_VOLUME_IDR = 500_000_000
@@ -23,6 +23,13 @@ TAKE_PROFIT_PCT = 0.03
 DAILY_LOSS_FLOOR_IDR = 80_000
 TAKER_FEE_PCT = 0.003
 PORTFOLIO_STOP_LOSS_PCT = -0.10
+
+# --- Hanya koin fundamental — tidak ada meme/shitcoin ---
+FUNDAMENTAL_COINS = {
+    "btc_idr", "eth_idr", "sol_idr", "bnb_idr", "xrp_idr",
+    "ada_idr", "dot_idr", "link_idr", "avax_idr", "matic_idr",
+    "atom_idr", "uni_idr", "trx_idr", "ltc_idr", "doge_idr",
+}
 
 # --- Pair ---
 PAIR = os.getenv("PAIR", "btc_idr")

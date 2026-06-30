@@ -82,6 +82,8 @@ async def fetch_viable_pairs(client: httpx.AsyncClient) -> list[dict]:
         pid = p.get("ticker_id", "")
         if not pid.endswith("_idr"):
             continue
+        if pid not in config.FUNDAMENTAL_COINS:
+            continue
         t = tickers.get(pid)
         if not t:
             continue

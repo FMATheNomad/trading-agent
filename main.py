@@ -59,14 +59,18 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         print(f"Computing signals for {len(ohlcv_map)} pairs...", flush=True)
         all_signals = compute_batch_signals(ohlcv_map)
 
-        balance_idr = 100_000
+        actual_idr_balance = 100_000
         if not config.PAPER_TRADING and config.INDODAX_API_KEY:
             try:
                 info = await get_balance(client)
                 bal = info.get("balance", {})
-                balance_idr = float(bal.get("idr", 0))
+                actual_idr_balance = float(bal.get("idr", 0))
             except Exception as e:
                 print(f"Balance fetch error: {e}", flush=True)
+
+        balance_idr = min(actual_idr_balance, config.PLAY_CAPITAL_IDR)
+        if balance_idr < config.MIN_ORDER_IDR and not any(p.get("active") for p in positions):
+            balance_idr = config.PLAY_CAPITAL_IDR
 
         total_equity = balance_idr + sum(
             p["qty"] * ticker_map.get(p["pair"], {}).get("last", p["entry_price"])
@@ -196,9 +200,10 @@ async def main():
     print("=" * 50, flush=True)
     print("  AI HEDGE FUND MANAGER — INDODAX", flush=True)
     print(f"  Mode: {'PAPER' if config.PAPER_TRADING else 'LIVE'}", flush=True)
+    print(f"  Play capital: Rp{config.PLAY_CAPITAL_IDR:,} (FIXED)", flush=True)
     print(f"  Model: {config.DEEPSEEK_MODEL}", flush=True)
     print(f"  Max positions: {config.MAX_OPEN_POSITIONS}", flush=True)
-    print(f"  Min volume filter: Rp{config.MIN_24H_VOLUME_IDR:,.0f}", flush=True)
+    print(f"  Fundamental coins: {len(config.FUNDAMENTAL_COINS)}", flush=True)
     print("=" * 50, flush=True)
 
     signal.signal(signal.SIGTERM, handle_sig)
@@ -210,7 +215,12 @@ async def main():
     except Exception as e:
         print(f"DB init failed: {e}", flush=True)
 
-    ok = await send_message("Hedge Fund Manager started — scanning all IDR pairs")
+    ok = await send_message(
+        f"Hedge Fund Manager started\n"
+        f"Play capital: Rp{config.PLAY_CAPITAL_IDR:,} (fixed)\n"
+        f"Fundamental coins only ({len(config.FUNDAMENTAL_COINS)} pairs)\n"
+        f"Mode: {'PAPER' if config.PAPER_TRADING else 'LIVE'}"
+    )
     print(f"Telegram: {'OK' if ok else 'FAILED'}", flush=True)
 
     async def telegram_poller():
@@ -236,6 +246,7 @@ async def main():
                                     )
                                 text = (f"AI Hedge Fund Manager\n"
                                         f"Status: {'PAPER' if config.PAPER_TRADING else 'LIVE'}\n"
+                                        f"Play capital: Rp{config.PLAY_CAPITAL_IDR:,} (fixed)\n"
                                         f"Positions: {len(positions)}\n{pos_text}")
                                 async with httpx.AsyncClient() as cc:
                                     await cc.post(
