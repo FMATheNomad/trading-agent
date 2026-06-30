@@ -513,9 +513,10 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             msg_lines = [f"{'[PAPER] ' if config.PAPER_TRADING else ''}PORTFOLIO REBALANCE"]
             for t in executed_trades:
                 msg_lines.append(f"{t['action']} {t['pair']} ({t['allocation_pct']}%) — {t['reason'][:60]}")
-            msg_lines.append(f"Positions: {len(positions)} | Cash: Rp{actual_idr_balance:,.0f} (budget: Rp{balance_idr:,})")
+            total_pos = len(positions) + len(external_positions)
+            msg_lines.append(f"Total positions: {total_pos} (bot: {len(positions)}, ext: {len(external_positions)}) | Cash: Rp{actual_idr_balance:,.0f} (budget: Rp{balance_idr:,})")
             await send_message("\n".join(msg_lines))
-            print(f"Portfolio: {len(positions)} positions | Cash: Rp{actual_idr_balance:,.0f} (budget: Rp{balance_idr:,})", flush=True)
+            print(f"Portfolio: {total_pos} total positions | Cash: Rp{actual_idr_balance:,.0f} (budget: Rp{balance_idr:,})", flush=True)
 
         if positions and config.INDODAX_API_KEY:
             pair_str = ",".join(p["pair"] for p in positions[:5])
