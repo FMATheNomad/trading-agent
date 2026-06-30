@@ -12,8 +12,7 @@ class RiskManager:
 
     def compute_position_size(self, balance_idr: float) -> float:
         raw = balance_idr * config.POSITION_SIZE_PCT
-        min_order = 50_000
-        return max(raw, min_order)
+        return max(raw, config.MIN_ORDER_IDR)
 
     def estimate_fee(self, amount_idr: float) -> float:
         return amount_idr * config.TAKER_FEE_PCT
@@ -41,9 +40,40 @@ class RiskManager:
             pnl_pct = (current_price - entry_price) / entry_price
         else:
             pnl_pct = (entry_price - current_price) / entry_price
-
         if pnl_pct <= config.STOP_LOSS_PCT:
             return "SL_HIT"
         if pnl_pct >= config.TAKE_PROFIT_PCT:
             return "TP_HIT"
         return None
+
+
+class PortfolioRiskManager:
+    def __init__(self, initial_capital: float = config.INITIAL_CAPITAL_IDR):
+        self.peak_capital = initial_capital
+        self.initial_capital = initial_capital
+
+    def check_portfolio_stop(self, total_equity: float) -> bool:
+        if total_equity > self.peak_capital:
+            self.peak_capital = total_equity
+        drawdown = (self.peak_capital - total_equity) / self.peak_capital
+        if drawdown >= abs(config.PORTFOLIO_STOP_LOSS_PCT):
+            return True
+        return False
+
+    def validate_allocation(self, trades: list[dict], current_positions: list[dict],
+                             balance_idr: float) -> list[dict]:
+        valid = []
+        used_pct = sum(p.get("allocation_pct", 0) for p in current_positions)
+        for t in trades:
+            if t["allocation_pct"] > config.MAX_POSITION_PCT_PER_ASSET * 100:
+                t["allocation_pct"] = config.MAX_POSITION_PCT_PER_ASSET * 100
+            if used_pct + t["allocation_pct"] > 90:
+                t["allocation_pct"] = 90 - used_pct
+            if t["allocation_pct"] <= 0:
+                continue
+            amount = balance_idr * (t["allocation_pct"] / 100)
+            if amount < config.MIN_ORDER_IDR:
+                continue
+            valid.append(t)
+            used_pct += t["allocation_pct"]
+        return valid

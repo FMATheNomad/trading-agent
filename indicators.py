@@ -9,43 +9,54 @@ def compute_signals(ohlcv: list[dict]) -> dict:
     df.columns = [c.lower() for c in df.columns]
     closes = df["close"].astype(float)
 
-    rsi = ta.momentum.RSIIndicator(closes, window=14).rsi().iloc[-1]
-    ema9 = ta.trend.EMAIndicator(closes, window=9).ema_indicator().iloc[-1]
-    ema21 = ta.trend.EMAIndicator(closes, window=21).ema_indicator().iloc[-1]
+    rsi = ta.momentum.RSIIndicator(closes, window=14).rsi()
+    ema9 = ta.trend.EMAIndicator(closes, window=9).ema_indicator()
+    ema21 = ta.trend.EMAIndicator(closes, window=21).ema_indicator()
     macd = ta.trend.MACD(closes)
-    macd_line = macd.macd().iloc[-1]
-    macd_signal = macd.macd_signal().iloc[-1]
     bb = ta.volatility.BollingerBands(closes, window=20, window_dev=2)
 
+    rsi_val = rsi.iloc[-1]
+    ema9_val = ema9.iloc[-1]
+    ema21_val = ema21.iloc[-1]
+    macd_line = macd.macd().iloc[-1]
+    macd_signal = macd.macd_signal().iloc[-1]
+    bb_lower = bb.bollinger_lband().iloc[-1]
+    bb_upper = bb.bollinger_hband().iloc[-1]
+    last_price = closes.iloc[-1]
+    prev_price = closes.iloc[-2] if len(closes) > 1 else last_price
+
     result = {
-        "rsi": round(rsi, 2) if pd.notna(rsi) else None,
-        "ema9": round(ema9, 2) if pd.notna(ema9) else None,
-        "ema21": round(ema21, 2) if pd.notna(ema21) else None,
+        "rsi": round(rsi_val, 2) if pd.notna(rsi_val) else None,
+        "ema9": round(ema9_val, 2) if pd.notna(ema9_val) else None,
+        "ema21": round(ema21_val, 2) if pd.notna(ema21_val) else None,
         "macd_line": round(macd_line, 8) if pd.notna(macd_line) else None,
         "macd_signal": round(macd_signal, 8) if pd.notna(macd_signal) else None,
-        "bb_lower": round(bb.bollinger_lband().iloc[-1], 2) if pd.notna(bb.bollinger_lband().iloc[-1]) else None,
-        "bb_upper": round(bb.bollinger_hband().iloc[-1], 2) if pd.notna(bb.bollinger_hband().iloc[-1]) else None,
+        "bb_lower": round(bb_lower, 2) if pd.notna(bb_lower) else None,
+        "bb_upper": round(bb_upper, 2) if pd.notna(bb_upper) else None,
+        "last_price": round(last_price, 2),
+        "price_change_pct": round((last_price - prev_price) / prev_price * 100, 2) if prev_price else 0,
+        "volatility": round(closes.pct_change().std() * 100, 2),
     }
 
-    signal = _decide_raw_signal(result, closes.iloc[-1])
+    signal = _decide_raw_signal(result, last_price)
     result["raw_signal"] = signal["decision"]
     result["signal_reason"] = signal["reason"]
-    result["last_price"] = round(closes.iloc[-1], 2)
     return result
 
 def _decide_raw_signal(ind: dict, last_price: float) -> dict:
     reasons = []
 
-    if ind["rsi"] is not None and ind["rsi"] < 30:
-        reasons.append("oversold_rsi")
-    elif ind["rsi"] is not None and ind["rsi"] > 70:
-        reasons.append("overbought_rsi")
+    if ind["rsi"] is not None:
+        if ind["rsi"] < 30:
+            reasons.append("oversold_rsi")
+        elif ind["rsi"] > 70:
+            reasons.append("overbought_rsi")
 
     if ind["ema9"] is not None and ind["ema21"] is not None:
         if ind["ema9"] > ind["ema21"]:
-            reasons.append("ema_bullish_cross")
+            reasons.append("ema_bullish")
         else:
-            reasons.append("ema_bearish_cross")
+            reasons.append("ema_bearish")
 
     if ind["macd_line"] is not None and ind["macd_signal"] is not None:
         if ind["macd_line"] > ind["macd_signal"]:
@@ -54,9 +65,9 @@ def _decide_raw_signal(ind: dict, last_price: float) -> dict:
             reasons.append("macd_bearish")
 
     if ind["bb_lower"] is not None and last_price <= ind["bb_lower"]:
-        reasons.append("price_at_bb_lower")
+        reasons.append("near_bb_lower")
     if ind["bb_upper"] is not None and last_price >= ind["bb_upper"]:
-        reasons.append("price_at_bb_upper")
+        reasons.append("near_bb_upper")
 
     buy_signals = [r for r in reasons if "bullish" in r or "oversold" in r or "bb_lower" in r]
     sell_signals = [r for r in reasons if "bearish" in r or "overbought" in r or "bb_upper" in r]
@@ -67,3 +78,12 @@ def _decide_raw_signal(ind: dict, last_price: float) -> dict:
         return {"decision": "SELL", "reason": "; ".join(sell_signals)}
 
     return {"decision": "HOLD", "reason": "no_clear_signal"}
+
+def compute_batch_signals(ohlcv_map: dict[str, list[dict]]) -> dict[str, dict]:
+    result = {}
+    for pair, ohlcv in ohlcv_map.items():
+        try:
+            result[pair] = compute_signals(ohlcv)
+        except Exception as e:
+            result[pair] = {"raw_signal": "HOLD", "reason": f"error: {e}"}
+    return result

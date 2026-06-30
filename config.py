@@ -3,14 +3,24 @@ import os
 
 load_dotenv()
 
-# --- Modal & Risk ---
+# --- Modal ---
 INITIAL_CAPITAL_IDR = 100_000
-MAX_OPEN_POSITIONS = 1
+MIN_ORDER_IDR = 50_000
+
+# --- Portfolio Mode ---
+PORTFOLIO_MODE = True
+MAX_OPEN_POSITIONS = 5
+MIN_24H_VOLUME_IDR = 10_000_000
+MAX_POSITION_PCT_PER_ASSET = 0.4
+MAX_SECTOR_EXPOSURE_PCT = 0.6
+
+# --- Risk per trade ---
 POSITION_SIZE_PCT = 0.85
 STOP_LOSS_PCT = -0.03
 TAKE_PROFIT_PCT = 0.03
 DAILY_LOSS_FLOOR_IDR = 80_000
 TAKER_FEE_PCT = 0.003
+PORTFOLIO_STOP_LOSS_PCT = -0.10
 
 # --- Pair ---
 PAIR = os.getenv("PAIR", "btc_idr")
@@ -37,4 +47,4 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 
 # --- Scheduler ---
-LOOP_INTERVAL_SECONDS = 120
+LOOP_INTERVAL_SECONDS = 300
