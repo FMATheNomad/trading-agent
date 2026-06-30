@@ -94,8 +94,10 @@ cycle_counter = 0
 async def portfolio_cycle(client: httpx.AsyncClient):
     global positions, cycle_counter
     cycle_counter += 1
+    _t0 = time.time()
 
     try:
+        _t = time.time()
         print("Scanning market for viable pairs...", flush=True)
         viable = await fetch_viable_pairs(client)
         print(f"Found {len(viable)} viable IDR pairs", flush=True)
@@ -368,11 +370,12 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             print(f"Limited buys to {slots_left} (max {config.MAX_OPEN_POSITIONS} positions)", flush=True)
 
         if not trades:
+            elapsed = int(time.time() - _t0)
             brief = (f"CIO: {decision.get('decision')} | Regime: {regime_info.get('regime', 'N/A')}\n"
                      f"Play: {play_capital_pct}% | Pairs: {len(all_signals)}\n"
                      f"{(decision.get('reasoning') or '')[:200]}")
             await send_message(brief)
-            print("No trades suggested. Sleeping.", flush=True)
+            print(f"Cycle done in {elapsed}s. Sleeping.", flush=True)
             if positions and config.INDODAX_API_KEY:
                 pair_str = ",".join(p["pair"] for p in positions[:5])
                 await refresh_deadman(client, pair_str)
