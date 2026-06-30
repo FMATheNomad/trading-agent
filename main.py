@@ -15,7 +15,7 @@ from risk_manager import RiskManager, PortfolioRiskManager
 from executor import place_order, get_balance, get_order
 from deadman import refresh_deadman, cancel_deadman
 from notifier import send_message
-from db import init_db, log_trade, log_decision
+from db import init_db, log_trade, log_decision, save_positions, load_positions
 from market_ws import market_ws_loop, LIVE_TICKERS, stop as mws_stop
 from private_ws import private_ws_loop, stop as pws_stop
 
@@ -173,6 +173,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                         continue
                     if any(p["pair"] == pair for p in positions):
                         continue
+                    if pair in {p.get("pair") for p in load_positions()}:
+                        continue
                     last_price = ticker_map.get(pair, {}).get("last", 0)
                     external_positions.append({
                         "pair": pair, "side": "BUY",
@@ -201,6 +203,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                    f"Equity: Rp{total_equity:,.0f}\nClosing all positions.")
             await send_message(msg)
             positions.clear()
+            save_positions(positions)
             print("Portfolio stop-loss triggered.", flush=True)
 
         if risk.should_stop_trading(total_equity):
@@ -278,6 +281,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     pnl = (p["entry_price"] - last) * p["qty"]
                 sl_hits.append(f"{p['pair']} {result}: {pnl:+.0f} IDR")
                 positions.remove(p)
+                save_positions(positions)
                 log_trade(p["side"], last, p["qty"], p["amount_idr"],
                           status="closed", pnl=pnl, reason=result)
 
@@ -385,7 +389,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             log_trade(action.lower(), price, qty, amount,
                       order_type="market" if config.PAPER_TRADING else "limit",
                       status="simulated" if config.PAPER_TRADING else "placed",
-                      reason=t.get("reason", ""))
+                       reason=t.get("reason", ""))
             executed_trades.append(t)
 
             if action == "BUY":
@@ -397,8 +401,10 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     "amount_idr": amount,
                     "atr_pct": atr_pct if ohlcv else None,
                 })
+                save_positions(positions)
             elif action == "SELL":
                 positions = [p for p in positions if p["pair"] != pid]
+                save_positions(positions)
 
         if executed_trades:
             msg_lines = [f"{'[PAPER] ' if config.PAPER_TRADING else ''}PORTFOLIO REBALANCE"]
@@ -438,6 +444,10 @@ async def main():
 
     try:
         init_db()
+        saved = load_positions()
+        if saved:
+            positions.extend(saved)
+            print(f"Loaded {len(saved)} persisted positions", flush=True)
         print("DB init OK", flush=True)
     except Exception as e:
         print(f"DB init failed: {e}", flush=True)

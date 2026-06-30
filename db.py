@@ -25,6 +25,12 @@ def init_db():
             )
         """)
         conn.execute("""
+            CREATE TABLE IF NOT EXISTS bot_positions (
+                pair TEXT, side TEXT, entry_price REAL, qty REAL,
+                amount_idr REAL, atr_pct REAL
+            )
+        """)
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS decisions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 timestamp TEXT NOT NULL,
@@ -61,6 +67,28 @@ def get_recent_trades(limit: int = 3) -> list[dict]:
         ).fetchall()
     return [
         {"side": r[0], "price": r[1], "qty": r[2], "status": r[3], "pnl": r[4], "reason": r[5]}
+        for r in rows
+    ]
+
+def save_positions(positions: list[dict]):
+    with _conn() as conn:
+        conn.execute("DELETE FROM bot_positions")
+        for p in positions:
+            conn.execute(
+                "INSERT INTO bot_positions (pair, side, entry_price, qty, amount_idr, atr_pct) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (p["pair"], p["side"], p.get("entry_price", 0), p.get("qty", 0),
+                 p.get("amount_idr", 0), p.get("atr_pct")),
+            )
+
+def load_positions() -> list[dict]:
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT pair, side, entry_price, qty, amount_idr, atr_pct FROM bot_positions"
+        ).fetchall()
+    return [
+        {"pair": r[0], "side": r[1], "entry_price": r[2], "qty": r[3],
+         "amount_idr": r[4], "atr_pct": r[5]}
         for r in rows
     ]
 
