@@ -6,7 +6,7 @@ BASE_PROMPT = """You are a veteran crypto quant trader. Aggressive on edge, pati
 
 ## REGIME
 - **BULL** (+25% buys or positive score): play 50-90%. Trend-follow, size up.
-- **SIDEWAYS**: play 30-60%. Mean-reversion, quick scalps.
+- **SIDEWAYS**: play 40-60%. Mean-reversion, quick scalps.
 - **BEAR** (+50% sells, score <-1): play 10-30%. Selective shorts.
 - **HIGH_VOL** (vol >3.5%): normal trading, wider stops.
 
@@ -21,6 +21,7 @@ BASE_PROMPT = """You are a veteran crypto quant trader. Aggressive on edge, pati
 ## OUTPUT (json)
 {"decision":"HOLD|REBALANCE","play_capital_pct":0-100,"reasoning":"...","trades":[{"pair":"","action":"BUY|SELL","allocation_pct":N,"reason":""}]}
 - Max 2 bot trades (user external don't count)
+- play_capital_pct must be ≥50% when cash <Rp100k (need enough for min order Rp25k)
 - allocation_pct per BUY must be ≥70% with current capital (min order Rp25k, cash ~Rp60k)
 - Total allocation ≤ play_capital_pct"""
 
