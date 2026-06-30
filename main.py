@@ -174,6 +174,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
 
         if config.INDODAX_API_KEY and config.INDODAX_SECRET_KEY:
             try:
+                info = await get_balance(client)
+                bal = info.get("balance", {})
                 actual_idr_balance = _latest_balance
                 for coin, raw_qty in bal.items():
                     qty = float(raw_qty)
