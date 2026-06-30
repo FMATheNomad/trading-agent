@@ -11,8 +11,8 @@ DEFAULT_PLAY_CAPITAL_PCT = 0.5
 # --- Portfolio ---
 PORTFOLIO_MODE = True
 MAX_OPEN_POSITIONS = 2
-MIN_24H_VOLUME_IDR = 500_000_000
-MAX_SCAN_PAIRS = 25
+MIN_24H_VOLUME_IDR = 100_000_000
+MAX_SCAN_PAIRS = 40
 OHLCV_FETCH_CONCURRENCY = 10
 MAX_POSITION_PCT_PER_ASSET = 0.4
 MAX_SECTOR_EXPOSURE_PCT = 0.6
@@ -26,11 +26,7 @@ TAKER_FEE_PCT = 0.003
 PORTFOLIO_STOP_LOSS_PCT = -0.10
 
 # --- Hanya koin fundamental — tidak ada meme/shitcoin ---
-FUNDAMENTAL_COINS = {
-    "btc_idr", "eth_idr", "sol_idr", "bnb_idr", "xrp_idr",
-    "ada_idr", "dot_idr", "link_idr", "avax_idr", "matic_idr",
-    "atom_idr", "uni_idr", "trx_idr", "ltc_idr", "doge_idr",
-}
+FUNDAMENTAL_COINS: set[str] = set()
 
 # --- Pair ---
 PAIR = os.getenv("PAIR", "btc_idr")

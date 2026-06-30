@@ -77,8 +77,6 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     if coin == "idr":
                         continue
                     pair = f"{coin}_idr"
-                    if pair not in config.FUNDAMENTAL_COINS:
-                        continue
                     if any(p["pair"] == pair for p in positions):
                         continue
                     last_price = ticker_map.get(pair, {}).get("last", 0)
@@ -281,7 +279,7 @@ async def main():
     print(f"  CIO manages play capital dynamically", flush=True)
     print(f"  Model: {config.DEEPSEEK_MODEL}", flush=True)
     print(f"  Max positions: {config.MAX_OPEN_POSITIONS}", flush=True)
-    print(f"  Fundamental coins: {len(config.FUNDAMENTAL_COINS)}", flush=True)
+    print(f"  CIO selects coins from top {config.MAX_SCAN_PAIRS} by volume", flush=True)
     print("=" * 50, flush=True)
 
     signal.signal(signal.SIGTERM, handle_sig)
@@ -296,7 +294,7 @@ async def main():
     ok = await send_message(
         f"Hedge Fund Manager started\n"
         f"CIO manages play capital dynamically\n"
-        f"Fundamental coins: {len(config.FUNDAMENTAL_COINS)} pairs\n"
+        f"CIO scans top {config.MAX_SCAN_PAIRS} pairs by volume\n"
         f"Mode: {'PAPER' if config.PAPER_TRADING else 'LIVE'}"
     )
     print(f"Telegram: {'OK' if ok else 'FAILED'}", flush=True)

@@ -45,9 +45,6 @@ Scan all assets and classify the current regime:
   ]
 }
 
-## FUNDAMENTAL-ONLY MANDATE
-Only trade: btc_idr, eth_idr, sol_idr, bnb_idr, xrp_idr, ada_idr, dot_idr, link_idr, avax_idr, matic_idr, atom_idr, uni_idr, trx_idr, ltc_idr, doge_idr.
-
 ## HARD CONSTRAINTS
 - play_capital_pct: 0-100 (integer)
 - Total BUY allocation_pct ≤ play_capital_pct
@@ -75,7 +72,7 @@ def _build_portfolio_context(
                         f"Qty: {p['qty']} | PnL: {p.get('pnl_pct', 0):+.2f}%")
         lines.append("")
 
-    lines.append("-- Market Scan (Viable Assets) --")
+    lines.append("-- Full Market Scan (sorted by volume) --")
     for pair, sig in sorted(all_signals.items()):
         t = all_tickers.get(pair, {})
         if not t:
