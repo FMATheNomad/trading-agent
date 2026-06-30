@@ -8,19 +8,25 @@ from urllib.parse import urlencode
 import httpx
 import config
 from data_layer import fetch_viable_pairs, fetch_ticker, fetch_ohlcv, fetch_ohlcv_both, fetch_all_tickers, fetch_orderbook
-from indicators import compute_signals, compute_batch_signals
+from indicators import compute_signals, compute_batch_signals, apply_ml_boost
 from llm_filter import evaluate_portfolio
-from pairs import compute_all_pairs
+from cointegration import CointegrationEngine
+from hmm_regime import HMMRegimeDetector
+from ml_signal import XGBoostSignal
+from features import MicrostructureFeatures
 from risk_manager import RiskManager, PortfolioRiskManager
 from executor import place_order, get_balance, get_order
 from deadman import refresh_deadman, cancel_deadman
 from notifier import send_message
-from db import init_db, log_trade, log_decision, save_positions, load_positions, save_peak_capital, load_peak_capital, save_ext_entry_prices, load_ext_entry_prices
+from db import init_db, log_trade, log_decision, save_positions, load_positions, save_peak_capital, load_peak_capital, save_ext_entry_prices, load_ext_entry_prices, get_recent_trades
 from market_ws import market_ws_loop, LIVE_TICKERS, stop as mws_stop
 from private_ws import private_ws_loop, stop as pws_stop
 
 risk = RiskManager()
 portfolio_risk = PortfolioRiskManager()
+hmm_detector = HMMRegimeDetector(n_states=config.HMM_N_STATES)
+coint_engine = CointegrationEngine(z_entry=config.COINT_Z_ENTRY, z_exit=config.COINT_Z_EXIT)
+xgboost_signal = XGBoostSignal()
 positions: list[dict] = []
 external_positions: list[dict] = []
 shutdown_flag = False
@@ -28,8 +34,9 @@ shutdown_flag = False
 regime_history: list[str] = []
 known_pairs: set[str] = set()
 _ext_entry_prices: dict[str, float] = {}
+_hmm_trained_cycle = 0
 
-def classify_regime(all_signals: dict) -> dict:
+def classify_regime(all_signals: dict, ohlcv_map_1h: dict | None = None) -> dict:
     signals = [s.get("raw_signal") for s in all_signals.values() if s.get("raw_signal")]
     scores = [s.get("score", 0) for s in all_signals.values() if s.get("score") is not None]
     vols = [s.get("volatility", 0) for s in all_signals.values() if s.get("volatility") is not None]
@@ -41,21 +48,30 @@ def classify_regime(all_signals: dict) -> dict:
     avg_vol = sum(vols) / len(vols) if vols else 0
     high_conviction = sum(1 for s in all_signals.values() if s.get("conviction") == "HIGH")
 
-    if buys / total >= 0.4 and avg_score > 0:
-        regime = "BULL"
-    elif buys / total >= 0.25 and avg_score > 0 and high_conviction >= 2:
-        regime = "BULL"
-    elif sells / total >= 0.5 and avg_score < -1:
-        regime = "BEAR"
-    elif avg_vol > config.HIGH_VOL_THRESHOLD:
-        regime = "HIGH_VOL"
-    elif avg_vol < 0.5 and buys / total < 0.2 and sells / total < 0.2:
-        regime = "SIDEWAYS_LOW_VOL"
+    hmm_result = hmm_detector.predict(ohlcv_map_1h) if ohlcv_map_1h else {}
+    hmm_regime = hmm_result.get("regime", "UNKNOWN")
+    hmm_conf = hmm_result.get("confidence", 0)
+
+    if hmm_regime != "UNKNOWN" and hmm_conf > 0.6:
+        regime = hmm_regime
     else:
-        regime = "SIDEWAYS"
+        if buys / total >= 0.4 and avg_score > 0:
+            regime = "BULL"
+        elif buys / total >= 0.25 and avg_score > 0 and high_conviction >= 2:
+            regime = "BULL"
+        elif sells / total >= 0.5 and avg_score < -1:
+            regime = "BEAR"
+        elif avg_vol > config.HIGH_VOL_THRESHOLD:
+            regime = "HIGH_VOL"
+        elif avg_vol < 0.5 and buys / total < 0.2 and sells / total < 0.2:
+            regime = "SIDEWAYS_LOW_VOL"
+        else:
+            regime = "SIDEWAYS"
 
     return {
         "regime": regime,
+        "hmm_regime": hmm_regime,
+        "hmm_confidence": hmm_conf,
         "buy_ratio": round(buys / total, 2),
         "sell_ratio": round(sells / total, 2),
         "avg_score": round(avg_score, 1),
@@ -141,21 +157,35 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         print(f"Computing signals: {len(ohlcv_map_1h)} pairs (1h) + {len(ohlcv_map_4h)} (4h)...", flush=True)
         all_signals = compute_batch_signals(ohlcv_map_1h, ohlcv_map_4h)
 
-        pair_signals = compute_all_pairs(ohlcv_map_1h)
+        for pid, ohlcv_1h in ohlcv_map_1h.items():
+            if xgboost_signal.trained and pid in all_signals:
+                ml_pred = xgboost_signal.predict(ohlcv_1h)
+                all_signals[pid] = apply_ml_boost(all_signals[pid], ml_pred)
+
+        pair_signals = coint_engine.scan(ohlcv_map_1h, config.CORRELATION_PAIRS) if ohlcv_map_1h else []
         active = [p for p in pair_signals if p["signal"] in ("SHORT_SPREAD", "LONG_SPREAD")]
         if active:
             for ps in active:
-                print(f"PAIR SIGNAL: {ps['pair']} → {ps['signal']} (z={ps['z_score']})", flush=True)
+                print(f"COINT SIGNAL: {ps['pair']} → {ps['signal']} (z={ps['z_score']}, hl={ps.get('half_life_hours', '?')}h, H={ps.get('hurst', '?')})", flush=True)
         elif pair_signals:
             for ps in pair_signals[:3]:
-                print(f"Pair: {ps['pair']} z={ps['z_score']} ({ps['signal']})", flush=True)
+                print(f"Coint: {ps['pair']} z={ps['z_score']} coint={ps.get('cointegrated', False)} hl={ps.get('half_life_hours', '?')}h", flush=True)
 
-        regime_info = classify_regime(all_signals)
+        regime_info = classify_regime(all_signals, ohlcv_map_1h)
         regime_history.append(regime_info["regime"])
-        if len(regime_history) > config.REGIME_LOOKBACK_CYCLES:
+        if len(regime_history) > 12:
             regime_history.pop(0)
-        print(f"Regime: {regime_info['regime']} | B:{regime_info['buy_ratio']} S:{regime_info['sell_ratio']} "
+        hmm_tag = f" HMM:{regime_info.get('hmm_regime', '?')}({regime_info.get('hmm_confidence', 0):.2f})" if regime_info.get('hmm_confidence', 0) > 0 else ""
+        print(f"Regime: {regime_info['regime']}{hmm_tag} | B:{regime_info['buy_ratio']} S:{regime_info['sell_ratio']} "
               f"Score:{regime_info['avg_score']} HC:{regime_info['high_conviction_count']}", flush=True)
+
+        if not xgboost_signal.trained and len(ohlcv_map_1h) >= config.ML_TRAIN_MIN_SAMPLES:
+            try:
+                xgboost_signal.train(ohlcv_map_1h)
+                if xgboost_signal.trained:
+                    print("XGBoost signal model trained on historical data", flush=True)
+            except Exception as e:
+                print(f"XGBoost train error: {e}", flush=True)
 
         pair_suggestions = compute_pairs_suggestions(all_signals, ticker_map)
         if pair_suggestions:
@@ -254,6 +284,14 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             for p in all_positions
         ]
 
+        if len(ohlcv_map_1h) >= 5 and (not hmm_detector.trained or cycle_counter % config.HMM_RETRAIN_INTERVAL == 0):
+            try:
+                hmm_detector.fit(ohlcv_map_1h)
+                if hmm_detector.trained:
+                    print(f"HMM regime detector trained ({config.HMM_N_STATES} states)", flush=True)
+            except Exception as e:
+                print(f"HMM train error: {e}", flush=True)
+
         orderbooks = {}
         top_pairs = list(ohlcv_map_1h.keys())[:5]
         for pid in top_pairs:
@@ -280,10 +318,18 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             print("Calling DeepSeek portfolio manager...", flush=True)
             portfolio_pnl = ((total_equity - config.PLAY_CAPITAL_IDR) / config.PLAY_CAPITAL_IDR * 100
                              if config.PLAY_CAPITAL_IDR else 0)
+            micro_features = {}
+            for pid in list(ohlcv_map_1h.keys())[:5]:
+                ob = orderbooks.get(pid)
+                mf = MicrostructureFeatures.compute_all(ohlcv_map_1h.get(pid, []), ob)
+                if mf:
+                    micro_features[pid] = mf
+
             decision = evaluate_portfolio(all_signals, ticker_map, current_positions_info,
                                            actual_idr_balance, portfolio_pnl,
                                            regime_info, pair_suggestions, regime_history, orderbooks,
-                                           LIVE_TICKERS, new_coins, pair_signals)
+                                           LIVE_TICKERS, new_coins, pair_signals,
+                                           micro_features=micro_features)
             if decision.get("deepseek_error"):
                 await send_message(f"⚠️ DeepSeek API error: {decision.get('reasoning', '')[:200]}")
             print(f"PM decision: {decision.get('decision')} | {decision.get('reasoning', '')[:100]}", flush=True)
@@ -571,6 +617,9 @@ async def main():
         print("DB init OK", flush=True)
         _ext_entry_prices.update(load_ext_entry_prices())
         print(f"Loaded {len(_ext_entry_prices)} entry prices from DB", flush=True)
+        recent = get_recent_trades(limit=100)
+        portfolio_risk.set_trade_history(recent)
+        print(f"Kelly: {len(recent)} trades loaded, optimal f={portfolio_risk.kelly.optimal_fraction():.2f}", flush=True)
     except Exception as e:
         print(f"DB init failed: {e}", flush=True)
 

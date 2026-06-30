@@ -72,10 +72,51 @@ class RiskManager:
         return None
 
 
+class KellyCalculator:
+    def __init__(self):
+        self.win_rate = 0.5
+        self.avg_win = 0
+        self.avg_loss = 0
+        self.trade_count = 0
+
+    def update(self, trades_history: list[dict]):
+        wins = [t for t in trades_history if t.get("pnl", 0) > 0]
+        losses = [t for t in trades_history if t.get("pnl", 0) <= 0]
+        self.trade_count = len(wins) + len(losses)
+        if self.trade_count < 5:
+            return
+        self.win_rate = len(wins) / self.trade_count
+        self.avg_win = np.mean([t["pnl"] for t in wins]) if wins else 0
+        self.avg_loss = abs(np.mean([t["pnl"] for t in losses])) if losses else 1
+
+    def optimal_fraction(self) -> float:
+        if self.trade_count < 5 or self.avg_loss == 0:
+            return config.KELLY_FRACTION
+        b = self.avg_win / self.avg_loss
+        p = self.win_rate
+        q = 1 - p
+        kelly = (b * p - q) / b if b > 0 else 0
+        half_kelly = max(min(kelly * 0.5, config.MAX_KELLY_ALLOC), config.MIN_KELLY_ALLOC)
+        return half_kelly
+
+    def compute_allocation(self, score: int, conviction: str, ml_buy_prob: float = 0.5) -> float:
+        base = self.optimal_fraction()
+        score_boost = min(abs(score) * 0.05, 0.15)
+        conv_boost = 0.1 if conviction == "HIGH" else 0
+        ml_boost = (ml_buy_prob - 0.5) * 0.3 if ml_buy_prob > 0.5 else 0
+        alloc = base + score_boost + conv_boost + ml_boost
+        return round(max(min(alloc, config.MAX_KELLY_ALLOC), config.MIN_KELLY_ALLOC), 2)
+
+import numpy as np
+
 class PortfolioRiskManager:
     def __init__(self, initial_capital: float = config.PLAY_CAPITAL_IDR):
         self.peak_capital = initial_capital
         self.initial_capital = initial_capital
+        self.kelly = KellyCalculator()
+
+    def set_trade_history(self, trades: list[dict]):
+        self.kelly.update(trades)
 
     def check_portfolio_stop(self, total_equity: float) -> bool:
         if total_equity > self.peak_capital:

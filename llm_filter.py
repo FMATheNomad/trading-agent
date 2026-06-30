@@ -71,6 +71,10 @@ def _build_portfolio_context(
 
     if regime_info:
         lines.append(f"-- Market Regime: {regime_info.get('regime', 'N/A')} --")
+        hmm_r = regime_info.get('hmm_regime', '')
+        hmm_c = regime_info.get('hmm_confidence', 0)
+        if hmm_r:
+            lines.append(f"HMM: {hmm_r} (confidence: {hmm_c})")
         lines.append(f"Buy ratio: {regime_info.get('buy_ratio', 0)} | Sell ratio: {regime_info.get('sell_ratio', 0)}")
         lines.append(f"Avg score: {regime_info.get('avg_score', 0)} | High conviction: {regime_info.get('high_conviction_count', 0)}")
         lines.append(f"Avg volatility: {regime_info.get('avg_volatility', 0)}%")
@@ -79,11 +83,12 @@ def _build_portfolio_context(
         lines.append("")
 
     if pair_signals:
-        lines.append("-- Stat-Arb Pairs (Renaissance-style) --")
+        lines.append("-- Cointegration Pairs (Renaissance-style) --")
         for ps in pair_signals:
             icon = "⚡" if "SHORT" in ps.get("signal", "") or "LONG" in ps.get("signal", "") else " "
-            lines.append(f"  {icon}{ps['pair']}: z={ps['z_score']} ratio={ps['ratio']} "
-                        f"mean={ps.get('mean_ratio', '?')} → {ps['signal']} {ps.get('reason', '')}")
+            coint_tag = "COINT" if ps.get("cointegrated") is True else ("WEAK" if ps.get("cointegrated") == "WEAK" else "NOT")
+            lines.append(f"  {icon}{ps['pair']}: z={ps['z_score']} hl={ps.get('half_life_hours', '?')}h H={ps.get('hurst', '?')} "
+                        f"[{coint_tag}] → {ps['signal']} {ps.get('reason', '')}")
         lines.append("")
 
     if pair_suggestions:
@@ -208,6 +213,7 @@ def evaluate_portfolio(
     live_tickers: dict[str, dict] | None = None,
     new_coins: set[str] | None = None,
     pair_signals: list[dict] | None = None,
+    micro_features: dict[str, dict] | None = None,
 ) -> dict:
     if not config.DEEPSEEK_API_KEY:
         buys = [{"pair": p, "action": "BUY", "allocation_pct": 80, "reason": "No LLM key"}
@@ -221,6 +227,12 @@ def evaluate_portfolio(
         all_signals, all_tickers, current_positions, balance_idr, portfolio_pnl_pct,
         regime_info, pair_suggestions, regime_history, orderbooks, live_tickers, new_coins, pair_signals,
     )
+    if micro_features:
+        user_prompt += "\n\n-- Microstructure Features --\n"
+        for pid, mf in micro_features.items():
+            parts = [f"{k}={v}" for k, v in mf.items() if isinstance(v, (int, float))]
+            user_prompt += f"  {pid}: {' '.join(parts)}\n"
+        user_prompt += "\n"
 
     kwargs = {
         "model": config.DEEPSEEK_MODEL,

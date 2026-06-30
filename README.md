@@ -79,24 +79,28 @@
 
 ```
 trading-agent/
-├── main.py          # Orchestrator — startup → loop → shutdown
-├── config.py        # Semua parameter (81 baris)
-├── data_layer.py    # Fetch Indodax API (ticker, OHLCV, orderbook)
-├── indicators.py    # Teknikal indikator + multi-factor scoring
-├── llm_filter.py    # DeepSeek API prompt builder + response parser
-├── executor.py      # HMAC-SHA512 signing, TAPI v1 + v2
-├── risk_manager.py  # SL/TP, ATR, portfolio drawdown, fee
-├── pairs.py         # Pairs trading z-score engine
-├── db.py            # SQLite (trades, meta, positions, decisions)
-├── deadman.py       # Deadman Switch (countdown cancel)
-├── market_ws.py     # Market data WebSocket client
-├── private_ws.py    # Private WebSocket client (order status)
-├── notifier.py      # Telegram sender
-├── backtest.py      # Backtest engine
-├── Procfile         # Railway: worker → python main.py
-├── runtime.txt      # Python 3.12
-├── requirements.txt # Dependencies
-└── .env             # API keys (gitignored)
+├── main.py            # Orchestrator — startup → loop → shutdown
+├── config.py          # Semua parameter
+├── data_layer.py      # Fetch Indodax API (ticker, OHLCV, orderbook)
+├── indicators.py      # Teknikal indikator + multi-factor scoring + advanced features
+├── hmm_regime.py      # Hidden Markov Model regime detection (probabilistic)
+├── cointegration.py   # Johansen/ADF cointegration engine + half-life mean reversion
+├── ml_signal.py       # XGBoost ensemble trainer + real-time inference
+├── features.py        # Microstructure features (entropy, skew, vpin, order flow)
+├── llm_filter.py      # DeepSeek API prompt builder + response parser
+├── executor.py        # HMAC-SHA512 signing, TAPI v1
+├── risk_manager.py    # SL/TP, ATR, Kelly Criterion, portfolio drawdown
+├── pairs.py           # Legacy pairs trading (z-score)
+├── db.py              # SQLite (trades, meta, positions, decisions)
+├── deadman.py         # Deadman Switch (countdown cancel)
+├── market_ws.py       # Market data WebSocket client
+├── private_ws.py      # Private WebSocket client (order status)
+├── notifier.py        # Telegram sender
+├── backtest.py        # Walk-forward + Monte Carlo backtest engine
+├── Procfile           # Railway: worker → python main.py
+├── runtime.txt        # Python 3.12
+├── requirements.txt   # Dependencies (hmmlearn, statsmodels, xgboost, etc)
+└── .env               # API keys (gitignored)
 ```
 
 ## Setup

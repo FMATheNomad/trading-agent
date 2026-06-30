@@ -67,13 +67,29 @@ LOOP_INTERVAL_SECONDS = 300
 DEADMAN_COUNTDOWN_MS = 900_000
 HIGH_VOL_THRESHOLD = 3.5
 
-# --- Senior Quant Settings ---
-REGIME_LOOKBACK_CYCLES = 12
+# --- HMM Regime Detection ---
+HMM_N_STATES = 4
+HMM_RETRAIN_INTERVAL = 20
+
+# --- Cointegration Engine ---
+COINT_Z_ENTRY = 2.0
+COINT_Z_EXIT = 0.5
+COINT_MIN_HALF_LIFE_HOURS = 2
 CORRELATION_PAIRS = [
     ("btc_idr", "eth_idr"),
     ("sol_idr", "ada_idr"),
     ("bnb_idr", "xrp_idr"),
 ]
+
+# --- ML Signal ---
+ML_TRAIN_MIN_SAMPLES = 100
+ML_FORECAST_HORIZON = 5
+ML_BUY_THRESHOLD = 0.65
+
+# --- Kelly Criterion ---
+KELLY_FRACTION = 0.25
+MAX_KELLY_ALLOC = 0.95
+MIN_KELLY_ALLOC = 0.3
 
 # --- WebSocket ---
 WS_MARKET_URL = "wss://ws3.indodax.com/ws/"
