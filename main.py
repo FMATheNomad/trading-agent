@@ -629,7 +629,7 @@ async def main():
                                     resp = cl.chat.completions.create(
                                         model=config.DEEPSEEK_MODEL,
                                         messages=[
-                                            {"role": "system", "content": f"Kamu adalah CIO hedge fund. Jawab PENDEX, max 2-3 kalimat. Natural kayak ngobrol, gak usah formal. Portfolio: {ctx}"},
+                                            {"role": "system", "content": f"Kamu CIO hedge fund agresif. Tapi agresif ≠ all-in. Risk management first. Portfolio: {ctx}. Jawab 1-2 kalimat, santai, realis, gak ngawur."},
                                             {"role": "user", "content": raw},
                                         ],
                                     )
