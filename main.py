@@ -27,7 +27,10 @@ shutdown_flag = False
 
 regime_history: list[str] = []
 known_pairs: set[str] = set()
-_ext_entry_prices: dict[str, float] = {}
+_ext_entry_prices: dict[str, float] = {
+    "myro_idr": 115,
+    "stik_idr": 209,
+}
 
 def classify_regime(all_signals: dict) -> dict:
     signals = [s.get("raw_signal") for s in all_signals.values() if s.get("raw_signal")]
