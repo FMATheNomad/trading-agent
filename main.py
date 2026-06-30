@@ -289,8 +289,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             print(f"PM decision: {decision.get('decision')} | {decision.get('reasoning', '')[:100]}", flush=True)
 
         play_capital_pct = decision.get("play_capital_pct", pending_play_capital_pct * 100)
-        if actual_idr_balance < 100_000:
-            play_capital_pct = max(play_capital_pct, 50)
+        if actual_idr_balance < config.MIN_ORDER_IDR * 4:
+            play_capital_pct = max(play_capital_pct, 60)
         balance_idr = int(actual_idr_balance * play_capital_pct / 100)
         print(f"CIO play capital: {play_capital_pct}% of Rp{actual_idr_balance:,.0f} = Rp{balance_idr:,}", flush=True)
 
