@@ -2,8 +2,8 @@ import config
 
 class RiskManager:
     def __init__(self):
-        self.daily_start_balance = config.INITIAL_CAPITAL_IDR
-        self.today_peak = config.INITIAL_CAPITAL_IDR
+        self.daily_start_balance = config.PLAY_CAPITAL_IDR
+        self.today_peak = config.PLAY_CAPITAL_IDR
 
     def should_stop_trading(self, current_balance_idr: float) -> bool:
         if current_balance_idr < config.DAILY_LOSS_FLOOR_IDR:
@@ -48,7 +48,7 @@ class RiskManager:
 
 
 class PortfolioRiskManager:
-    def __init__(self, initial_capital: float = config.INITIAL_CAPITAL_IDR):
+    def __init__(self, initial_capital: float = config.PLAY_CAPITAL_IDR):
         self.peak_capital = initial_capital
         self.initial_capital = initial_capital
 

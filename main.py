@@ -99,8 +99,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         ]
 
         print("Calling DeepSeek portfolio manager...", flush=True)
-        portfolio_pnl = ((total_equity - config.INITIAL_CAPITAL_IDR) / config.INITIAL_CAPITAL_IDR * 100
-                         if config.INITIAL_CAPITAL_IDR else 0)
+        portfolio_pnl = ((total_equity - config.PLAY_CAPITAL_IDR) / config.PLAY_CAPITAL_IDR * 100
+                         if config.PLAY_CAPITAL_IDR else 0)
         decision = evaluate_portfolio(all_signals, ticker_map, current_positions_info,
                                        balance_idr, portfolio_pnl)
         print(f"PM decision: {decision.get('decision')} | {decision.get('reasoning', '')[:100]}", flush=True)
