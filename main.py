@@ -343,7 +343,11 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                                   status="closed", pnl=pnl, reason=result)
                         print(f"  SOLD {p['pair']} at market", flush=True)
                     else:
-                        print(f"  Sell failed {p['pair']}: {sell_res.get('error', 'unknown')}", flush=True)
+                        err = sell_res.get('error', 'unknown')
+                        print(f"  Sell failed {p['pair']}: {err}", flush=True)
+                        if "minimum" in str(err).lower():
+                            external_positions.remove(p)
+                            print(f"  Removed {p['pair']} from tracking (below minimum order)", flush=True)
                 except Exception as e:
                     print(f"  Ext sell failed {p['pair']}: {e}", flush=True)
 
