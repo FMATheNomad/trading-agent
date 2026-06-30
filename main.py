@@ -300,6 +300,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             await send_message("SL/TP triggered:\n" + "\n".join(sl_hits))
 
         trades = decision.get("trades", [])
+        held_pairs = {p["pair"] for p in positions} | {p["pair"] for p in external_positions}
+        trades = [t for t in trades if t.get("action") != "SELL" or t["pair"] in held_pairs]
         buy_count = sum(1 for t in trades if t.get("action") == "BUY")
         slots_left = max(0, config.MAX_OPEN_POSITIONS - len(positions))
         if buy_count > slots_left:
@@ -395,8 +397,13 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 sl, tp = risk.get_sl_tp(price, action, atr_pct)
                 print(f"  ATR: {atr_pct}% | SL: {sl} | TP: {tp}", flush=True)
 
-            order = await place_order(client, action.lower(), price, amount,
-                                       pair=pid, order_type="market" if config.PAPER_TRADING else "limit")
+            try:
+                order = await place_order(client, action.lower(), price, amount,
+                                           pair=pid, order_type="market" if config.PAPER_TRADING else "limit")
+            except Exception as e:
+                print(f"  Order failed {pid}: {e}", flush=True)
+                await send_message(f"Order failed {pid}: {e}")
+                continue
             log_trade(action.lower(), price, qty, amount,
                       order_type="market" if config.PAPER_TRADING else "limit",
                       status="simulated" if config.PAPER_TRADING else "placed",

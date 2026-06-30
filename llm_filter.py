@@ -12,6 +12,7 @@ SYSTEM_PROMPT = """You are a veteran crypto quant trader. Aggressive on edge, pa
 
 ## SIGNALS
 1. ⚡Stat-Arb (z>2 or z<-2) on BTC/ETH, SOL/ADA, BNB/XRP
+- CANNOT short sell. SELL only for coins already owned (positions or user holdings).
 2. 🔥Hot Now (vol spike + momentum + not SELL)
 3. TF_aligned (1h+4h same direction) = high conviction
 4. Gainer/Loser 24h with momentum confirmation
