@@ -336,10 +336,14 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                         "Key":config.INDODAX_API_KEY,"Sign":s_sig,
                         "Content-Type":"application/x-www-form-urlencoded",
                     }, content=s_body)
-                    if sr.json().get("success") == 1:
+                    sell_res = sr.json()
+                    if sell_res.get("success") == 1:
                         external_positions.remove(p)
                         log_trade("sell", last, p["qty"], last * p["qty"],
                                   status="closed", pnl=pnl, reason=result)
+                        print(f"  SOLD {p['pair']} at market", flush=True)
+                    else:
+                        print(f"  Sell failed {p['pair']}: {sell_res.get('error', 'unknown')}", flush=True)
                 except Exception as e:
                     print(f"  Ext sell failed {p['pair']}: {e}", flush=True)
 
