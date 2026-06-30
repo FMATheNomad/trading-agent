@@ -25,6 +25,9 @@ def init_db():
             )
         """)
         conn.execute("""
+            CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)
+        """)
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS bot_positions (
                 pair TEXT, side TEXT, entry_price REAL, qty REAL,
                 amount_idr REAL, atr_pct REAL
@@ -91,6 +94,16 @@ def load_positions() -> list[dict]:
          "amount_idr": r[4], "atr_pct": r[5]}
         for r in rows
     ]
+
+def save_peak_capital(value: float):
+    with _conn() as conn:
+        conn.execute("DELETE FROM meta WHERE key='peak_capital'")
+        conn.execute("INSERT INTO meta (key, value) VALUES (?, ?)", ("peak_capital", str(value)))
+
+def load_peak_capital() -> float | None:
+    with _conn() as conn:
+        row = conn.execute("SELECT value FROM meta WHERE key='peak_capital'").fetchone()
+    return float(row[0]) if row else None
 
 def get_trade_count_today() -> int:
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")

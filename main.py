@@ -15,7 +15,7 @@ from risk_manager import RiskManager, PortfolioRiskManager
 from executor import place_order, get_balance, get_order
 from deadman import refresh_deadman, cancel_deadman
 from notifier import send_message
-from db import init_db, log_trade, log_decision, save_positions, load_positions
+from db import init_db, log_trade, log_decision, save_positions, load_positions, save_peak_capital, load_peak_capital
 from market_ws import market_ws_loop, LIVE_TICKERS, stop as mws_stop
 from private_ws import private_ws_loop, stop as pws_stop
 
@@ -220,6 +220,11 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             for e in external_positions
         )
         total_equity = actual_idr_balance + paper_equity + ext_equity
+        saved_peak = load_peak_capital()
+        if saved_peak and saved_peak > portfolio_risk.peak_capital:
+            portfolio_risk.peak_capital = saved_peak
+        if total_equity > portfolio_risk.peak_capital:
+            save_peak_capital(total_equity)
 
         if portfolio_risk.check_portfolio_stop(total_equity):
             msg = (f"PORTFOLIO STOP-LOSS HIT ({config.PORTFOLIO_STOP_LOSS_PCT*100}%)\n"
