@@ -154,6 +154,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                              if config.PLAY_CAPITAL_IDR else 0)
             decision = evaluate_portfolio(all_signals, ticker_map, current_positions_info,
                                            balance_idr, portfolio_pnl)
+            if decision.get("deepseek_error"):
+                await send_message(f"⚠️ DeepSeek API error: {decision.get('reasoning', '')[:200]}")
             print(f"PM decision: {decision.get('decision')} | {decision.get('reasoning', '')[:100]}", flush=True)
 
         play_capital_pct = decision.get("play_capital_pct", pending_play_capital_pct * 100)
@@ -351,7 +353,7 @@ async def main():
                                 text = (f"AI Hedge Fund Manager\n"
                                         f"Status: {'PAPER' if config.PAPER_TRADING else 'LIVE'}\n"
                                         f"CIO manages play capital\n"
-                                        f"Paper: {len(positions)} pos\n{pos_text}{ext_text}")
+                                        f"Paper positions: {len(positions)}\n{pos_text}{ext_text}")
                                 async with httpx.AsyncClient() as cc:
                                     await cc.post(
                                         f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
@@ -363,7 +365,9 @@ async def main():
 
     ws_task = asyncio.create_task(market_ws_loop())
     pws_task = asyncio.create_task(private_ws_loop())
-    await asyncio.sleep(3)
+    for _ in range(6):
+        await asyncio.sleep(0.5)
+
 
     async with httpx.AsyncClient(timeout=30) as client:
         poller = asyncio.create_task(telegram_poller())

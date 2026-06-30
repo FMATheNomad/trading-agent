@@ -145,4 +145,6 @@ def evaluate_portfolio(
             return {"decision": "HOLD", "reasoning": "Empty LLM response", "trades": []}
         return json.loads(raw)
     except Exception as e:
-        return {"decision": "HOLD", "reasoning": f"LLM error: {e}", "trades": []}
+        err_msg = f"LLM error: {e}"
+        print(f"DeepSeek API error: {e}", flush=True)
+        return {"decision": "HOLD", "reasoning": err_msg, "trades": [], "deepseek_error": True}
