@@ -174,9 +174,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
 
         if config.INDODAX_API_KEY and config.INDODAX_SECRET_KEY:
             try:
-                info = await get_balance(client)
-                bal = info.get("balance", {})
-                actual_idr_balance = float(bal.get("idr", 0))
+                actual_idr_balance = _latest_balance
                 for coin, raw_qty in bal.items():
                     qty = float(raw_qty)
                     if qty <= 0 or coin == "idr":
@@ -495,8 +493,20 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         except Exception:
             pass
 
+_latest_balance: float = 100_000
+
+async def _balance_poller(client: httpx.AsyncClient):
+    global _latest_balance
+    while not shutdown_flag:
+        try:
+            info = await get_balance(client)
+            _latest_balance = float(info.get("balance", {}).get("idr", 0))
+        except Exception:
+            pass
+        await asyncio.sleep(30)
+
 async def main():
-    global shutdown_flag
+    global _latest_balance, shutdown_flag
 
     print("=" * 50, flush=True)
     print("  AI HEDGE FUND MANAGER — INDODAX", flush=True)
@@ -574,6 +584,7 @@ async def main():
 
     async with httpx.AsyncClient(timeout=30) as client:
         poller = asyncio.create_task(telegram_poller())
+        bal_poller = asyncio.create_task(_balance_poller(client))
 
         while not shutdown_flag:
             print(f"\n{'='*20} Cycle #{cycle_counter + 1} {'='*20}", flush=True)
@@ -584,6 +595,7 @@ async def main():
                 await asyncio.sleep(5)
 
     poller.cancel()
+    bal_poller.cancel()
     mws_stop()
     pws_stop()
     if config.INDODAX_API_KEY:
