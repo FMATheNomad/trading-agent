@@ -27,6 +27,7 @@ shutdown_flag = False
 
 regime_history: list[str] = []
 known_pairs: set[str] = set()
+_ext_entry_prices: dict[str, float] = {}
 
 def classify_regime(all_signals: dict) -> dict:
     signals = [s.get("raw_signal") for s in all_signals.values() if s.get("raw_signal")]
@@ -160,11 +161,13 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             pair_str = " ".join(f"{p['pair']}={p['ratio']}" for p in pair_suggestions)
             print(f"Pairs: {pair_str}", flush=True)
 
+        for p in external_positions:
+            if p.get("entry_price", 0) > 0:
+                _ext_entry_prices[p["pair"]] = p["entry_price"]
         external_positions.clear()
         actual_idr_balance = 100_000
 
         db_pos_pairs = {p.get("pair") for p in load_positions()}
-        existing_ext_pairs = {p["pair"]: p for p in external_positions}
 
         if config.INDODAX_API_KEY and config.INDODAX_SECRET_KEY:
             try:
@@ -184,10 +187,10 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                         continue
                     last_price = ticker_map.get(pair, {}).get("last", 0)
 
-                    prev_ext = existing_ext_pairs.get(pair)
-                    entry_price = prev_ext.get("entry_price") if prev_ext else 0
+                    entry_price = _ext_entry_prices.get(pair, 0)
                     if entry_price == 0 and last_price:
                         entry_price = last_price
+                        _ext_entry_prices[pair] = entry_price
 
                     external_positions.append({
                         "pair": pair, "side": "BUY",
