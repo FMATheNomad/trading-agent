@@ -32,7 +32,7 @@ Target: 20% profit per trade, 10% stop loss. Risk 1:2 ratio.
 - Hot Now + any BUY signal = execute, don't wait
 - TF alignment preferred but NOT required for hot setups
 - Play capital 60-90% on high conviction setups
-- Anda boleh ambil posisi lebih agresif. Uang kecil butuh risk tinggi untuk return berarti.
+- REMINDER: Account kecil (Rp100-200k). Untuk double dalam 5-7 hari, perlu 4-5 trade sukses @20%. Cari edge setiap hari, jangan puas HOLD terus. Tapi jangan maksa kalo benar-benar gak ada setup.
 """
 
 SYSTEM_PROMPT = BASE_PROMPT + (ALPHA_PROMPT if config.ALPHA_MODE else "")
