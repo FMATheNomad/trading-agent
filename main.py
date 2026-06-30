@@ -225,19 +225,13 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             save_peak_capital(total_equity)
 
         if portfolio_risk.check_portfolio_stop(total_equity):
-            msg = (f"PORTFOLIO STOP-LOSS HIT ({config.PORTFOLIO_STOP_LOSS_PCT*100}%)\n"
-                   f"Equity: Rp{total_equity:,.0f}\nBot berhenti trading sementara, pantau terus.")
+            msg = (f"⚠️ PORTFOLIO DRAWDOWN {config.PORTFOLIO_STOP_LOSS_PCT*100}% — "
+                   f"Reducing play capital. Equity: Rp{total_equity:,.0f}")
             await send_message(msg)
-            print("Portfolio stop-loss triggered. Pausing trades.", flush=True)
-            await asyncio.sleep(config.LOOP_INTERVAL_SECONDS * 2)
-            return
+            print(msg, flush=True)
 
         if risk.should_stop_trading(total_equity):
-            msg = f"⚠️ DAILY LOSS LIMIT HIT. Trading paused until next cycle. Bot stays alive for monitoring."
-            print(msg, flush=True)
-            await send_message(msg)
-            await asyncio.sleep(config.LOOP_INTERVAL_SECONDS)
-            return
+            await send_message(f"⚠️ Daily loss warning — Equity: Rp{total_equity:,.0f}. Lanjut trading dengan hati-hati.")
 
         all_positions = positions + external_positions
         for p in all_positions:
