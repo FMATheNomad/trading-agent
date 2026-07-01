@@ -45,7 +45,7 @@ class RiskManager:
         cfg_sl = abs(config.STOP_LOSS_PCT) * 100
         cfg_tp = abs(config.TAKE_PROFIT_PCT) * 100
         if atr_pct:
-            sl_mult = max(atr_pct * config.ATR_SL_MULTIPLIER, cfg_sl)
+            sl_mult = atr_pct * config.ATR_SL_MULTIPLIER
             tp_mult = atr_pct * config.ATR_TP_MULTIPLIER
         else:
             sl_mult = cfg_sl

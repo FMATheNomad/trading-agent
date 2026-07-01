@@ -100,7 +100,7 @@ MIN_KELLY_ALLOC = 0.3
 
 # --- ATR-Based TP ---
 ATR_TP_MULTIPLIER = 3.0
-ATR_SL_MULTIPLIER = 1.5
+ATR_SL_MULTIPLIER = 2.0
 
 # --- Auto Compound ---
 AUTO_COMPOUND = True
