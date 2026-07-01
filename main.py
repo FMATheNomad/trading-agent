@@ -139,6 +139,8 @@ def fmt_qty(pair: str, qty: float) -> str:
         return f"{qty:.2f}"
     if min_traded >= 0.001:
         return f"{qty:.4f}"
+    if abs(qty - round(qty)) < 1e-8:
+        return str(int(qty))
     s = f"{qty:.8f}".rstrip("0").rstrip(".")
     return s if s != "0" else "0"
 
