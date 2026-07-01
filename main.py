@@ -216,7 +216,11 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             print(f"New coins detected: {', '.join(new_coins)}", flush=True)
         known_pairs.update(current_pairs)
         for v in viable:
-            _pair_meta[v["pair"]] = {"precision": v.get("price_precision", 1000), "min_traded": v.get("trade_min_traded_currency", 0.0001)}
+            _pair_meta[v["pair"]] = {
+                "precision": v.get("price_precision", 1000),
+                "min_traded": v.get("trade_min_traded_currency", 0.0001),
+                "min_base": int(v.get("trade_min_base_currency", config.MIN_ORDER_IDR)),
+            }
 
         live = LIVE_TICKERS.copy()
         if live:
@@ -436,7 +440,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
 
         play_capital_pct = decision.get("play_capital_pct", pending_play_capital_pct * 100)
         if actual_idr_balance < config.MIN_ORDER_IDR:
-            print(f"Cash Rp{actual_idr_balance:,.0f} < MIN_ORDER Rp{config.MIN_ORDER_IDR:,}. Skipping buys.", flush=True)
+            print(f"Cash Rp{actual_idr_balance:,.0f} < min Rp{config.MIN_ORDER_IDR:,}. Skipping buys.", flush=True)
             balance_idr = 0
         else:
             min_balance_needed = config.MIN_ORDER_IDR * 1.2
@@ -465,8 +469,9 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 if p["side"] == "SELL":
                     pnl = (p["entry_price"] - last) * p["qty"]
                 dust_value = p["qty"] * last
-                if dust_value < config.MIN_ORDER_IDR:
-                    print(f"  {p['pair']}: tiny (Rp{dust_value:,.0f}) — CIO handles it", flush=True)
+                pair_min = _pair_meta.get(p["pair"], {}).get("min_base", config.MIN_ORDER_IDR)
+                if dust_value < pair_min:
+                    print(f"  {p['pair']}: tiny (Rp{dust_value:,.0f} < min Rp{pair_min:,}) — CIO handles it", flush=True)
                     continue
                 sl_hits.append(f"{p['pair']} {result}: {pnl:+.0f} IDR")
                 _cooldown[p["pair"]] = time.time()
