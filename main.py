@@ -267,7 +267,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             try:
                 info = await get_balance(client)
                 bal = info.get("balance", {})
-                actual_idr_balance = _latest_balance
+                actual_idr_balance = _latest_balance if _latest_balance > 0 else config.PLAY_CAPITAL_IDR
                 for coin, raw_qty in bal.items():
                     qty = float(raw_qty)
                     if qty <= 0 or coin == "idr":
@@ -868,7 +868,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
     finally:
         print(f"⏱ Cycle #{cycle_counter} finished in {int(time.time() - _t0)}s", flush=True)
 
-_latest_balance: float = 100_000
+_latest_balance: float = 0
 
 async def _balance_poller(client: httpx.AsyncClient):
     global _latest_balance

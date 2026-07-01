@@ -14,7 +14,7 @@ def _headers(body: str) -> dict:
     return {
         "Key": config.INDODAX_API_KEY,
         "Sign": _sign(body, config.INDODAX_SECRET_KEY),
-        "Content-Type": "application/x-www-form-urlencoded",
+        "Content-Type": "text/plain",
     }
 
 async def refresh_deadman(client: httpx.AsyncClient, pairs: str | None = None) -> bool:
