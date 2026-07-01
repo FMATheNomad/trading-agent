@@ -288,14 +288,26 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     if entry_price > 0:
                         print(f"  {pair}: entry_price={entry_price:,}", flush=True)
 
-                    external_positions.append({
-                        "pair": pair, "side": "BUY",
-                        "entry_price": entry_price,
-                        "qty": qty,
-                        "amount_idr": qty * (entry_price or 1),
-                        "current_price": last_price,
-                        "real": True,
-                    })
+                    if cycle_counter <= 1:
+                        positions.append({
+                            "pair": pair, "side": "BUY",
+                            "entry_price": entry_price,
+                            "qty": qty,
+                            "amount_idr": qty * (entry_price or 1),
+                            "atr_pct": None,
+                            "entry_time": time.time(),
+                        })
+                        save_positions(positions)
+                        print(f"  {pair}: restored as bot position (startup)", flush=True)
+                    else:
+                        external_positions.append({
+                            "pair": pair, "side": "BUY",
+                            "entry_price": entry_price,
+                            "qty": qty,
+                            "amount_idr": qty * (entry_price or 1),
+                            "current_price": last_price,
+                            "real": True,
+                        })
                 if external_positions:
                     ext_summary = ", ".join(f"{p['pair']}({p['qty']})" for p in external_positions)
                     print(f"External positions: {ext_summary}", flush=True)
@@ -538,9 +550,9 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         trades = [t for t in trades if t.get("action") != "SELL" or t["pair"] in all_held]
         trades = [t for t in trades if not (t.get("action") == "SELL" and t["pair"] in bot_pair_set)]
         if cycle_counter <= 1:
-            trades = [t for t in trades if t.get("action") != "SELL"]
             if any(t.get("action") == "SELL" for t in decision.get("trades", [])):
-                print("STARTUP GUARD: blocked CIO sells (first cycle)", flush=True)
+                print("STARTUP GUARD: blocked CIO sells (positions restored from balance)", flush=True)
+            trades = [t for t in trades if t.get("action") != "SELL"]
         trades = [t for t in trades if t.get("action") != "BUY" or t["pair"] not in _coin_blacklist]
         trades = [t for t in trades if t.get("action") != "BUY" or t["pair"] not in _cooldown]
         if _coin_blacklist:
