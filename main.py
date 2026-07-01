@@ -294,8 +294,6 @@ async def portfolio_cycle(client: httpx.AsyncClient):
 
         actual_idr_balance = config.PLAY_CAPITAL_IDR
 
-        db_pos_pairs = {p.get("pair") for p in persist.load_positions()}
-
         if config.INDODAX_API_KEY and config.INDODAX_SECRET_KEY:
             try:
                 info = await get_balance(client)
@@ -308,11 +306,17 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     pair = f"{coin}_idr"
                     if pair in config.STABLECOINS or pair in config.SKIP_COINS:
                         continue
-                    if any(p["pair"] == pair for p in positions):
+                    last_price = ticker_map.get(pair, {}).get("last", 0)
+
+                    old = next((p for p in positions if p["pair"] == pair), None)
+                    if old:
+                        old["qty"] = qty
+                        old["amount_idr"] = qty * (old.get("entry_price") or 1)
                         continue
+
+                    db_pos_pairs = {p.get("pair") for p in persist.load_positions()}
                     if pair in db_pos_pairs:
                         continue
-                    last_price = ticker_map.get(pair, {}).get("last", 0)
 
                     entry_price = _ext_entry_prices.get(pair, 0)
                     if entry_price == 0 and last_price:
@@ -472,12 +476,14 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     pnl = (p["entry_price"] - last) * p["qty"]
                 dust_value = p["qty"] * last
                 pair_min = _pair_meta.get(p["pair"], {}).get("min_base", config.MIN_ORDER_IDR)
-                if dust_value < pair_min:
-                    print(f"  {p['pair']}: tiny (Rp{dust_value:,.0f} < min Rp{pair_min:,}) — CIO handles it", flush=True)
-                    continue
                 sl_hits.append(f"{p['pair']} {result}: {pnl:+.0f} IDR")
                 _cooldown[p["pair"]] = time.time()
                 print(f"COOLDOWN: {p['pair']} set for 12h", flush=True)
+                if dust_value < pair_min:
+                    print(f"  {p['pair']}: tiny (Rp{dust_value:,.0f} < min Rp{pair_min:,}) — skip API, hapus tracking", flush=True)
+                    positions.remove(p)
+                    persist.save_positions(positions)
+                    continue
                 if not config.PAPER_TRADING and config.INDODAX_API_KEY:
                     try:
                         coin_name = p["pair"].split("_")[0]
