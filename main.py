@@ -444,7 +444,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             atr = p.get("atr_pct")
             result = risk.check_sl_tp(p["entry_price"], last, p["side"], pair=p["pair"])
             if not result and atr:
-                dyn_sl = p["entry_price"] * (1 - atr / 100) if p["side"] == "BUY" else p["entry_price"] * (1 + atr / 100)
+                atr_sl = atr * config.ATR_SL_MULTIPLIER
+                dyn_sl = p["entry_price"] * (1 - atr_sl / 100) if p["side"] == "BUY" else p["entry_price"] * (1 + atr_sl / 100)
                 if (p["side"] == "BUY" and last <= dyn_sl) or (p["side"] == "SELL" and last >= dyn_sl):
                     result = "ATR_SL"
             if result:
