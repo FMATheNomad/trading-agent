@@ -32,24 +32,21 @@ class RiskManager:
     def estimate_fee(self, amount_idr: float) -> float:
         return amount_idr * config.TAKER_FEE_PCT
 
-    def is_profit_viable(self, entry_price: float, qty: float, side: str) -> bool:
+    def is_profit_viable(self, entry_price: float, qty: float, side: str, atr_pct: float | None = None) -> bool:
+        atr = atr_pct or 1.0
+        target_mult = atr * config.ATR_TP_MULTIPLIER / 100
         if side.upper() == "BUY":
-            target = entry_price * (1 + abs(config.TAKE_PROFIT_PCT))
+            target = entry_price * (1 + target_mult)
         else:
-            target = entry_price * (1 - abs(config.TAKE_PROFIT_PCT))
+            target = entry_price * (1 - target_mult)
         gross = abs(target - entry_price) * qty
         fee_roundtrip = (entry_price * qty * config.TAKER_FEE_PCT) + (target * qty * config.TAKER_FEE_PCT)
         return gross > fee_roundtrip
 
     def get_sl_tp(self, entry_price: float, side: str, atr_pct: float | None = None) -> tuple[float, float]:
-        cfg_sl = abs(config.STOP_LOSS_PCT) * 100
-        cfg_tp = abs(config.TAKE_PROFIT_PCT) * 100
-        if atr_pct:
-            sl_mult = atr_pct * config.ATR_SL_MULTIPLIER
-            tp_mult = atr_pct * config.ATR_TP_MULTIPLIER
-        else:
-            sl_mult = cfg_sl
-            tp_mult = cfg_tp
+        atr = atr_pct or 1.0
+        sl_mult = max(atr * config.ATR_SL_MULTIPLIER, 0.5)
+        tp_mult = max(atr * config.ATR_TP_MULTIPLIER, 1.0)
         if side.upper() == "BUY":
             sl = entry_price * (1 - sl_mult / 100)
             tp = entry_price * (1 + tp_mult / 100)
@@ -60,7 +57,7 @@ class RiskManager:
 
     def compute_atr(self, ohlcv: list[dict], period: int = 14) -> float:
         if len(ohlcv) < period + 1:
-            return abs(config.STOP_LOSS_PCT) * 100
+            return config.ATR_SL_MULTIPLIER
         df = pd.DataFrame(ohlcv[-period - 1:])
         df.columns = [c.lower() for c in df.columns]
         high = df["high"].astype(float)
@@ -76,15 +73,17 @@ class RiskManager:
         atr_pct = round(atr / close.iloc[-1] * 100, 2) if close.iloc[-1] else 1
         return min(max(atr_pct, 0.5), 10)
 
-    def check_sl_tp(self, entry_price: float, current_price: float, side: str, pair: str = "") -> str | None:
+    def check_sl_tp(self, entry_price: float, current_price: float, side: str, pair: str = "", atr_pct: float | None = None) -> str | None:
         if entry_price <= 0:
             return None
+        atr = atr_pct or config.ATR_SL_MULTIPLIER
+        trail_pct = atr * config.ATR_SL_MULTIPLIER * 0.5 / 100
         if side.upper() == "BUY":
             pnl_pct = (current_price - entry_price) / entry_price
             if pair and current_price > self.trailing_highs.get(pair, entry_price):
                 self.trailing_highs[pair] = current_price
             if pair and pnl_pct > 0:
-                trail_stop = self.trailing_highs[pair] * (1 - abs(config.STOP_LOSS_PCT) * 0.5)
+                trail_stop = self.trailing_highs[pair] * (1 - trail_pct)
                 if current_price <= trail_stop:
                     return "TRAILING_SL"
         else:
@@ -92,13 +91,9 @@ class RiskManager:
             if pair and current_price < self.trailing_highs.get(pair, entry_price):
                 self.trailing_highs[pair] = current_price
             if pair and pnl_pct > 0:
-                trail_stop = self.trailing_highs[pair] * (1 + abs(config.STOP_LOSS_PCT) * 0.5)
+                trail_stop = self.trailing_highs[pair] * (1 + trail_pct)
                 if current_price >= trail_stop:
                     return "TRAILING_SL"
-        if pnl_pct <= config.STOP_LOSS_PCT:
-            return "SL_HIT"
-        if pnl_pct >= config.TAKE_PROFIT_PCT:
-            return "TP_HIT"
         return None
 
 

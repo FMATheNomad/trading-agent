@@ -478,15 +478,13 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         sl_hits = []
         for p in list(positions):
             last = ticker_map.get(p["pair"], {}).get("last", p["entry_price"])
-            atr = p.get("atr_pct")
-            result = risk.check_sl_tp(p["entry_price"], last, p["side"], pair=p["pair"])
-            if not result:
-                atr_val = atr if atr else (risk.compute_atr(ohlcv_map_1h.get(p["pair"], [])) if p.get("pair") in ohlcv_map_1h else None)
-                if atr_val:
-                    atr_sl = atr_val * config.ATR_SL_MULTIPLIER
-                    dyn_sl = p["entry_price"] * (1 - atr_sl / 100) if p["side"] == "BUY" else p["entry_price"] * (1 + atr_sl / 100)
-                    if (p["side"] == "BUY" and last <= dyn_sl) or (p["side"] == "SELL" and last >= dyn_sl):
-                        result = "ATR_SL"
+            atr_val = p.get("atr_pct") or (risk.compute_atr(ohlcv_map_1h.get(p["pair"], [])) if p.get("pair") in ohlcv_map_1h else None)
+            result = risk.check_sl_tp(p["entry_price"], last, p["side"], pair=p["pair"], atr_pct=atr_val)
+            if not result and atr_val:
+                atr_sl = atr_val * config.ATR_SL_MULTIPLIER
+                dyn_sl = p["entry_price"] * (1 - atr_sl / 100) if p["side"] == "BUY" else p["entry_price"] * (1 + atr_sl / 100)
+                if (p["side"] == "BUY" and last <= dyn_sl) or (p["side"] == "SELL" and last >= dyn_sl):
+                    result = "ATR_SL"
             if result:
                 pnl = (last - p["entry_price"]) * p["qty"]
                 if p["side"] == "SELL":
@@ -553,14 +551,13 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             if ep <= 0:
                 continue
             last = ticker_map.get(p["pair"], {}).get("last", p.get("current_price", 0))
-            result = risk.check_sl_tp(ep, last, p["side"], pair=p["pair"])
-            if not result:
-                atr_e = risk.compute_atr(ohlcv_map_1h.get(p["pair"], [])) if p.get("pair") in ohlcv_map_1h else None
-                if atr_e:
-                    atr_sl_e = atr_e * config.ATR_SL_MULTIPLIER
-                    dyn_sl_e = ep * (1 - atr_sl_e / 100) if p["side"] == "BUY" else ep * (1 + atr_sl_e / 100)
-                    if (p["side"] == "BUY" and last <= dyn_sl_e) or (p["side"] == "SELL" and last >= dyn_sl_e):
-                        result = "ATR_SL"
+            atr_e = risk.compute_atr(ohlcv_map_1h.get(p["pair"], [])) if p.get("pair") in ohlcv_map_1h else None
+            result = risk.check_sl_tp(ep, last, p["side"], pair=p["pair"], atr_pct=atr_e)
+            if not result and atr_e:
+                atr_sl_e = atr_e * config.ATR_SL_MULTIPLIER
+                dyn_sl_e = ep * (1 - atr_sl_e / 100) if p["side"] == "BUY" else ep * (1 + atr_sl_e / 100)
+                if (p["side"] == "BUY" and last <= dyn_sl_e) or (p["side"] == "SELL" and last >= dyn_sl_e):
+                    result = "ATR_SL"
             if result:
                 print(f"  EXT SL CHECK: {p['pair']} entry={ep:,} last={last:,} result={result}", flush=True)
             if result:
@@ -800,16 +797,16 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     continue
                 qty = amount / price
 
-            if not risk.is_profit_viable(price, qty, action):
+            ohlcv = ohlcv_map_1h.get(pid)
+            atr_pct = risk.compute_atr(ohlcv) if ohlcv else None
+            if not risk.is_profit_viable(price, qty, action, atr_pct=atr_pct):
                 print(f"  {pid}: skipped - fees eat profit", flush=True)
                 continue
 
             print(f"  {action} {pid} @ {price} | Rp{amount:,.0f} ({qty:.6f}) | alloc: {alloc}%", flush=True)
 
-            ohlcv = ohlcv_map_1h.get(pid)
             tp_limit_price = 0
-            if ohlcv and action == "BUY":
-                atr_pct = risk.compute_atr(ohlcv)
+            if atr_pct and action == "BUY":
                 sl, tp = risk.get_sl_tp(price, action, atr_pct)
                 tp_limit_price = int(tp)
                 print(f"  ATR: {atr_pct}% | SL: {sl} | TP: {tp}", flush=True)
