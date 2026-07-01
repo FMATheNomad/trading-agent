@@ -352,10 +352,19 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             except Exception as e:
                 print(f"Balance fetch error: {e} (using previous balance: Rp{actual_idr_balance:,.0f})", flush=True)
 
+        def _coin_price(pair: str) -> float:
+            lt = LIVE_TICKERS.get(pair, {})
+            if lt.get("last"):
+                return lt["last"]
+            tm = ticker_map.get(pair, {})
+            if tm.get("last"):
+                return tm["last"]
+            return 0
+
         pending_play_capital_pct = config.DEFAULT_PLAY_CAPITAL_PCT
         balance_idr = int(actual_idr_balance * pending_play_capital_pct)
         paper_equity = sum(
-            p["qty"] * ticker_map.get(p["pair"], {}).get("last", p["entry_price"])
+            p["qty"] * _coin_price(p["pair"])
             for p in positions
         )
         total_equity = actual_idr_balance + paper_equity
