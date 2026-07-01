@@ -581,16 +581,17 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         trades = [t for t in trades if t.get("action") != "SELL" or t["pair"] in all_held]
         profit_sells = []
         for t in list(trades):
-            if t.get("action") == "SELL" and t["pair"] in bot_pair_set:
-                match = next((p for p in positions if p["pair"] == t["pair"]), None)
+            if t.get("action") == "SELL":
+                sell_pair = t["pair"]
+                match = next((p for p in positions if p["pair"] == sell_pair), None) or next((p for p in external_positions if p["pair"] == sell_pair), None)
                 if match:
-                    price_now = ticker_map.get(t["pair"], {}).get("last", 0)
-                    pnl = (price_now - match["entry_price"]) / match["entry_price"] * 100 if match["entry_price"] else 0
+                    price_now = ticker_map.get(sell_pair, {}).get("last", 0)
+                    entry = match.get("entry_price", 0)
+                    pnl = (price_now - entry) / entry * 100 if entry else 0
                     if pnl >= 2:
                         profit_sells.append(t)
-                        print(f"PROFIT ROTATE: sell {t['pair']} (+{pnl:.1f}%) for reallocation", flush=True)
-        trades = [t for t in trades if not (t.get("action") == "SELL" and t["pair"] in bot_pair_set)]
-        trades = trades + profit_sells
+                        print(f"PROFIT ROTATE: sell {sell_pair} (+{pnl:.1f}%)", flush=True)
+        trades = [t for t in trades if not (t.get("action") == "SELL" and t not in profit_sells)]
         if cycle_counter <= 1:
             if any(t.get("action") == "SELL" for t in decision.get("trades", [])):
                 print("STARTUP GUARD: blocked CIO sells (positions restored from balance)", flush=True)
