@@ -139,7 +139,8 @@ def fmt_qty(pair: str, qty: float) -> str:
         return f"{qty:.2f}"
     if min_traded >= 0.001:
         return f"{qty:.4f}"
-    return f"{qty:.8f}"
+    s = f"{qty:.8f}".rstrip("0").rstrip(".")
+    return s if s != "0" else "0"
 
 def pnl_pct(entry: float, current: float, side: str) -> float:
     if entry <= 0:
