@@ -160,45 +160,58 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         for pid in list(_pending_orders.keys()):
             try:
                 oid = _pending_orders[pid]["order_id"]
-                order_info = await get_order(client, oid, pair=pid)
-                if order_info is None:
-                    raise Exception("order not found")
-                remain_str = str(order_info.get("remain_rp", order_info.get("remain_idr", 0)))
-                remain = float(remain_str) if remain_str else 0
-                if remain > 0:
-                    cancel_params = {
-                        "method": "cancelOrder", "timestamp": int(time.time() * 1000),
-                        "recvWindow": "5000", "pair": pid,
-                        "order_id": str(oid), "type": "buy",
+                price = _pending_orders[pid]["price"]
+                amount = _pending_orders[pid]["amount"]
+                need_market = False
+                try:
+                    order_info = await get_order(client, oid, pair=pid)
+                    if order_info is None:
+                        need_market = True
+                    else:
+                        status = order_info.get("status", "").lower()
+                        remain_str = str(order_info.get("remain_rp", order_info.get("remain_idr", 0)))
+                        remain = float(remain_str) if remain_str else 0
+                        if remain == 0:
+                            del _pending_orders[pid]
+                            continue
+                        if status in ("cancelled", "rejected"):
+                            need_market = True
+                        elif remain > 0:
+                            cancel_params = {
+                                "method": "cancelOrder", "timestamp": int(time.time() * 1000),
+                                "recvWindow": "5000", "pair": pid,
+                                "order_id": str(oid), "type": "buy",
+                            }
+                            cancel_body = urlencode(cancel_params)
+                            cancel_sig = hmac.new(config.INDODAX_SECRET_KEY.encode(), cancel_body.encode(), hashlib.sha512).hexdigest()
+                            cr = await client.post(config.INDODAX_TAPI_URL, headers={
+                                "Key": config.INDODAX_API_KEY, "Sign": cancel_sig,
+                                "Content-Type": "application/x-www-form-urlencoded",
+                            }, content=cancel_body)
+                            if cr.json().get("success") == 1:
+                                need_market = True
+                except Exception:
+                    need_market = True
+                if need_market:
+                    print(f"MARKET REPLACE: {pid} maker unfilled/cancelled → market @ {price}", flush=True)
+                    market_params = {
+                        "method": "trade", "timestamp": int(time.time() * 1000),
+                        "recvWindow": "5000", "pair": pid, "type": "buy",
+                        "price": str(int(price)), "idr": str(int(amount)),
+                        "order_type": "market",
                     }
-                    cancel_body = urlencode(cancel_params)
-                    cancel_sig = hmac.new(config.INDODAX_SECRET_KEY.encode(), cancel_body.encode(), hashlib.sha512).hexdigest()
-                    cr = await client.post(config.INDODAX_TAPI_URL, headers={
-                        "Key": config.INDODAX_API_KEY, "Sign": cancel_sig,
+                    market_body = urlencode(market_params)
+                    market_sig = hmac.new(config.INDODAX_SECRET_KEY.encode(), market_body.encode(), hashlib.sha512).hexdigest()
+                    mr = await client.post(config.INDODAX_TAPI_URL, headers={
+                        "Key": config.INDODAX_API_KEY, "Sign": market_sig,
                         "Content-Type": "application/x-www-form-urlencoded",
-                    }, content=cancel_body)
-                    crj = cr.json()
-                    if crj.get("success") == 1:
-                        price = _pending_orders[pid]["price"]
-                        amount = _pending_orders[pid]["amount"]
-                        coin = pid.split("_")[0]
-                        print(f"CANCEL & MARKET: {pid} unfilled maker → market order @ {price}", flush=True)
-                        market_params = {
-                            "method": "trade", "timestamp": int(time.time() * 1000),
-                            "recvWindow": "5000", "pair": pid, "type": "buy",
-                            "price": str(int(price)), "idr": str(int(amount)),
-                            "order_type": "market",
-                        }
-                        market_body = urlencode(market_params)
-                        market_sig = hmac.new(config.INDODAX_SECRET_KEY.encode(), market_body.encode(), hashlib.sha512).hexdigest()
-                        mr = await client.post(config.INDODAX_TAPI_URL, headers={
-                            "Key": config.INDODAX_API_KEY, "Sign": market_sig,
-                            "Content-Type": "application/x-www-form-urlencoded",
-                        }, content=market_body)
-                        mj = mr.json()
-                        if mj.get("success") == 1:
-                            print(f"  MARKET BUY {pid} filled: {mj['return']}", flush=True)
-                        del _pending_orders[pid]
+                    }, content=market_body)
+                    mj = mr.json()
+                    if mj.get("success") == 1:
+                        print(f"  MARKET BUY {pid} filled", flush=True)
+                    else:
+                        print(f"  MARKET BUY {pid} failed: {mj.get('error', 'unknown')}", flush=True)
+                    del _pending_orders[pid]
             except Exception:
                 del _pending_orders[pid]
 
