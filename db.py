@@ -128,3 +128,30 @@ def get_trade_count_today() -> int:
             "SELECT COUNT(*) FROM trades WHERE timestamp LIKE ?", (f"{today}%",)
         ).fetchone()
     return row[0] if row else 0
+
+def init_chat_db():
+    with _conn() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS chat_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                role TEXT NOT NULL,
+                message TEXT NOT NULL
+            )
+        """)
+
+def save_chat(role: str, message: str):
+    with _conn() as conn:
+        conn.execute(
+            "INSERT INTO chat_history (timestamp, role, message) VALUES (?, ?, ?)",
+            (datetime.now(timezone.utc).isoformat(), role, message),
+        )
+        conn.execute("DELETE FROM chat_history WHERE id NOT IN (SELECT id FROM chat_history ORDER BY id DESC LIMIT 50)")
+
+def get_chat_history(limit: int = 10) -> list[dict]:
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT role, message FROM chat_history ORDER BY id DESC LIMIT ?", (limit,)
+        ).fetchall()
+    rows.reverse()
+    return [{"role": r[0], "message": r[1]} for r in rows]

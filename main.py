@@ -18,7 +18,7 @@ from risk_manager import RiskManager, PortfolioRiskManager
 from executor import place_order, get_balance, get_order
 from deadman import refresh_deadman, cancel_deadman
 from notifier import send_message
-from db import init_db, log_trade, log_decision, get_recent_trades, get_trade_count_today
+from db import init_db, log_trade, log_decision, get_recent_trades, get_trade_count_today, save_chat, get_chat_history, init_chat_db
 import persist
 from market_ws import market_ws_loop, LIVE_TICKERS, stop as mws_stop
 from private_ws import private_ws_loop, stop as pws_stop
@@ -45,6 +45,11 @@ _cio_stats: dict = {"total_decisions": 0, "buys": 0, "sells": 0, "wins": 0, "los
 _tp_limit_orders: dict[str, int] = {}
 _pending_orders: dict[str, dict] = {}
 _cooldown: dict[str, float] = {}
+_latest_regime: dict = {}
+_latest_ticker_map: dict = {}
+_latest_all_signals: dict = {}
+_latest_ohlcv_map_1h: dict = {}
+_last_actual_balance: float = 0
 INITIAL_SCORE = 0
 
 def classify_regime(all_signals: dict, ohlcv_map_1h: dict | None = None) -> dict:
@@ -798,6 +803,13 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             pair_str = ",".join(p["pair"] for p in positions[:5])
             await refresh_deadman(client, pair_str)
 
+        global _latest_regime, _latest_ticker_map, _latest_all_signals, _latest_ohlcv_map_1h, _last_actual_balance
+        _latest_regime = regime_info
+        _latest_ticker_map = ticker_map
+        _latest_all_signals = all_signals
+        _latest_ohlcv_map_1h = ohlcv_map_1h
+        _last_actual_balance = actual_idr_balance
+
     except Exception as e:
         print(f"Portfolio cycle error: {e}", flush=True)
         import traceback
@@ -840,6 +852,7 @@ async def main():
 
     try:
         init_db()
+        init_chat_db()
         saved = persist.load_positions()
         if saved:
             positions.extend(saved)
@@ -898,7 +911,71 @@ async def main():
     )
     print(f"Telegram: {'OK' if ok else 'FAILED'}", flush=True)
 
+    async def _cio_reply(user_msg: str) -> str | None:
+        global _latest_regime
+        if not config.DEEPSEEK_API_KEY:
+            return None
+
+        cash_info = f"Rp{_latest_balance:,.0f}" if _latest_balance else "?"
+        pos_lines = []
+        for p in positions[:10]:
+            pid = p["pair"]
+            lp = LIVE_TICKERS.get(pid, {}).get("last") or _latest_ticker_map.get(pid, {}).get("last") or p.get("entry_price", 0)
+            pnl = pnl_pct(p.get("entry_price") or 0, lp, p["side"])
+            pos_lines.append(f"  {pid}: {p['qty']:.4f} @ {p.get('entry_price',0):,.0f} ({pnl:+.2f}%)")
+        pos_str = "\n".join(pos_lines) or "  Tidak ada"
+
+        regime_name = _latest_regime.get("regime", "?")
+        chat_history = get_chat_history(8)
+        messages = [
+            {"role": "system", "content": (
+                f"Kamu CIO FMA ALPHA QUANT LABS. Target: Rp{config.PLAY_CAPITAL_IDR:,} → Rp500.000.\n"
+                f"Bicara sopan pakai 'aku', singkat (1-3 kalimat), santai.\n"
+                f"Cash: {cash_info}\n"
+                f"Positions:\n{pos_str}\n"
+                f"Regime saat ini: {regime_name}\n"
+                f"Mode: {'🔴 ALPHA' if config.ALPHA_MODE else 'STANDARD'} ATR-based SL/TP"
+            )},
+        ]
+        for h in chat_history:
+            messages.append({"role": "user" if h["role"] == "user" else "assistant", "content": h["message"]})
+        messages.append({"role": "user", "content": user_msg})
+
+        try:
+            from openai import OpenAI
+            cl = OpenAI(api_key=config.DEEPSEEK_API_KEY, base_url=config.DEEPSEEK_BASE_URL)
+            resp = cl.chat.completions.create(model=config.DEEPSEEK_MODEL, messages=messages)
+            return resp.choices[0].message.content or "Gak tau."
+        except Exception as e:
+            return f"Error: {str(e)[:60]}"
+
+    async def _build_coin_detail(pair: str) -> str:
+        pid = pair if pair.endswith("_idr") else f"{pair}_idr"
+        sig = _latest_all_signals.get(pid, {})
+        t = _latest_ticker_map.get(pid, {})
+        lt = LIVE_TICKERS.get(pid, {})
+        p = next((x for x in positions if x["pair"] == pid), None)
+        ohlcv = _latest_ohlcv_map_1h.get(pid, [])
+        atr_val = risk.compute_atr(ohlcv) if ohlcv else None
+        lines = [f"-- {pid} Detail --"]
+        if lt.get("last"):
+            lines.append(f"Harga: Rp{lt['last']:,.0f} | 24h: {lt.get('change_24h', 0):+.2f}%")
+        elif t.get("last"):
+            lines.append(f"Harga: Rp{t['last']:,.0f}")
+        if atr_val:
+            lines.append(f"ATR: {atr_val:.2f}% | SL: {atr_val*2:.1f}% | TP: {atr_val*3:.1f}%")
+        if sig.get("raw_signal"):
+            lines.append(f"Signal: {sig['raw_signal']}({sig.get('score',0)}) | 4h:{sig.get('4h_signal','?')} | TF align:{'Y' if sig.get('timeframe_aligned') else 'N'}")
+        if sig.get("volume_ratio", 0) > 1:
+            lines.append(f"Volume: x{sig['volume_ratio']:.1f} avg")
+        if p:
+            lp = lt.get("last") or t.get("last") or p.get("entry_price", 0)
+            pnl = pnl_pct(p.get("entry_price") or 0, lp, p["side"])
+            lines.append(f"Posisi: {p['qty']:.4f} @ {p.get('entry_price',0):,.0f} ({pnl:+.2f}%)")
+        return "\n".join(lines) or f"{pid}: tidak ditemukan"
+
     async def telegram_poller():
+        global _latest_regime
         last_id = 0
         while not shutdown_flag:
             try:
@@ -913,54 +990,84 @@ async def main():
                             raw = (upd.get("message", {}).get("text") or "").strip()
                             txt = raw.lower()
                             cid = upd.get("message", {}).get("chat", {}).get("id")
+                            if not txt:
+                                continue
+
+                            save_chat("user", raw)
+
                             if txt in ("/start", "/status"):
-                                pos_text = "No positions"
-                                if positions:
-                                    pos_text = "\n".join(
-                                        f"{p['pair']} {p['side']} @ {p['entry_price']} ({p.get('pnl_pct', 0):+.2f}%)"
-                                        for p in positions[:10]
-                                    )
-                                text = (f"FMA ALPHA QUANT LABS 🤖\n"
-                                        f"Target: Rp200k → Rp500k 🔥\n"
-                                        f"Status: {'PAPER' if config.PAPER_TRADING else 'LIVE'}\n"
-                                        f"CIO manages play capital\n"
-                                        f"Bot positions: {len(positions)}\n{pos_text}")
+                                pos_lines = []
+                                for p in positions[:10]:
+                                    lp = LIVE_TICKERS.get(p["pair"], {}).get("last") or _latest_ticker_map.get(p["pair"], {}).get("last") or p.get("entry_price", 0)
+                                    pnl = pnl_pct(p.get("entry_price") or 0, lp, p["side"])
+                                    pos_lines.append(f"{p['pair']} {p['side']} @ {p['entry_price']:,.0f} ({pnl:+.2f}%)")
+                                text = (
+                                    f"FMA ALPHA QUANT LABS 🤖\n"
+                                    f"Mode: {'PAPER' if config.PAPER_TRADING else 'LIVE'} | {_latest_regime.get('regime','?')}\n"
+                                    f"Cash: Rp{_last_actual_balance:,.0f} | Posisi: {len(positions)}\n" +
+                                    ("\n".join(pos_lines) if pos_lines else "Tidak ada posisi")
+                                )
                                 async with httpx.AsyncClient() as cc:
                                     await cc.post(
                                         f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
                                         json={"chat_id": cid, "text": text},
                                     )
-                            elif not txt.startswith("/") and config.DEEPSEEK_API_KEY:
-                                bal = f"Rp{_latest_balance:,.0f}" if _latest_balance else "?"
-                                coins = ", ".join(f"{p['pair']}({p['qty']})" for p in positions[:8])
-                                ctx = f"Cash: {bal} | Coins: {coins or 'none'}" if positions else f"Cash: {bal}"
+                                save_chat("assistant", text)
+                                continue
+
+                            if txt.startswith("/ask "):
+                                coin = txt.split("/ask ", 1)[1].strip().upper()
+                                detail = await _build_coin_detail(coin)
+                                async with httpx.AsyncClient() as cc:
+                                    await cc.post(
+                                        f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
+                                        json={"chat_id": cid, "text": detail},
+                                    )
+                                save_chat("assistant", detail)
+                                continue
+
+                            if txt == "/why":
+                                reason = "Tidak ada trade karena:"
+                                if _last_actual_balance < config.MIN_ORDER_IDR:
+                                    reason += f"\n- Cash Rp{_last_actual_balance:,.0f} < minimum Rp{config.MIN_ORDER_IDR:,}"
+                                if not positions:
+                                    reason += "\n- Tidak ada posisi"
+                                else:
+                                    for p in positions[:5]:
+                                        lp = LIVE_TICKERS.get(p["pair"], {}).get("last") or _latest_ticker_map.get(p["pair"], {}).get("last") or p.get("entry_price", 0)
+                                        pnl = pnl_pct(p.get("entry_price") or 0, lp, p["side"])
+                                        if pnl < 2:
+                                            reason += f"\n- {p['pair']} ({pnl:+.2f}%) belum ≥2% profit"
+                                async with httpx.AsyncClient() as cc:
+                                    await cc.post(
+                                        f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
+                                        json={"chat_id": cid, "text": reason},
+                                    )
+                                save_chat("assistant", reason)
+                                continue
+
+                            if txt.startswith("/"):
+                                async with httpx.AsyncClient() as cc:
+                                    await cc.post(
+                                        f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
+                                        json={"chat_id": cid, "text": "Perintah: /status, /ask <coin>, /why"},
+                                    )
+                                continue
+
+                            if config.DEEPSEEK_API_KEY:
                                 async with httpx.AsyncClient() as cc:
                                     await cc.post(
                                         f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
                                         json={"chat_id": cid, "text": "CIO mikir dulu..."},
                                     )
-                                try:
-                                    from openai import OpenAI
-                                    cl = OpenAI(api_key=config.DEEPSEEK_API_KEY, base_url=config.DEEPSEEK_BASE_URL)
-                                    resp = cl.chat.completions.create(
-                                        model=config.DEEPSEEK_MODEL,
-                                        messages=[
-                                            {"role": "system", "content": f"Kamu CIO FMA ALPHA QUANT LABS. Target: Rp200k→Rp500k. Bicara sopan pakai 'aku', singkat, santai. Portfolio: {ctx}. Jawab 1-2 kalimat."},
-                                            {"role": "user", "content": raw},
-                                        ],
-                                    )
-                                    reply = resp.choices[0].message.content or "Gak tau."
+                                reply = await _cio_reply(raw)
+                                if reply:
                                     async with httpx.AsyncClient() as cc2:
                                         await cc2.post(
                                             f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
                                             json={"chat_id": cid, "text": reply[:400]},
                                         )
-                                except Exception as e:
-                                    async with httpx.AsyncClient() as cc2:
-                                        await cc2.post(
-                                            f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
-                                            json={"chat_id": cid, "text": f"Error: {str(e)[:60]}"},
-                                        )
+                                    save_chat("assistant", reply)
             except Exception:
                 pass
             await asyncio.sleep(5)
