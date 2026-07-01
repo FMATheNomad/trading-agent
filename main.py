@@ -634,6 +634,23 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                         executed_trades.append(t)
                         await send_message(f"CIO EKSEKUSI: JUAL {pid}\n"
                                            f"Qty: {qty} | Diterima: Rp{received:,}")
+                        if pid in _tp_limit_orders and not config.PAPER_TRADING and config.INDODAX_API_KEY:
+                            try:
+                                oid = _tp_limit_orders.pop(pid)
+                                cancel_params = {
+                                    "method": "cancelOrder", "timestamp": int(time.time() * 1000),
+                                    "recvWindow": "5000", "pair": pid,
+                                    "order_id": str(oid), "type": "sell",
+                                }
+                                cancel_body = urlencode(cancel_params)
+                                cancel_sig = hmac.new(config.INDODAX_SECRET_KEY.encode(), cancel_body.encode(), hashlib.sha512).hexdigest()
+                                await client.post(config.INDODAX_TAPI_URL, headers={
+                                    "Key": config.INDODAX_API_KEY, "Sign": cancel_sig,
+                                    "Content-Type": "application/x-www-form-urlencoded",
+                                }, content=cancel_body)
+                                print(f"  TP ORDER CANCELLED for {pid} (order_id={oid})", flush=True)
+                            except Exception as e:
+                                print(f"  Cancel TP order failed {pid}: {e}", flush=True)
                 except Exception as e:
                     print(f"  Failed sell {pid}: {e}", flush=True)
                 continue
@@ -825,6 +842,41 @@ async def main():
         print(f"Kelly: {len(recent)} trades loaded, optimal f={portfolio_risk.kelly.optimal_fraction():.2f}", flush=True)
     except Exception as e:
         print(f"DB init failed: {e}", flush=True)
+
+    if config.INDODAX_API_KEY and not config.PAPER_TRADING:
+        try:
+            async with httpx.AsyncClient(timeout=10) as _cc:
+                ts_now = int(time.time() * 1000)
+                oo_params = {"method": "openOrders", "timestamp": str(ts_now), "recvWindow": "5000"}
+                oo_body = urlencode(oo_params)
+                oo_sig = hmac.new(config.INDODAX_SECRET_KEY.encode(), oo_body.encode(), hashlib.sha512).hexdigest()
+                oo_r = await _cc.post(config.INDODAX_TAPI_URL, headers={
+                    "Key": config.INDODAX_API_KEY, "Sign": oo_sig,
+                    "Content-Type": "application/x-www-form-urlencoded",
+                }, content=oo_body)
+                oo_data = oo_r.json()
+                if oo_data.get("success") == 1:
+                    tracked_pairs = {p["pair"] for p in positions}
+                    orders_by_pair = oo_data["return"].get("orders", {})
+                    for opair, olist in orders_by_pair.items():
+                        if isinstance(olist, list):
+                            for o in olist:
+                                if o.get("type") == "sell" and opair not in tracked_pairs:
+                                    oid = o.get("order_id")
+                                    cancel_params = {
+                                        "method": "cancelOrder", "timestamp": str(int(time.time() * 1000)),
+                                        "recvWindow": "5000", "pair": opair,
+                                        "order_id": str(oid), "type": "sell",
+                                    }
+                                    cancel_body = urlencode(cancel_params)
+                                    cancel_sig = hmac.new(config.INDODAX_SECRET_KEY.encode(), cancel_body.encode(), hashlib.sha512).hexdigest()
+                                    await _cc.post(config.INDODAX_TAPI_URL, headers={
+                                        "Key": config.INDODAX_API_KEY, "Sign": cancel_sig,
+                                        "Content-Type": "application/x-www-form-urlencoded",
+                                    }, content=cancel_body)
+                                    print(f"CLEANUP: cancelled orphan sell {opair} (order_id={oid})", flush=True)
+        except Exception as e:
+            print(f"Order cleanup: {e}", flush=True)
 
     ok = await send_message(
         f"🤖 FMA ALPHA QUANT LABS started\n"
