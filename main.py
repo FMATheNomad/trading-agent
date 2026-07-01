@@ -985,7 +985,8 @@ async def main():
                 oo_data = oo_r.json()
                 if oo_data.get("success") == 1:
                     tracked_pairs = {p["pair"] for p in positions}
-                    orders_by_pair = oo_data["return"].get("orders", {})
+                    orders_data = oo_data["return"].get("orders", {})
+                    orders_by_pair = orders_data if isinstance(orders_data, dict) else {}
                     for opair, olist in orders_by_pair.items():
                         if isinstance(olist, list):
                             for o in olist:
