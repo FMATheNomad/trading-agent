@@ -180,6 +180,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             remain = float(order_info.get("remain_rp", order_info.get("remain_idr", 0)) or 0)
             is_filled = status in ("filled",) or remain == 0
             if is_filled and po.get("is_maker"):
+                qty_filled = float(order_info.get(f"receive_{po.get('side', 'buy').lower()}", po["qty"]))
                 positions.append({
                     "pair": pid, "side": po.get("side", "BUY"),
                     "entry_price": po["price"], "qty": po["qty"],
@@ -188,6 +189,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 })
                 persist.save_positions(positions)
                 print(f"  MAKER FILLED: {pid} → position opened", flush=True)
+                await send_message(f"✅ MAKER FILLED: BUY {pid}\nRp{po['amount_idr']:,.0f} @ {po['price']:,.0f}")
                 del _pending_orders[pid]
                 continue
             if status in ("cancelled", "rejected") or remain == 0:
