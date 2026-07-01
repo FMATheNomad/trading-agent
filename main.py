@@ -349,6 +349,12 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                         "entry_time": time.time(),
                     })
                     print(f"  {pair}: restored to positions", flush=True)
+                bal_coins = {f"{c}_idr" for c in bal if c != "idr" and float(bal[c]) > 0}
+                for p in list(positions):
+                    if p["pair"] not in bal_coins:
+                        print(f"  CLEANUP: {p['pair']} gak ada di balance — hapus", flush=True)
+                        positions.remove(p)
+                        persist.save_positions(positions)
             except Exception as e:
                 print(f"Balance fetch error: {e} (using previous balance: Rp{actual_idr_balance:,.0f})", flush=True)
 
