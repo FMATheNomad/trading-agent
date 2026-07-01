@@ -78,6 +78,7 @@ class RiskManager:
             return None
         atr = atr_pct or config.ATR_SL_MULTIPLIER
         trail_pct = atr * config.ATR_SL_MULTIPLIER * 0.5 / 100
+        tp_pct = atr * config.ATR_TP_MULTIPLIER / 100
         if side.upper() == "BUY":
             pnl_pct = (current_price - entry_price) / entry_price
             if pair and current_price > self.trailing_highs.get(pair, entry_price):
@@ -86,6 +87,8 @@ class RiskManager:
                 trail_stop = self.trailing_highs[pair] * (1 - trail_pct)
                 if current_price <= trail_stop:
                     return "TRAILING_SL"
+            if pnl_pct >= tp_pct:
+                return "TP_HIT"
         else:
             pnl_pct = (entry_price - current_price) / entry_price
             if pair and current_price < self.trailing_highs.get(pair, entry_price):
@@ -94,6 +97,8 @@ class RiskManager:
                 trail_stop = self.trailing_highs[pair] * (1 + trail_pct)
                 if current_price >= trail_stop:
                     return "TRAILING_SL"
+            if pnl_pct >= tp_pct:
+                return "TP_HIT"
         return None
 
 
