@@ -34,6 +34,7 @@ shutdown_flag = False
 regime_history: list[str] = []
 known_pairs: set[str] = set()
 _ext_entry_prices: dict[str, float] = {}
+_pair_meta: dict[str, dict] = {}
 _hmm_trained_cycle = 0
 _prev_regime: str = ""
 _prev_equity: float = 0
@@ -128,6 +129,17 @@ def handle_sig(*_):
     global shutdown_flag
     shutdown_flag = True
 
+def fmt_qty(pair: str, qty: float) -> str:
+    meta = _pair_meta.get(pair, {})
+    min_traded = meta.get("min_traded", 0.0001)
+    if min_traded >= 1:
+        return str(int(qty))
+    if min_traded >= 0.01:
+        return f"{qty:.2f}"
+    if min_traded >= 0.001:
+        return f"{qty:.4f}"
+    return f"{qty:.8f}"
+
 def pnl_pct(entry: float, current: float, side: str) -> float:
     if entry <= 0:
         return 0
@@ -151,6 +163,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         if new_coins:
             print(f"New coins detected: {', '.join(new_coins)}", flush=True)
         known_pairs.update(current_pairs)
+        for v in viable:
+            _pair_meta[v["pair"]] = {"precision": v.get("price_precision", 1000), "min_traded": v.get("trade_min_traded_currency", 0.0001)}
 
         live = LIVE_TICKERS.copy()
         if live:
@@ -288,11 +302,6 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             save_peak_capital(total_equity)
 
         daily_limit = risk.check_daily_limits(total_equity)
-        if daily_limit == "DAILY_TARGET":
-            msg = f"🎯 DAILY TARGET +10% HIT! Equity: Rp{total_equity:,.0f}. Stop trading hari ini."
-            await send_message(msg)
-            print(msg, flush=True)
-            return
         if daily_limit == "DAILY_LOSS_LIMIT":
             msg = f"🛑 DAILY LOSS LIMIT HIT! Equity: Rp{total_equity:,.0f}. Stop trading hari ini."
             await send_message(msg)
@@ -416,7 +425,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                         coin_name = p["pair"].split("_")[0]
                         _ts_s = int(time.time() * 1000)
                         sp = {"method":"trade","timestamp":_ts_s,"recvWindow":"5000","pair":p["pair"],"type":"sell",
-                              coin_name:f"{p['qty']:.8f}","order_type":"market"}
+                              coin_name: fmt_qty(p["pair"], p["qty"]), "order_type":"market"}
                         sb = urlencode(sp)
                         ss = hmac.new(config.INDODAX_SECRET_KEY.encode(),sb.encode(),hashlib.sha512).hexdigest()
                         sr = await client.post(config.INDODAX_TAPI_URL, headers={
@@ -447,7 +456,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     coin_name = p["pair"].split("_")[0]
                     _ts_ext = int(time.time() * 1000)
                     s_params = {"method":"trade","timestamp":_ts_ext,"recvWindow":"5000","pair":p["pair"],"type":"sell",
-                                coin_name:f"{p['qty']:.8f}","order_type":"market"}
+                                coin_name: fmt_qty(p["pair"], p["qty"]), "order_type":"market"}
                     s_body = urlencode(s_params)
                     s_sig = hmac.new(config.INDODAX_SECRET_KEY.encode(),s_body.encode(),hashlib.sha512).hexdigest()
                     sr = await client.post(config.INDODAX_TAPI_URL, headers={
@@ -587,7 +596,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     sell_params = {
                         "method": "trade", "timestamp": _ts_cio, "recvWindow": "5000",
                         "pair": pid, "type": "sell",
-                        coin_name: f"{qty:.8f}", "order_type": "market",
+                        coin_name: fmt_qty(pid, qty), "order_type": "market",
                     }
                     sell_body = urlencode(sell_params)
                     sell_sig = hmac.new(config.INDODAX_SECRET_KEY.encode(),
@@ -674,7 +683,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                         tp_params = {
                             "method": "trade", "timestamp": int(time.time() * 1000),
                             "recvWindow": "5000", "pair": pid, "type": "sell",
-                            "price": str(tp_price), coin_name: f"{qty:.8f}",
+                            "price": str(tp_price), coin_name: fmt_qty(pid, qty),
                             "order_type": "limit",
                         }
                         tp_body = urlencode(tp_params)

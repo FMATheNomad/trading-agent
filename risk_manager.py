@@ -13,11 +13,6 @@ class RiskManager:
     def check_daily_limits(self, total_equity: float) -> str | None:
         if total_equity > self.today_peak:
             self.today_peak = total_equity
-        daily_pnl = total_equity - self.daily_start_balance
-        daily_pnl_pct = daily_pnl / self.daily_start_balance * 100 if self.daily_start_balance else 0
-        if daily_pnl_pct >= 10 and not self.daily_target_hit:
-            self.daily_target_hit = True
-            return "DAILY_TARGET"
         if total_equity < config.DAILY_LOSS_FLOOR_IDR and not self.daily_loss_stopped:
             self.daily_loss_stopped = True
             return "DAILY_LOSS_LIMIT"

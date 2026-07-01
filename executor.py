@@ -19,6 +19,10 @@ def _headers(body: str) -> dict:
         "Content-Type": "application/x-www-form-urlencoded",
     }
 
+def fmt_coin_qty(qty: float, pair: str = "") -> str:
+    s = f"{qty:.8f}".rstrip("0").rstrip(".")
+    return s if s != "0" else "0"
+
 async def place_order(client: httpx.AsyncClient, side: str, price: float, amount_idr: float,
                       pair: str | None = None, order_type: str = "limit") -> dict:
     pair = pair or config.PAIR
@@ -38,19 +42,19 @@ async def place_order(client: httpx.AsyncClient, side: str, price: float, amount
             params["idr"] = str(int(amount_idr))
         else:
             coin_qty = round(amount_idr / price, 8)
-            params[coin] = f"{coin_qty:.8f}"
+            params[coin] = fmt_coin_qty(coin_qty, pair)
     elif order_type == "maker":
         buy_price = int(price * 0.998)
         sell_price = int(price * 1.002)
         side_price = buy_price if side == "buy" else sell_price
         params["price"] = str(side_price)
         coin_qty = round(amount_idr / side_price, 8)
-        params[coin] = f"{coin_qty:.8f}"
+        params[coin] = fmt_coin_qty(coin_qty, pair)
         params["order_type"] = "limit"
         params["time_in_force"] = "MOC"
     else:
         coin_qty = round(amount_idr / price, 8)
-        params[coin] = f"{coin_qty:.8f}"
+        params[coin] = fmt_coin_qty(coin_qty, pair)
         params["order_type"] = "limit"
 
     body = urlencode(params)
