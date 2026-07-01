@@ -298,15 +298,15 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                             "current_price": last_price,
                             "real": True,
                         })
-                        print(f"  {pair}: restored as external position (CIO can sell)", flush=True)
+                        print(f"  {pair}: restored (CIO entry-only, exit via SL/TP)", flush=True)
                     else:
-                        external_positions.append({
+                        positions.append({
                             "pair": pair, "side": "BUY",
                             "entry_price": entry_price,
                             "qty": qty,
                             "amount_idr": qty * (entry_price or 1),
-                            "current_price": last_price,
-                            "real": True,
+                            "atr_pct": None,
+                            "entry_time": time.time(),
                         })
                 if external_positions:
                     ext_summary = ", ".join(f"{p['pair']}({p['qty']})" for p in external_positions)
@@ -639,7 +639,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 cio_winrate = (_cio_stats["wins"] / max(_cio_stats["sells"], 1)) * 100
                 msg_lines.append(f"📋 CIO Summary (Cycle #{cycle_counter})")
                 msg_lines.append(f"Regime: {regime_info['regime']} | Equity: Rp{total_equity:,.0f}")
-                msg_lines.append(f"Positions: {len(positions)} bot + {len(external_positions)} ext | Cash: Rp{actual_idr_balance:,.0f}")
+                msg_lines.append(f"Positions: {len(positions)} | Cash: Rp{actual_idr_balance:,.0f}")
                 msg_lines.append(f"CIO Stats: {_cio_stats['buys']}B/{_cio_stats['sells']}S | WinRate: {cio_winrate:.0f}% | Blacklist: {len(_coin_blacklist)}")
                 needs_report = True
             if needs_report or (msg_lines and _report_sent_count == 0):
@@ -900,7 +900,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 action_label = "BUY" if t.get("action") == "BUY" else ("SELL" if t.get("action") == "SELL" else t.get("action", ""))
                 msg_lines.append(f"{action_label} {pid}{pnl_tag} ({t['allocation_pct']}%) — {reason[:80]}")
             total_pos = len(positions) + len(external_positions)
-            msg_lines.append(f"Total posisi: {total_pos} (bot: {len(positions)}, ext: {len(external_positions)}) | Cash: Rp{actual_idr_balance:,.0f} (budget: Rp{balance_idr:,})")
+            msg_lines.append(f"Total posisi: {len(positions)} | Cash: Rp{actual_idr_balance:,.0f} (budget: Rp{balance_idr:,})")
             await send_message("\n".join(msg_lines))
             print(f"Portfolio: {total_pos} total positions | Cash: Rp{actual_idr_balance:,.0f} (budget: Rp{balance_idr:,})", flush=True)
 
