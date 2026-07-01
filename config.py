@@ -44,7 +44,7 @@ TAKER_FEE_PCT = 0.0035
 # --- Hanya koin fundamental — tidak ada meme/shitcoin ---
 FUNDAMENTAL_COINS: set[str] = set()
 STABLECOINS = {"usdt_idr", "usdc_idr", "busd_idr", "dai_idr", "tusd_idr", "fdusd_idr"}
-SKIP_COINS = {"eth_idr"}
+SKIP_COINS: set[str] = set()
 
 # --- Pair ---
 PAIR = os.getenv("PAIR", "btc_idr")
