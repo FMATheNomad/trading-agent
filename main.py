@@ -52,6 +52,7 @@ _latest_ohlcv_map_1h: dict = {}
 _last_actual_balance: float = 0
 _order_error_cooldown: dict[str, float] = {}
 _realtime_sltp_last: dict[str, float] = {}
+_realtime_sold: set[str] = set()
 
 def classify_regime(all_signals: dict, ohlcv_map_1h: dict | None = None) -> dict:
     signals = [s.get("raw_signal") for s in all_signals.values() if s.get("raw_signal")]
@@ -507,6 +508,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
 
         sl_hits = []
         for p in list(positions):
+            if p["pair"] in _realtime_sold:
+                continue
             last = ticker_map.get(p["pair"], {}).get("last", p["entry_price"])
             atr_val = p.get("atr_pct") or (risk.compute_atr(ohlcv_map_1h.get(p["pair"], [])) if p.get("pair") in ohlcv_map_1h else None)
             result = risk.check_sl_tp(p["entry_price"], last, p["side"], pair=p["pair"], atr_pct=atr_val)
@@ -901,6 +904,9 @@ async def _realtime_sltp_check(pair: str, price: float):
                 log_trade("sell", price, p["qty"], price * p["qty"], status="closed", pnl=pnl, reason=f"realtime_{result}")
                 await send_message(f"⚡ REALTIME {result}: SELL {pair}\n{pnl:+.0f} IDR ({pnl/(p['entry_price']*p['qty'])*100:+.2f}%)")
                 _cooldown[pair] = time.time()
+                _realtime_sold.add(pair)
+                if len(_realtime_sold) > 50:
+                    _realtime_sold.clear()
             else:
                 print(f"  REALTIME sell failed {pair}: {sj.get('error','?')}", flush=True)
     except Exception as e:
