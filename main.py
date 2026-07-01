@@ -314,10 +314,6 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     if pair in db_pos_pairs:
                         continue
                     last_price = ticker_map.get(pair, {}).get("last", 0)
-                    coin_value = qty * last_price
-                    if coin_value < config.MIN_ORDER_IDR:
-                        print(f"  {pair}: dust (Rp{coin_value:,.0f}) — skip tracking", flush=True)
-                        continue
 
                     entry_price = _ext_entry_prices.get(pair, 0)
                     if entry_price == 0 and last_price:
@@ -493,15 +489,13 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 pnl = (last - p["entry_price"]) * p["qty"]
                 if p["side"] == "SELL":
                     pnl = (p["entry_price"] - last) * p["qty"]
+                dust_value = p["qty"] * last
+                if dust_value < config.MIN_ORDER_IDR:
+                    print(f"  {p['pair']}: tiny (Rp{dust_value:,.0f}) — CIO handles it", flush=True)
+                    continue
                 sl_hits.append(f"{p['pair']} {result}: {pnl:+.0f} IDR")
                 _cooldown[p["pair"]] = time.time()
                 print(f"COOLDOWN: {p['pair']} set for 12h", flush=True)
-                dust_value = p["qty"] * last
-                if dust_value < config.MIN_ORDER_IDR:
-                    print(f"  {p['pair']}: dust ({dust_value:.0f} IDR < MIN_ORDER) — removing from tracking", flush=True)
-                    positions.remove(p)
-                    persist.save_positions(positions)
-                    continue
                 if not config.PAPER_TRADING and config.INDODAX_API_KEY:
                     try:
                         coin_name = p["pair"].split("_")[0]
@@ -524,12 +518,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                                       status="closed", pnl=pnl, reason=result)
                         else:
                             err_msg = sj.get('error', 'unknown')
-                            print(f"  Sell {p['pair']} failed: {err_msg}", flush=True)
-                            if any(w in str(err_msg).lower() for w in ["minimum"]):
-                                print(f"  Removed {p['pair']} from tracking (dust: {err_msg[:40]})", flush=True)
-                                positions.remove(p)
-                                persist.save_positions(positions)
-                                continue
+                            print(f"  Sell {p['pair']} failed: {err_msg} — CIO will decide", flush=True)
                     except Exception as e:
                         print(f"  Auto-sell failed {p['pair']}: {e}", flush=True)
                 if p["pair"] in _tp_limit_orders:
@@ -564,6 +553,10 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     result = "ATR_SL"
             if result:
                 print(f"  EXT SL CHECK: {p['pair']} entry={ep:,} last={last:,} result={result}", flush=True)
+                ext_value = p["qty"] * last
+                if ext_value < config.MIN_ORDER_IDR:
+                    print(f"  {p['pair']}: tiny (Rp{ext_value:,.0f}) — CIO handles it", flush=True)
+                    continue
             if result:
                 pnl = (last - p["entry_price"]) * p["qty"]
                 try:
@@ -588,12 +581,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                         print(f"  SOLD {p['pair']} at market", flush=True)
                     else:
                         err = sell_res.get('error', 'unknown')
-                        print(f"  Sell failed {p['pair']}: {err}", flush=True)
-                        if any(w in str(err).lower() for w in ["minimum", "nonce"]):
-                            external_positions.remove(p)
-                            print(f"  Removed {p['pair']} from tracking ({err[:40]})", flush=True)
-                        else:
-                            sl_hits.append(f"{p['pair']} {result} (ext): {pnl:+.0f} IDR (sell failed: {err[:30]})")
+                        print(f"  Sell failed {p['pair']}: {err} — CIO will decide", flush=True)
                 except Exception as e:
                     print(f"  Ext sell failed {p['pair']}: {e}", flush=True)
                     sl_hits.append(f"{p['pair']} {result} (ext): {pnl:+.0f} IDR (sell error: {str(e)[:30]})")
