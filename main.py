@@ -1076,7 +1076,9 @@ async def main():
                                 atr_lines = []
                                 for pid in pairs_to_check[:8]:
                                     try:
-                                        ohlcv = await fetch_ohlcv(client, pair=pid, tf=60, limit=50)
+                                        print(f"  /atr fetching: {pid}", flush=True)
+                                        async with httpx.AsyncClient() as _oh:
+                                            ohlcv = await fetch_ohlcv(_oh, pair=pid, tf=60, limit=50)
                                         if len(ohlcv) < 15:
                                             atr_lines.append(f"{pid}: data OHLCV kurang")
                                             continue
