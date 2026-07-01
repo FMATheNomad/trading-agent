@@ -587,11 +587,11 @@ async def portfolio_cycle(client: httpx.AsyncClient):
 
         if not trades:
             print(f"Cycle done in {int(time.time() - _t0)}s. Sleeping.", flush=True)
-            if cycle_counter % 60 == 0:
+            if cycle_counter % 6 == 0 or cycle_counter == 1:
                 await send_message(
-                    f"📋 Cycle #{cycle_counter}: {regime_info['regime']} | "
-                    f"Equity: Rp{total_equity:,.0f} | {len(positions)} pos | "
-                    f"Cash: Rp{actual_idr_balance:,.0f}"
+                    f"🤖 FMA ALPHA — Cycle #{cycle_counter}\n"
+                    f"Regime: {regime_info['regime']} | Equity: Rp{total_equity:,.0f}\n"
+                    f"Positions: {len(positions)} | Cash: Rp{actual_idr_balance:,.0f}"
                 )
             if positions and config.INDODAX_API_KEY:
                 pair_str = ",".join(p["pair"] for p in positions[:5])
