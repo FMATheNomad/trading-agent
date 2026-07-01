@@ -254,6 +254,15 @@ async def portfolio_cycle(client: httpx.AsyncClient):
 
         await asyncio.gather(*[fetch_one(v) for v in viable])
 
+        for p in list(positions):
+            pm = _pair_meta.get(p["pair"])
+            if pm:
+                val = p["qty"] * ticker_map.get(p["pair"], {}).get("last", p["entry_price"])
+                if val < pm["min_base"]:
+                    print(f"  CLEANUP: {p['pair']} dust Rp{val:,.0f} < min Rp{pm['min_base']:,} — hapus", flush=True)
+                    positions.remove(p)
+                    persist.save_positions(positions)
+
         print(f"Computing signals: {len(ohlcv_map_1h)} pairs (1h) + {len(ohlcv_map_4h)} (4h)...", flush=True)
         all_signals = compute_batch_signals(ohlcv_map_1h, ohlcv_map_4h)
 
