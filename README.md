@@ -1,6 +1,14 @@
 # FMA ALPHA QUANT LABS 🤖
 
-**AI trading bot untuk Indodax** — Systematic quant + AI Chief Investment Officer (DeepSeek). Target: compound equity secara stabil dengan risk management berlapis.
+**Fully Autonomous AI Trading Bot untuk Indodax** — Systematic quant + AI Chief Investment Officer (DeepSeek V4 Flash). Berjalan 24/7 di Railway tanpa intervensi manual. Target: compound equity secara stabil dengan risk management berlapis.
+
+## Status: ✅ PRODUCTION — LIVE TRADING
+
+- **Mode:** LIVE (Alpha Mode ON)
+- **Platform:** Railway (Southeast Asia)
+- **Region:** Singapore (latency ~30-50ms ke Indodax)
+- **Equity:** Rp300-350rb (seed capital Rp200rb + deposit)
+- **Uptime:** 24/7, restart otomatis jika crash
 
 ## Arsitektur
 
@@ -13,13 +21,14 @@
 │  └──────────┘ └──────────┘ │+ XGBoost  │ └──────────────────┘ │
 │                            │+ Features │         ↓             │
 │  ┌──────────┐ ┌──────────┐ └────────────┘ ┌──────────────────┐ │
-│  │ SL/TP    │ │Validate  │← Kelly ← Cooldown ← Blacklist     │ │
-│  │ Trailing │ │Allocation│                └──────────────────┘ │
+│  │ ATR SL   │ │ Profit   │← Kelly ← Blacklist               │ │
+│  │ ATR TP   │ │ Rotate   │                └──────────────────┘ │
+│  │ Trailing │ │ ≥2%      │                                      │
 │  └──────────┘ └──────────┘                                      │
 │       ↓                                                         │
 │  ┌──────────┐ ┌──────────┐ ┌──────────────────┐               │
-│  │ Telegram │ │ SQLite   │ │ Deadman Switch   │               │
-│  │ Event    │ │ Logging  │ │ + Order Cleanup  │               │
+│  │ Telegram │ │ Volume   │ │ Deadman Switch   │               │
+│  │ Event    │ │ /data    │ │ + Order Cleanup  │               │
 │  └──────────┘ └──────────┘ └──────────────────┘               │
 └──────────────────────────────────────────────────────────────────┘
 ```
@@ -36,8 +45,7 @@
 
 ### 🧠 Regime Detection — HMM Probabilistic
 
-**Sebelum:** `if buys/total >= 0.4 → BULL` (heuristic)
-**Sesudah:** Hidden Markov Model 4-state dengan covariance analysis:
+Hidden Markov Model 4-state dengan covariance analysis, fallback ke heuristic jika confidence < 60%:
 
 | State | Karakteristik |
 |---|---|
@@ -46,68 +54,69 @@
 | BEAR | Vol medium, return negatif |
 | HIGH_VOL | Vol tinggi, outlier detection |
 
-Fallback ke heuristic kalo HMM confidence < 60%.
-
 ### 📈 Cointegration Engine
 
-**Sebelum:** z-score simple dari ratio harga / rolling window
-**Sesudah:** Johansen test + ADF test + half-life mean reversion + Hurst exponent
-
-Pasangan: BTC/ETH, SOL/ADA, BNB/XRP. Signal LONG_SPREAD / SHORT_SPREAD saat z > 2 atau z < -2.
+Johansen test + ADF test + half-life mean reversion + Hurst exponent untuk pasangan BTC/ETH, SOL/ADA, BNB/XRP. Signal LONG_SPREAD / SHORT_SPREAD saat z > 2 atau z < -2.
 
 ### 💰 Entry & Exit Strategy
 
 ```
-CIO → hanya bisa BUY   (entry only)
-Exit → SL / TP / Trailing Stop   (exit otomatis)
-Cooldown → 12 jam setelah posisi closed
-Blacklist → skip pair yang pernah SL
+CIO → hanya bisa BUY (entry only)
+Exit → ATR SL / ATR TP / Trailing Stop / Profit Rotate ≥2%
+Semua posisi diperlakukan sama — tidak ada beda "bot" vs "external"
 ```
 
-### 📉 Risk Management
+### 📉 Risk Management (Current)
 
 | Parameter | Alpha Mode 🔴 |
 |---|---|
-| Stop Loss | min **8%** (ATR×1.5 floor) |
-| Take Profit | **ATR×3** dinamis (1.5% utk BTC, 25%+ utk memecoin) |
+| Stop Loss | **ATR × 2** (dinamis, 1.3-3.5%) — NO fixed floor |
+| Take Profit | **ATR × 2.5** (via cycle check) |
 | Trailing Stop | **4%** dari harga tertinggi |
 | Position Sizing | **Kelly Criterion** (optimal f) |
-| Max Positions | **4** |
+| Max Positions | **Dinamis** (4 untuk equity <5jt, 5 untuk <10jt, 6 untuk ≥10jt) |
 | Allocation per asset | max **95%** |
-| Portfolio Drawdown | **35%** |
-| Daily Loss Floor | **Rp60.000** (real stop, bukan warning) |
-| Fee Model | **Market order** (~0.35% taker) |
-| Cooldown | **12 jam** — gak re-entry pair yg baru dijual |
+| Portfolio Drawdown | **35%** (warning only) |
+| Daily Loss Floor | **Rp60.000** (real stop) |
+| Fee Model | **Market order** (~0.35% taker) — zero standing limit orders |
 | Coin Blacklist | Otomatis — pair yang kena SL diskip |
+| Profit Rotate | CIO hanya bisa jual jika profit ≥2% |
 
 ### 🔌 Real-Time & Execution
 
 - **Market WebSocket** — streaming 24h summary semua pair
 - **Private WebSocket** — notifikasi order FILL/DONE real-time
 - **Balance Poller** — update tiap 30 detik
-- **Deadman Switch** — 15 menit. Auto cancel orders kalo bot mati
-- **Order Cleanup** — cancel orphan TP limit orders dari deploy sebelumnya
-- **fmt_qty** — format quantity sesuai `trade_min_traded_currency` (integer utk PIPPIN, 8 desimal utk BTC)
+- **Deadman Switch** — 15 menit. Auto cancel orders jika bot mati
+- **Format Quantity** — `fmt_qty()` handle integer-only coins (PIPPIN, TROLLSOL) dan multi-decimal
+- **Dedup** — positions otomatis dibersihkan dari duplikat tiap cycle
 
 ### 📱 Notifikasi (Event-Based)
 
-Tidak ada spam tiap 5 menit. Telegram cuma dikirim pas:
+Tidak ada spam. Telegram hanya dikirim saat:
 
 - **Trade execution** (BUY/SELL)
 - **SL/TP/Trailing triggered**
-- **Regime change** (BULL↔BEAR)
+- **Regime change**
 - **Equity move >5%**
 - **Signal muncul** (BUY score ≥+3)
 - **Summary** tiap 60 cycle (~5 jam)
 - **Error** serius
 
+### 🛡️ Error Handling & Recovery
+
+- **Startup Guard** — cycle 1 setelah restart: semua posisi dari balance di-restore, CIO dilarang jual
+- **Persist Volume** — `/data/state.json` di Railway volume mount, tahan restart
+- **Order Cleanup** — cancel orphan sell orders di startup
+- **Deadman Switch** — cancel semua order jika bot mati >15 menit
+
 ## Struktur File
 
 ```
 trading-agent/
-├── main.py            # 1.022 baris — Orchestrator
-├── config.py          # 105 parameter
-├── indicators.py      # TA + scoring + advanced features (16 indikator)
+├── main.py            # ~1.100 baris — Orchestrator
+├── config.py          # 110+ parameter
+├── indicators.py      # TA + scoring + advanced features
 ├── hmm_regime.py      # Hidden Markov Model 4-state
 ├── cointegration.py   # Johansen/ADF + half-life + Hurst
 ├── ml_signal.py       # XGBoost ensemble
@@ -116,8 +125,9 @@ trading-agent/
 ├── executor.py        # HMAC-SHA512 TAPI v1
 ├── risk_manager.py    # SL/TP, trailing, Kelly, ATR
 ├── data_layer.py      # Indodax public REST API
-├── pairs.py           # Legacy z-score (cointegration engine yg dipake)
-├── db.py              # SQLite (trades, meta, positions)
+├── pairs.py           # Legacy z-score
+├── db.py              # SQLite (trades, meta)
+├── persist.py         # JSON state persistence (Railway volume)
 ├── deadman.py         # Deadman switch
 ├── market_ws.py       # Market data WebSocket
 ├── private_ws.py      # Private WebSocket
@@ -129,21 +139,38 @@ trading-agent/
 └── .env               # API keys (gitignored)
 ```
 
-Total: **~3.300 baris Python**
+Total: **~3.300 baris Python, 18 modul**
+
+## Cara Kerja (1 Cycle = 5 menit)
+
+```
+1. FETCH 40 viable IDR pairs (volume > 100jt/24h)
+2. FETCH OHLCV 1h + 4h (concurrent, max 10)
+3. COMPUTE signals:
+   a. 16 technical indicators
+   b. XGBoost ML prediction
+   c. Multi-factor scoring → BUY/SELL/HOLD
+4. COINTEGRATION scan (3 correlated pairs)
+5. HMM regime detection (4-state probabilistic)
+6. DETECT balance + restore positions dari Indodax
+7. CHECK SL/TP/trailing untuk semua posisi (ATR-based)
+8. CALL DeepSeek CIO → decision (BUY only — profit rotate ≥2%)
+9. BLACKLIST filter + startup guard + dedup
+10. VALIDATE allocation (Kelly + correlation)
+11. EXECUTE market orders (zero standing limit orders)
+12. EVENT-BASED Telegram notification
+13. REFRESH deadman switch
+14. DEDUP positions
+15. PERSIST state ke volume
+16. SLEEP 5 menit → ulang
+```
 
 ## Setup
 
-### 1. Install dependencies
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. Buat API Key
-- **Indodax**: https://indodax.com/trade_api → permission **trade-only**
-- **DeepSeek**: https://platform.deepseek.com/api_keys
-- **Telegram**: chat @BotFather → `/newbot` → token
-
-### 3. Konfigurasi `.env`
 ```env
 INDODAX_API_KEY=...
 INDODAX_SECRET_KEY=...
@@ -153,79 +180,39 @@ TELEGRAM_CHAT_ID=...
 PAPER_TRADING=false
 ALPHA_MODE=true
 PLAY_CAPITAL_IDR=200000
-MAX_OPEN_POSITIONS=4
 ```
 
-### 4. Jalankan
-```bash
-python main.py
-```
-
-## Deployment (Railway)
+## Railway Deployment
 
 ```bash
+railway volume add -m /data           # persistent state
 railway up --service trading-agent
 ```
 
-Auto-deploy dari GitHub: push ke `main` → Railway deploy otomatis.
+## Audit Checklist (untuk AI Agent lain)
 
-## Cara Kerja (1 Cycle = 5 menit)
+Project ini di-claim sudah **fully autonomous.** Sebelum menyatakan siap/tidak, periksa:
 
-```
-1. FETCH 40 viable IDR pairs (volume > 100jt/24h)
-2. FETCH OHLCV 1h + 4h (concurrent, max 10)
-3. COMPUTE signals:
-   a. 16 technical indicators (RSI, MACD, BB, ADX, MFI, Hurst, dll)
-   b. XGBoost ML prediction
-   c. Multi-factor scoring → BUY/SELL/HOLD
-4. COINTEGRATION scan (3 correlated pairs)
-5. HMM regime detection (4-state probabilistic)
-6. DETECT external positions via Indodax balance
-7. MICROSTRUCTURE features (orderbook, VPIN, entropy)
-8. CALL DeepSeek CIO → decision (BUY only — no sell)
-9. CHECK SL/TP/trailing untuk semua posisi
-10. COOLDOWN + BLACKLIST filter untuk BUY baru
-11. VALIDATE allocation (Kelly + correlation)
-12. EXECUTE market orders
-13. PLACE TP limit order di harga target
-14. CANCEL orphan orders
-15. EVENT-BASED Telegram notification
-16. REFRESH deadman switch
-17. SLEEP 5 menit → ulang
-```
+### Wajib diperiksa:
+- [ ] Apakah ada error/crash di log 24 jam terakhir?
+- [ ] Apakah SL/TP berfungsi sesuai ATR?
+- [ ] Apakah CIO bisa entry tanpa stuck?
+- [ ] Apakah market order selalu terisi?
+- [ ] Apakah deadman switch aktif?
+- [ ] Apakah persist state survive restart?
+- [ ] Apakah Telegram notif tidak spam?
+- [ ] Apakah ada posisi duplikat?
 
-## Mode
+### Critical Paths:
+- `main.py:150-860` — portfolio_cycle: orchestrator utama
+- `risk_manager.py:44-53` — get_sl_tp: ATR-based SL/TP
+- `main.py:573-610` — trade filter: profit-only + blacklist + startup guard
+- `main.py:755-835` — trade execution + position tracking
+- `persist.py` — JSON state persistence via volume
+- `main.py:890-940` — startup: restore + cleanup + guard
 
-| Mode | SL | TP | Min Buy Score | Play Capital |
-|---|---|---|---|---|
-| **Alpha** 🔴 **(Default)** | min 8% (ATR×1.5) | **ATR×3 dinamis** | ≥+2 | 70-95% |
-| Standard | 5% | 5% | ≥+3 | 30-60% |
-
-## Configuration (config.py)
-
-| Parameter | Default | Deskripsi |
-|---|---|---|
-| PLAY_CAPITAL_IDR | 200000 | Modal bot |
-| MIN_ORDER_IDR | 20000 | Minimum order |
-| MAX_OPEN_POSITIONS | 4 | Maksimal posisi |
-| LOOP_INTERVAL_SECONDS | 300 | Siklus (5 menit) |
-| STOP_LOSS_PCT | -0.08 | SL 8% (floor) |
-| TAKE_PROFIT_PCT | 0.25 | TP fallback |
-| ATR_TP_MULTIPLIER | 3.0 | TP = ATR × 3 |
-| ATR_SL_MULTIPLIER | 1.5 | SL = ATR × 1.5 (min 8%) |
-| KELLY_FRACTION | 0.25 | Kelly Criterion baseline |
-| AUTO_COMPOUND | True | Reinvest 50% profit |
-| COINT_Z_ENTRY | 2.0 | Z-score threshold entry |
-| COINT_Z_EXIT | 0.5 | Z-score threshold exit |
-| HMM_N_STATES | 4 | Jumlah state HMM |
-| ML_FORECAST_HORIZON | 5 | XGBoost prediction horizon |
-| DAILY_LOSS_FLOOR_IDR | 60000 | Stop trading jika equity < 60k |
-
-## Catatan Penting
-
-- **CIO hanya bisa BUY** — exit cuma via SL/TP/trailing. Gak ada panic selling.
-- **Cooldown 12 jam** — pair yang baru closed gak dibeli lagi.
-- **Coin blacklist** — otomatis skip pair yang kena SL.
-- **Database SQLite** — file `trades.db` di direktori project. Hilang saat Railway restart.
-- **API key hanya perlu permission "trade"** — jangan pernah beri permission "withdraw".
-- Untuk AI agent lain: baca `config.py` dulu untuk semua parameter.
+### Catatan untuk auditor:
+- Config di `config.py` — semua parameter bisa di-tuning via `.env`
+- Bot ini LIVE trading dengan uang real. Jangan ubah parameter tanpa konfirmasi.
+- Equity saat audit: ~Rp300-350rb (seed Rp200rb + deposit)
+- Bot berjalan di Railway region Southeast Asia
