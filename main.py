@@ -472,15 +472,15 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                         sj = sr.json()
                         if sj.get("success") == 1:
                             print(f"  SOLD {p['pair']} at market", flush=True)
+                            positions.remove(p)
+                            persist.save_positions(positions)
+                            sell_value = last * p["qty"]
+                            log_trade("sell", last, p["qty"], sell_value,
+                                      status="closed", pnl=pnl, reason=result)
                         else:
-                            print(f"  Sell {p['pair']} failed: {sj.get('error', 'unknown')}", flush=True)
+                            print(f"  Sell {p['pair']} failed: {sj.get('error', 'unknown')} — will retry next cycle", flush=True)
                     except Exception as e:
                         print(f"  Auto-sell failed {p['pair']}: {e}", flush=True)
-                positions.remove(p)
-                persist.save_positions(positions)
-                sell_value = last * p["qty"]
-                log_trade("sell", last, p["qty"], sell_value,
-                          status="closed", pnl=pnl, reason=result)
                 if p["pair"] in _tp_limit_orders:
                     try:
                         oid = _tp_limit_orders.pop(p["pair"])
