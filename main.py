@@ -494,9 +494,9 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 sl_hits.append(f"{p['pair']} {result}: {pnl:+.0f} IDR")
                 _cooldown[p["pair"]] = time.time()
                 print(f"COOLDOWN: {p['pair']} set for 12h", flush=True)
-                min_traded = _pair_meta.get(p["pair"], {}).get("min_traded", 0.0001)
-                if p["qty"] < min_traded:
-                    print(f"  {p['pair']}: qty {p['qty']:.8f} < min_traded {min_traded} — skipping dust sell", flush=True)
+                dust_value = p["qty"] * last
+                if dust_value < config.MIN_ORDER_IDR:
+                    print(f"  {p['pair']}: dust ({dust_value:.0f} IDR < MIN_ORDER) — removing from tracking", flush=True)
                     positions.remove(p)
                     persist.save_positions(positions)
                     continue
@@ -521,7 +521,13 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                             log_trade("sell", last, p["qty"], sell_value,
                                       status="closed", pnl=pnl, reason=result)
                         else:
-                            print(f"  Sell {p['pair']} failed: {sj.get('error', 'unknown')} — will retry next cycle", flush=True)
+                            err_msg = sj.get('error', 'unknown')
+                            print(f"  Sell {p['pair']} failed: {err_msg}", flush=True)
+                            if any(w in str(err_msg).lower() for w in ["minimum"]):
+                                print(f"  Removed {p['pair']} from tracking (dust: {err_msg[:40]})", flush=True)
+                                positions.remove(p)
+                                persist.save_positions(positions)
+                                continue
                     except Exception as e:
                         print(f"  Auto-sell failed {p['pair']}: {e}", flush=True)
                 if p["pair"] in _tp_limit_orders:
