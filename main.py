@@ -829,7 +829,7 @@ async def main():
     print(f"  Model: {config.DEEPSEEK_MODEL}", flush=True)
     print(f"  Max positions: {config.MAX_OPEN_POSITIONS}", flush=True)
     print(f"  CIO selects coins from top {config.MAX_SCAN_PAIRS} by volume", flush=True)
-    print(f"  Mode: {'🔴 ALPHA' if config.ALPHA_MODE else ' STANDARD'} | SL {abs(config.STOP_LOSS_PCT)*100:.0f}% TP {config.TAKE_PROFIT_PCT*100:.0f}%", flush=True)
+    print(f"  Mode: {'🔴 ALPHA' if config.ALPHA_MODE else ' STANDARD'} | SL {abs(config.STOP_LOSS_PCT)*100:.0f}% (min) | TP ATR×{config.ATR_TP_MULTIPLIER:.0f}", flush=True)
     print("=" * 50, flush=True)
 
     signal.signal(signal.SIGTERM, handle_sig)
@@ -890,7 +890,7 @@ async def main():
         f"CIO aktif — target Rp200k → Rp500k 🔥\n"
         f"CIO scans top {config.MAX_SCAN_PAIRS} pairs by volume\n"
         f"Mode: {'PAPER' if config.PAPER_TRADING else 'LIVE'} | Alpha Mode ON\n"
-        f"SL 8% | TP 25% | Max {config.MAX_OPEN_POSITIONS} positions\n"
+        f"SL min 8% | TP ATR×3 dinamis | Max {config.MAX_OPEN_POSITIONS} positions\n"
         f"Notifikasi hanya event-based (no spam tiap 5 menit)"
     )
     print(f"Telegram: {'OK' if ok else 'FAILED'}", flush=True)
