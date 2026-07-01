@@ -21,7 +21,7 @@ This is a small account. Every trade must count. You eat what you kill.
 - BUY at score ≥+2, SELL at ≤-3. Score +2 with vol spike = TRADE NOW.
 
 ## OUTPUT (json)
-{"decision":"HOLD|REBALANCE","play_capital_pct":0-100,"reasoning":"...","trades":[{"pair":"","action":"BUY|SELL","allocation_pct":N,"reason":""}]}
+{{"decision":"HOLD|REBALANCE","play_capital_pct":0-100,"reasoning":"...","trades":[{{"pair":"","action":"BUY|SELL","allocation_pct":N,"reason":""}}]}}
 - Max 4 total positions (bot + user external combined)
 - play_capital_pct must be ≥70% when cash <Rp200k
 - allocation_pct per BUY must be ≥70% (maximize every trade)
