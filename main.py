@@ -954,16 +954,7 @@ async def main():
         init_db()
         saved = persist.load_positions()
         if saved:
-            external_positions.extend({
-                "pair": p["pair"], "side": "BUY",
-                "entry_price": p.get("entry_price", 0),
-                "qty": p.get("qty", 0),
-                "amount_idr": p.get("amount_idr", 0),
-                "current_price": p.get("entry_price", 0),
-                "real": True,
-            } for p in saved)
-            print(f"Loaded {len(saved)} persisted positions as external (CIO can sell)", flush=True)
-        persist.save_positions([])
+            positions.extend(saved)
         print("DB init OK", flush=True)
         _ext_entry_prices.update(persist.load_entry_prices())
         print(f"Loaded {len(_ext_entry_prices)} entry prices from DB", flush=True)
