@@ -273,7 +273,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     if qty <= 0 or coin == "idr":
                         continue
                     pair = f"{coin}_idr"
-                    if pair in config.STABLECOINS:
+                    if pair in config.STABLECOINS or pair in config.SKIP_COINS:
                         continue
                     if any(p["pair"] == pair for p in positions):
                         continue
@@ -584,6 +584,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 print("STARTUP GUARD: blocked CIO sells (positions restored from balance)", flush=True)
             trades = [t for t in trades if t.get("action") != "SELL"]
         trades = [t for t in trades if t.get("action") != "BUY" or t["pair"] not in _coin_blacklist]
+        if config.SKIP_COINS:
+            trades = [t for t in trades if t.get("action") != "BUY" or t["pair"] not in config.SKIP_COINS]
         trades = [t for t in trades if t.get("action") != "BUY" or t["pair"] not in _cooldown]
         if _coin_blacklist:
             blocked = [t for t in decision.get("trades", []) if t.get("action") == "BUY" and t["pair"] in _coin_blacklist]
