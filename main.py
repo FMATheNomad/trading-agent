@@ -570,11 +570,6 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                         except Exception:
                             pass
 
-        now = time.time()
-        for pid in list(_cooldown.keys()):
-            if now - _cooldown[pid] > 43200:
-                del _cooldown[pid]
-
         trades = decision.get("trades", [])
         all_held = {p["pair"] for p in positions} | {p["pair"] for p in external_positions}
         bot_pair_set = {p["pair"] for p in positions}
@@ -599,14 +594,10 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         trades = [t for t in trades if t.get("action") != "BUY" or t["pair"] not in _coin_blacklist]
         if config.SKIP_COINS:
             trades = [t for t in trades if t.get("action") != "BUY" or t["pair"] not in config.SKIP_COINS]
-        trades = [t for t in trades if t.get("action") != "BUY" or t["pair"] not in _cooldown]
         if _coin_blacklist:
             blocked = [t for t in decision.get("trades", []) if t.get("action") == "BUY" and t["pair"] in _coin_blacklist]
             if blocked:
                 print(f"BLACKLIST: Skipped BUY for {', '.join(t['pair'] for t in blocked)}", flush=True)
-        cooled = [t for t in decision.get("trades", []) if t.get("action") == "BUY" and t["pair"] in _cooldown]
-        if cooled:
-            print(f"COOLDOWN: Skipped BUY for {', '.join(t['pair'] for t in cooled)}", flush=True)
         selling_pairs = {t["pair"] for t in trades if t.get("action") == "SELL"}
         extra_buys = [t for t in trades if t.get("action") == "BUY" and t["pair"] in all_held]
         new_buys = [t for t in trades if t.get("action") == "BUY" and t["pair"] not in all_held]
@@ -855,8 +846,6 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             pair_str = ",".join(p["pair"] for p in positions[:5])
             await refresh_deadman(client, pair_str)
 
-        persist.save_cooldown(_cooldown)
-
     except Exception as e:
         print(f"Portfolio cycle error: {e}", flush=True)
         import traceback
@@ -905,12 +894,6 @@ async def main():
         print("DB init OK", flush=True)
         _ext_entry_prices.update(persist.load_entry_prices())
         print(f"Loaded {len(_ext_entry_prices)} entry prices from DB", flush=True)
-        _cooldown.update(persist.load_cooldown())
-        stale = [k for k, v in _cooldown.items() if time.time() - v > 43200]
-        for k in stale:
-            del _cooldown[k]
-        if stale:
-            print(f"Cleaned {len(stale)} stale cooldowns", flush=True)
         recent = get_recent_trades(limit=100)
         portfolio_risk.set_trade_history(recent)
         print(f"Kelly: {len(recent)} trades loaded, optimal f={portfolio_risk.kelly.optimal_fraction():.2f}", flush=True)
