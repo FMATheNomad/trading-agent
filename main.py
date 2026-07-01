@@ -740,17 +740,22 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             executed_trades.append(t)
 
             if action == "BUY":
+                coin_name = pid.split("_")[0]
+                actual_qty = float(order.get(f"receive_{coin_name}", 0)) or qty
+                actual_spend = float(order.get("spend_rp", 0)) or amount
+                actual_price = actual_spend / actual_qty if actual_qty else price
                 positions.append({
                     "pair": pid,
                     "side": action,
-                    "entry_price": price,
-                    "qty": qty,
-                    "amount_idr": amount,
+                    "entry_price": actual_price,
+                    "qty": actual_qty,
+                    "amount_idr": actual_spend,
                     "atr_pct": atr_pct if ohlcv else None,
                     "entry_time": time.time(),
                 })
                 persist.save_positions(positions)
             elif action == "SELL":
+                actual_received = float(order.get("receive_rp", 0)) or amount
                 positions = [p for p in positions if p["pair"] != pid]
                 persist.save_positions(positions)
                 _pending_orders.pop(pid, None)
