@@ -570,17 +570,33 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                         sj = sr.json()
                         if sj.get("success") == 1:
                             remain = float(sj["return"].get(f"remain_{coin_name}", 0))
-                            if remain > 0:
+                            retries = 0
+                            while remain > 0 and retries < 3:
+                                retries += 1
                                 remain_val = remain * last
                                 pair_min = _pair_meta.get(p["pair"], {}).get("min_base", config.MIN_ORDER_IDR)
                                 if remain_val < pair_min:
                                     print(f"  PARTIAL SELL {p['pair']}: dust Rp{remain_val:,.0f} — hapus", flush=True)
                                     positions.remove(p)
                                     persist.save_positions(positions)
+                                    remain = 0
+                                    break
+                                q_str = f"{remain:.8f}".rstrip("0").rstrip(".") or "0"
+                                sp_r = {"method":"trade","timestamp":int(time.time()*1000),"recvWindow":"5000",
+                                        "pair":p["pair"],"type":"sell", coin_name: q_str, "order_type":"market"}
+                                sb_r = urlencode(sp_r)
+                                ss_r = hmac.new(config.INDODAX_SECRET_KEY.encode(),sb_r.encode(),hashlib.sha512).hexdigest()
+                                sr_r = await client.post(config.INDODAX_TAPI_URL, headers={
+                                    "Key":config.INDODAX_API_KEY,"Sign":ss_r,
+                                    "Content-Type":"application/x-www-form-urlencoded",
+                                }, content=sb_r)
+                                sj_r = sr_r.json()
+                                if sj_r.get("success") == 1:
+                                    remain = float(sj_r["return"].get(f"remain_{coin_name}", 0))
                                 else:
-                                    p["qty"] = remain
-                                    persist.save_positions(positions)
-                                    print(f"  PARTIAL SELL {p['pair']}: {remain:.6f} remaining", flush=True)
+                                    break
+                            if remain > 0:
+                                print(f"  PARTIAL SELL {p['pair']}: {remain:.6f} remaining after retries", flush=True)
                                 continue
                             print(f"  SOLD {p['pair']} at market", flush=True)
                             positions.remove(p)
@@ -948,16 +964,29 @@ async def _realtime_sltp_check(pair: str, price: float):
             if sj.get("success") == 1:
                 coin = pair.split("_")[0]
                 remain = float(sj["return"].get(f"remain_{coin}", 0))
-                if remain > 0:
+                retries = 0
+                while remain > 0 and retries < 3:
+                    retries += 1
                     remain_val = remain * price
                     pair_min = _pair_meta.get(pair, {}).get("min_base", config.MIN_ORDER_IDR)
                     if remain_val < pair_min:
                         print(f"  REALTIME partial sell {pair}: dust Rp{remain_val:,.0f} — hapus tracking", flush=True)
                         positions.remove(p)
+                        return
+                    rt_qty_str2 = f"{remain:.8f}".rstrip("0").rstrip(".") or "0"
+                    sp2 = {"method":"trade","timestamp":int(time.time()*1000),"recvWindow":"5000","pair":pair,
+                           "type":"sell", coin: rt_qty_str2, "order_type":"market"}
+                    sb2 = urlencode(sp2)
+                    ss2 = hmac.new(config.INDODAX_SECRET_KEY.encode(), sb2.encode(), hashlib.sha512).hexdigest()
+                    sr2 = await c.post(config.INDODAX_TAPI_URL, headers={
+                        "Key": config.INDODAX_API_KEY, "Sign": ss2,
+                        "Content-Type": "application/x-www-form-urlencoded",
+                    }, content=sb2)
+                    sj2 = sr2.json()
+                    if sj2.get("success") == 1:
+                        remain = float(sj2["return"].get(f"remain_{coin}", 0))
                     else:
-                        p["qty"] = remain
-                        print(f"  REALTIME partial sell {pair}: {remain:.6f} remaining", flush=True)
-                    return
+                        break
                 positions.remove(p)
                 log_trade("sell", price, p["qty"], price * p["qty"], status="closed", pnl=pnl, reason=f"realtime_{result}")
                 await send_message(f"⚡ REALTIME {result}: SELL {pair}\n{pnl:+.0f} IDR ({pnl/(p['entry_price']*p['qty'])*100:+.2f}%)")
