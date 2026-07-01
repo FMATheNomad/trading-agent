@@ -276,7 +276,25 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             if pm:
                 val = p["qty"] * (ticker_map.get(p["pair"], {}).get("last") or LIVE_TICKERS.get(p["pair"], {}).get("last") or p["entry_price"])
                 if val < pm["min_base"]:
-                    print(f"  CLEANUP: {p['pair']} dust Rp{val:,.0f} < min Rp{pm['min_base']:,} — hapus", flush=True)
+                    print(f"  CLEANUP: {p['pair']} dust Rp{val:,.0f} < min Rp{pm['min_base']:,}", flush=True)
+                    if not config.PAPER_TRADING and config.INDODAX_API_KEY and p['pair'] in ohlcv_map_1h:
+                        try:
+                            coin_name = p["pair"].split("_")[0]
+                            _ts_d = int(time.time() * 1000)
+                            sp = {"method":"trade","timestamp":_ts_d,"recvWindow":"5000","pair":p["pair"],"type":"sell",
+                                  coin_name: fmt_qty(p["pair"], p["qty"]), "order_type":"market"}
+                            sb = urlencode(sp)
+                            ss = hmac.new(config.INDODAX_SECRET_KEY.encode(),sb.encode(),hashlib.sha512).hexdigest()
+                            sr = await client.post(config.INDODAX_TAPI_URL, headers={
+                                "Key":config.INDODAX_API_KEY,"Sign":ss,"Content-Type":"application/x-www-form-urlencoded",
+                            }, content=sb)
+                            dr = sr.json()
+                            if dr.get("success") == 1:
+                                received = dr["return"].get("receive_rp", 0)
+                                await send_message(f"🧹 Dust {p['pair']} terjual Rp{int(received):,}")
+                                print(f"  Dust SOLD {p['pair']}: Rp{int(received):,}", flush=True)
+                        except Exception as e:
+                            print(f"  Dust sell failed {p['pair']}: {e}", flush=True)
                     positions.remove(p)
                     persist.save_positions(positions)
 
