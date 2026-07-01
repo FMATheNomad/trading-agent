@@ -210,8 +210,12 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                         "Key": config.INDODAX_API_KEY, "Sign": cancel_sig,
                         "Content-Type": "application/x-www-form-urlencoded",
                     }, content=cancel_body)
-                except Exception:
-                    pass
+                    market_order = await place_order(client, po.get("side", "buy").lower(), po["price"], po["amount_idr"], pair=pid, order_type="market")
+                    if market_order.get("order_id") or market_order.get("receive_rp"):
+                        print(f"  MAKER TIMEOUT → market order placed for {pid}", flush=True)
+                        await send_message(f"⚡ MAKER TIMEOUT → MARKET BUY {pid}\nRp{po['amount_idr']:,.0f}")
+                except Exception as e:
+                    print(f"  Maker retry failed {pid}: {e}", flush=True)
                 del _pending_orders[pid]
         except Exception:
             del _pending_orders[pid]
