@@ -820,7 +820,7 @@ async def main():
     print(f"  Model: {config.DEEPSEEK_MODEL}", flush=True)
     print(f"  Max positions: {config.MAX_OPEN_POSITIONS} (dynamic: {config.max_positions_for_equity(config.PLAY_CAPITAL_IDR)}-6)", flush=True)
     print(f"  CIO selects coins from top {config.MAX_SCAN_PAIRS} by volume", flush=True)
-    print(f"  Mode: {'🔴 ALPHA' if config.ALPHA_MODE else ' STANDARD'} | SL ATR×{config.ATR_SL_MULTIPLIER:.0f} | TP: 50%@ATR×{config.PARTIAL_TP_FIRST_MULTIPLIER:.1f} + runner", flush=True)
+    print(f"  Mode: {'🔴 ALPHA' if config.ALPHA_MODE else ' STANDARD'} | SL ATR×{config.ATR_SL_MULTIPLIER:.0f} | TP ATR×{config.ATR_TP_MULTIPLIER:.0f}", flush=True)
     print("=" * 50, flush=True)
 
     signal.signal(signal.SIGTERM, handle_sig)
@@ -881,7 +881,7 @@ async def main():
         f"CIO aktif — target Rp200k → Rp500k 🔥\n"
         f"CIO scans top {config.MAX_SCAN_PAIRS} pairs by volume\n"
         f"Mode: {'PAPER' if config.PAPER_TRADING else 'LIVE'} | Alpha Mode ON\n"
-        f"SL ATR×{config.ATR_SL_MULTIPLIER:.0f} | TP 50%@ATR×{config.PARTIAL_TP_FIRST_MULTIPLIER:.1f} + runner\n"
+        f"SL ATR×{config.ATR_SL_MULTIPLIER:.0f} | TP ATR×{config.ATR_TP_MULTIPLIER:.0f}\n"
         f"Notifikasi hanya event-based (no spam tiap 5 menit)"
     )
     print(f"Telegram: {'OK' if ok else 'FAILED'}", flush=True)

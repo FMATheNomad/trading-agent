@@ -27,15 +27,15 @@ This is a small account. Every trade must count. You eat what you kill.
 - allocation_pct per BUY must be ≥70% (maximize every trade)
 - Total allocation ≤ play_capital_pct"""
 
-ALPHA_PROMPT = """
+ALPHA_PROMPT = f"""
 
-## ALPHA MODE ACTIVE — target: 200k → 500k 🔥
-Target: 25% profit per trade, 8% stop loss. Risk ~1:3 ratio.
+## ALPHA MODE ACTIVE — target: {config.PLAY_CAPITAL_IDR:,} → 500k 🔥
+Target: ATR×3 TP, ATR×2 SL. Risk-reward ~1.5:1 (ATR-based, adaptif).
 - BUY score ≥+2 is tradeable — lower bar, higher frequency
 - Hot Now + any BUY signal = execute immediately
 - TF alignment preferred but NOT required
 - Play capital 70-95% on high conviction setups
-- CRITICAL: Account Rp200k. Butuh ~4 trade @25% untuk 2.5x lipat. Jangan HOLD terus — cari edge SETIAP cycle. Tapi jangan maksa kalo bener-bener gak ada setup (volume sepi, sideways tipis).
+- CRITICAL: Account Rp{config.PLAY_CAPITAL_IDR:,}. Butuh ~3-4 trade besar untuk 1.67x lipat. Jangan HOLD terus — cari edge SETIAP cycle. Tapi jangan maksa kalo bener-bener gak ada setup (volume sepi, sideways tipis).
 - Prioritaskan coin dengan vol spike + momentum kuat + 24h gainer
 """
 
