@@ -300,7 +300,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             try:
                 info = await get_balance(client)
                 bal = info.get("balance", {})
-                actual_idr_balance = _latest_balance if _latest_balance > 0 else config.PLAY_CAPITAL_IDR
+                actual_idr_balance = float(bal.get("idr", 0)) or config.PLAY_CAPITAL_IDR
                 for coin, raw_qty in bal.items():
                     qty = float(raw_qty)
                     if qty <= 0 or coin == "idr":
