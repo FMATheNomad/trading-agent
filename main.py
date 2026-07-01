@@ -475,6 +475,23 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 sell_value = last * p["qty"]
                 log_trade("sell", last, p["qty"], sell_value,
                           status="closed", pnl=pnl, reason=result)
+                if p["pair"] in _tp_limit_orders:
+                    try:
+                        oid = _tp_limit_orders.pop(p["pair"])
+                        cancel_params = {
+                            "method": "cancelOrder", "timestamp": int(time.time() * 1000),
+                            "recvWindow": "5000", "pair": p["pair"],
+                            "order_id": str(oid), "type": "sell",
+                        }
+                        cancel_body = urlencode(cancel_params)
+                        cancel_sig = hmac.new(config.INDODAX_SECRET_KEY.encode(), cancel_body.encode(), hashlib.sha512).hexdigest()
+                        await client.post(config.INDODAX_TAPI_URL, headers={
+                            "Key": config.INDODAX_API_KEY, "Sign": cancel_sig,
+                            "Content-Type": "application/x-www-form-urlencoded",
+                        }, content=cancel_body)
+                        print(f"  TP ORDER CANCELLED for {p['pair']} (order_id={oid})", flush=True)
+                    except Exception as e:
+                        print(f"  Cancel TP failed {p['pair']}: {e}", flush=True)
 
         for p in list(external_positions):
             ep = p.get("entry_price", 0)
@@ -756,24 +773,35 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             executed_trades.append(t)
 
             if action == "BUY":
-                positions.append({
-                    "pair": pid,
-                    "side": action,
-                    "entry_price": price,
-                    "qty": qty,
-                    "amount_idr": amount,
-                    "atr_pct": atr_pct if ohlcv else None,
-                    "entry_time": time.time(),
-                })
-                persist.save_positions(positions)
+                if config.PARTIAL_TP_ENABLED and ohlcv and atr_pct:
+                    tp1_pct = config.PARTIAL_TP_FIRST_PCT
+                    taker_qty = qty * tp1_pct
+                    runner_qty = qty * (1 - tp1_pct)
+                    tp1_price = int(price * (1 + atr_pct * config.PARTIAL_TP_FIRST_MULTIPLIER / 100))
+                else:
+                    taker_qty = qty
+                    runner_qty = qty
+                    tp1_price = tp_limit_price if tp_limit_price > 0 else int(price * (1 + config.TAKE_PROFIT_PCT))
+
+                if runner_qty > 0:
+                    positions.append({
+                        "pair": pid,
+                        "side": action,
+                        "entry_price": price,
+                        "qty": runner_qty,
+                        "amount_idr": amount * (runner_qty / qty),
+                        "atr_pct": atr_pct if ohlcv else None,
+                        "entry_time": time.time(),
+                    })
+                    persist.save_positions(positions)
+
                 if not config.PAPER_TRADING and config.INDODAX_API_KEY:
                     try:
-                        tp_price = tp_limit_price if tp_limit_price > 0 else int(price * (1 + config.TAKE_PROFIT_PCT))
                         coin_name = pid.split("_")[0]
                         tp_params = {
                             "method": "trade", "timestamp": int(time.time() * 1000),
                             "recvWindow": "5000", "pair": pid, "type": "sell",
-                            "price": str(tp_price), coin_name: fmt_qty(pid, qty),
+                            "price": str(tp1_price), coin_name: fmt_qty(pid, taker_qty),
                             "order_type": "limit",
                         }
                         tp_body = urlencode(tp_params)
@@ -786,9 +814,28 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                         if tp_res.get("success") == 1:
                             oid = tp_res["return"].get("order_id", 0)
                             _tp_limit_orders[pid] = oid
-                            print(f"  TP LIMIT ORDER placed for {pid} @ {tp_price} (order_id={oid})", flush=True)
+                            print(f"  TP1 LIMIT placed: {fmt_qty(pid, taker_qty)} @ {tp1_price} (ATR×{config.PARTIAL_TP_FIRST_MULTIPLIER:.1f}) — runner: {fmt_qty(pid, runner_qty)}", flush=True)
+                        else:
+                            if runner_qty <= 0:
+                                positions.append({
+                                    "pair": pid, "side": action,
+                                    "entry_price": price, "qty": qty,
+                                    "amount_idr": amount,
+                                    "atr_pct": atr_pct if ohlcv else None,
+                                    "entry_time": time.time(),
+                                })
+                                persist.save_positions(positions)
                     except Exception as e:
                         print(f"  TP limit order failed {pid}: {e}", flush=True)
+                        if runner_qty <= 0:
+                            positions.append({
+                                "pair": pid, "side": action,
+                                "entry_price": price, "qty": qty,
+                                "amount_idr": amount,
+                                "atr_pct": atr_pct if ohlcv else None,
+                                "entry_time": time.time(),
+                            })
+                            persist.save_positions(positions)
             elif action == "SELL":
                 positions = [p for p in positions if p["pair"] != pid]
                 persist.save_positions(positions)
@@ -882,7 +929,7 @@ async def main():
     print(f"  Model: {config.DEEPSEEK_MODEL}", flush=True)
     print(f"  Max positions: {config.MAX_OPEN_POSITIONS} (dynamic: {config.max_positions_for_equity(config.PLAY_CAPITAL_IDR)}-6)", flush=True)
     print(f"  CIO selects coins from top {config.MAX_SCAN_PAIRS} by volume", flush=True)
-    print(f"  Mode: {'🔴 ALPHA' if config.ALPHA_MODE else ' STANDARD'} | SL {abs(config.STOP_LOSS_PCT)*100:.0f}% (min) | TP ATR×{config.ATR_TP_MULTIPLIER:.0f}", flush=True)
+    print(f"  Mode: {'🔴 ALPHA' if config.ALPHA_MODE else ' STANDARD'} | SL ATR×{config.ATR_SL_MULTIPLIER:.0f} | TP: 50%@ATR×{config.PARTIAL_TP_FIRST_MULTIPLIER:.1f} + runner", flush=True)
     print("=" * 50, flush=True)
 
     signal.signal(signal.SIGTERM, handle_sig)
@@ -949,7 +996,7 @@ async def main():
         f"CIO aktif — target Rp200k → Rp500k 🔥\n"
         f"CIO scans top {config.MAX_SCAN_PAIRS} pairs by volume\n"
         f"Mode: {'PAPER' if config.PAPER_TRADING else 'LIVE'} | Alpha Mode ON\n"
-        f"SL min 8% | TP ATR×3 dinamis | Max posisi dinamis (4-6)\n"
+        f"SL ATR×{config.ATR_SL_MULTIPLIER:.0f} | TP 50%@ATR×{config.PARTIAL_TP_FIRST_MULTIPLIER:.1f} + runner\n"
         f"Notifikasi hanya event-based (no spam tiap 5 menit)"
     )
     print(f"Telegram: {'OK' if ok else 'FAILED'}", flush=True)
