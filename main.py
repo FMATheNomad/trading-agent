@@ -505,6 +505,13 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 continue
             last = ticker_map.get(p["pair"], {}).get("last", p.get("current_price", 0))
             result = risk.check_sl_tp(ep, last, p["side"], pair=p["pair"])
+            if not result:
+                atr_e = risk.compute_atr(ohlcv_map_1h.get(p["pair"], [])) if p.get("pair") in ohlcv_map_1h else None
+                if atr_e:
+                    atr_sl_e = atr_e * config.ATR_SL_MULTIPLIER
+                    dyn_sl_e = ep * (1 - atr_sl_e / 100) if p["side"] == "BUY" else ep * (1 + atr_sl_e / 100)
+                    if (p["side"] == "BUY" and last <= dyn_sl_e) or (p["side"] == "SELL" and last >= dyn_sl_e):
+                        result = "ATR_SL"
             if result:
                 print(f"  EXT SL CHECK: {p['pair']} entry={ep:,} last={last:,} result={result}", flush=True)
             if result:
