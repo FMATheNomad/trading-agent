@@ -18,7 +18,8 @@ from risk_manager import RiskManager, PortfolioRiskManager
 from executor import place_order, get_balance, get_order
 from deadman import refresh_deadman, cancel_deadman
 from notifier import send_message
-from db import init_db, log_trade, log_decision, save_positions, load_positions, save_peak_capital, load_peak_capital, save_ext_entry_prices, load_ext_entry_prices, get_recent_trades
+from db import init_db, log_trade, log_decision, get_recent_trades
+import persist
 from market_ws import market_ws_loop, LIVE_TICKERS, stop as mws_stop
 from private_ws import private_ws_loop, stop as pws_stop
 
@@ -260,7 +261,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         external_positions.clear()
         actual_idr_balance = config.PLAY_CAPITAL_IDR
 
-        db_pos_pairs = {p.get("pair") for p in load_positions()}
+        db_pos_pairs = {p.get("pair") for p in persist.load_positions()}
 
         if config.INDODAX_API_KEY and config.INDODAX_SECRET_KEY:
             try:
@@ -284,7 +285,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     if entry_price == 0 and last_price:
                         entry_price = last_price
                         _ext_entry_prices[pair] = entry_price
-                        save_ext_entry_prices(_ext_entry_prices)
+                        persist.save_entry_prices(_ext_entry_prices)
                     if entry_price > 0:
                         print(f"  {pair}: entry_price={entry_price:,}", flush=True)
 
@@ -297,7 +298,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                             "atr_pct": None,
                             "entry_time": time.time(),
                         })
-                        save_positions(positions)
+                        persist.save_positions(positions)
                         print(f"  {pair}: restored as bot position (startup)", flush=True)
                     else:
                         external_positions.append({
@@ -326,11 +327,11 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         )
         total_equity = actual_idr_balance + paper_equity + ext_equity
         max_positions = config.max_positions_for_equity(total_equity)
-        saved_peak = load_peak_capital()
+        saved_peak = persist.load_peak_capital()
         if saved_peak and saved_peak > portfolio_risk.peak_capital:
             portfolio_risk.peak_capital = saved_peak
         if total_equity > portfolio_risk.peak_capital:
-            save_peak_capital(total_equity)
+            persist.save_peak_capital(total_equity)
 
         daily_limit = risk.check_daily_limits(total_equity)
         if daily_limit == "DAILY_LOSS_LIMIT":
@@ -470,7 +471,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     except Exception as e:
                         print(f"  Auto-sell failed {p['pair']}: {e}", flush=True)
                 positions.remove(p)
-                save_positions(positions)
+                persist.save_positions(positions)
                 sell_value = last * p["qty"]
                 log_trade("sell", last, p["qty"], sell_value,
                           status="closed", pnl=pnl, reason=result)
@@ -744,7 +745,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 await send_message(f"Order failed {pid}: {err_str}")
                 if action == "SELL" and "insufficient" in err_str.lower():
                     positions = [p for p in positions if p["pair"] != pid]
-                    save_positions(positions)
+                    persist.save_positions(positions)
                     _tp_limit_orders.pop(pid, None)
                     print(f"  REMOVED {pid} from tracking (sell failed)", flush=True)
                 continue
@@ -764,7 +765,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     "atr_pct": atr_pct if ohlcv else None,
                     "entry_time": time.time(),
                 })
-                save_positions(positions)
+                persist.save_positions(positions)
                 if not config.PAPER_TRADING and config.INDODAX_API_KEY:
                     try:
                         tp_price = tp_limit_price if tp_limit_price > 0 else int(price * (1 + config.TAKE_PROFIT_PCT))
@@ -790,7 +791,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                         print(f"  TP limit order failed {pid}: {e}", flush=True)
             elif action == "SELL":
                 positions = [p for p in positions if p["pair"] != pid]
-                save_positions(positions)
+                persist.save_positions(positions)
                 _pending_orders.pop(pid, None)
                 _tp_limit_orders.pop(pid, None)
                 if pid in _tp_limit_orders and not config.PAPER_TRADING and config.INDODAX_API_KEY:
@@ -845,6 +846,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             pair_str = ",".join(p["pair"] for p in positions[:5])
             await refresh_deadman(client, pair_str)
 
+        persist.save_cooldown(_cooldown)
+
     except Exception as e:
         print(f"Portfolio cycle error: {e}", flush=True)
         import traceback
@@ -887,13 +890,19 @@ async def main():
 
     try:
         init_db()
-        saved = load_positions()
+        saved = persist.load_positions()
         if saved:
             positions.extend(saved)
             print(f"Loaded {len(saved)} persisted positions", flush=True)
         print("DB init OK", flush=True)
-        _ext_entry_prices.update(load_ext_entry_prices())
+        _ext_entry_prices.update(persist.load_entry_prices())
         print(f"Loaded {len(_ext_entry_prices)} entry prices from DB", flush=True)
+        _cooldown.update(persist.load_cooldown())
+        stale = [k for k, v in _cooldown.items() if time.time() - v > 43200]
+        for k in stale:
+            del _cooldown[k]
+        if stale:
+            print(f"Cleaned {len(stale)} stale cooldowns", flush=True)
         recent = get_recent_trades(limit=100)
         portfolio_risk.set_trade_history(recent)
         print(f"Kelly: {len(recent)} trades loaded, optimal f={portfolio_risk.kelly.optimal_fraction():.2f}", flush=True)
