@@ -728,9 +728,11 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             print(f"  {action} {pid} @ {price} | Rp{amount:,.0f} ({qty:.6f}) | alloc: {alloc}%", flush=True)
 
             ohlcv = ohlcv_map_1h.get(pid)
+            tp_limit_price = 0
             if ohlcv and action == "BUY":
                 atr_pct = risk.compute_atr(ohlcv)
                 sl, tp = risk.get_sl_tp(price, action, atr_pct)
+                tp_limit_price = int(tp)
                 print(f"  ATR: {atr_pct}% | SL: {sl} | TP: {tp}", flush=True)
 
             try:
@@ -765,7 +767,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 save_positions(positions)
                 if not config.PAPER_TRADING and config.INDODAX_API_KEY:
                     try:
-                        tp_price = int(price * (1 + config.TAKE_PROFIT_PCT))
+                        tp_price = tp_limit_price if tp_limit_price > 0 else int(price * (1 + config.TAKE_PROFIT_PCT))
                         coin_name = pid.split("_")[0]
                         tp_params = {
                             "method": "trade", "timestamp": int(time.time() * 1000),
