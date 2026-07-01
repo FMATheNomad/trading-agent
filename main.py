@@ -290,16 +290,15 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                         print(f"  {pair}: entry_price={entry_price:,}", flush=True)
 
                     if cycle_counter <= 1:
-                        positions.append({
+                        external_positions.append({
                             "pair": pair, "side": "BUY",
                             "entry_price": entry_price,
                             "qty": qty,
                             "amount_idr": qty * (entry_price or 1),
-                            "atr_pct": None,
-                            "entry_time": time.time(),
+                            "current_price": last_price,
+                            "real": True,
                         })
-                        persist.save_positions(positions)
-                        print(f"  {pair}: restored as bot position (startup)", flush=True)
+                        print(f"  {pair}: restored as external position (CIO can sell)", flush=True)
                     else:
                         external_positions.append({
                             "pair": pair, "side": "BUY",
