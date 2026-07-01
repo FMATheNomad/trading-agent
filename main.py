@@ -529,9 +529,10 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             blocked = [t for t in decision.get("trades", []) if t.get("action") == "BUY" and t["pair"] in _coin_blacklist]
             if blocked:
                 print(f"BLACKLIST: Skipped BUY for {', '.join(t['pair'] for t in blocked)}", flush=True)
+        selling_pairs = {t["pair"] for t in trades if t.get("action") == "SELL"}
         extra_buys = [t for t in trades if t.get("action") == "BUY" and t["pair"] in all_held]
         new_buys = [t for t in trades if t.get("action") == "BUY" and t["pair"] not in all_held]
-        slots_left = max(0, config.MAX_OPEN_POSITIONS - len(all_held))
+        slots_left = max(0, config.MAX_OPEN_POSITIONS - len(all_held - selling_pairs))
         if len(new_buys) > slots_left:
             trades = [t for t in trades if t.get("action") == "SELL"] + extra_buys + new_buys[:slots_left]
             print(f"Limited new buys to {slots_left} (max {config.MAX_OPEN_POSITIONS} unique)", flush=True)
