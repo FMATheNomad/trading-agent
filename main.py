@@ -50,7 +50,7 @@ _latest_ticker_map: dict = {}
 _latest_all_signals: dict = {}
 _latest_ohlcv_map_1h: dict = {}
 _last_actual_balance: float = 0
-INITIAL_SCORE = 0
+_order_error_cooldown: dict[str, float] = {}
 
 def classify_regime(all_signals: dict, ohlcv_map_1h: dict | None = None) -> dict:
     signals = [s.get("raw_signal") for s in all_signals.values() if s.get("raw_signal")]
@@ -139,6 +139,9 @@ def handle_sig(*_):
 
 def fmt_qty(pair: str, qty: float) -> str:
     meta = _pair_meta.get(pair, {})
+    vp = meta.get("vol_precision", 0)
+    if vp == 0:
+        return str(int(qty))
     min_traded = meta.get("min_traded", 0.0001)
     if min_traded >= 1:
         return str(int(qty))
@@ -223,6 +226,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         for v in viable:
             _pair_meta[v["pair"]] = {
                 "precision": v.get("price_precision", 1000),
+                "vol_precision": v.get("vol_precision", 0),
                 "min_traded": v.get("trade_min_traded_currency", 0.0001),
                 "min_base": int(v.get("trade_min_base_currency", config.MIN_ORDER_IDR)),
             }
@@ -700,7 +704,11 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             except Exception as e:
                 err_str = str(e)
                 print(f"  Order failed {pid}: {err_str}", flush=True)
-                await send_message(f"Order failed {pid}: {err_str}")
+                now_t = time.time()
+                last_err = _order_error_cooldown.get(pid, 0)
+                if now_t - last_err > 1800:
+                    _order_error_cooldown[pid] = now_t
+                    await send_message(f"Order failed {pid}: {err_str}")
                 if action == "SELL" and "insufficient" in err_str.lower():
                     positions = [p for p in positions if p["pair"] != pid]
                     persist.save_positions(positions)

@@ -106,6 +106,7 @@ async def fetch_viable_pairs(client: httpx.AsyncClient) -> list[dict]:
             "pair": pid,
             "traded": p.get("traded_currency", ""),
             "price_precision": p.get("price_precision", 1000),
+            "vol_precision": p.get("volume_precision", 0),
             "trade_min_base": p.get("trade_min_base_currency", 50000),
             "trade_min_traded": p.get("trade_min_traded_currency", 0.0001),
             "ticker": t,
