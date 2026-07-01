@@ -274,7 +274,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         for p in list(positions):
             pm = _pair_meta.get(p["pair"])
             if pm:
-                val = p["qty"] * ticker_map.get(p["pair"], {}).get("last", p["entry_price"])
+                val = p["qty"] * (ticker_map.get(p["pair"], {}).get("last") or LIVE_TICKERS.get(p["pair"], {}).get("last") or p["entry_price"])
                 if val < pm["min_base"]:
                     print(f"  CLEANUP: {p['pair']} dust Rp{val:,.0f} < min Rp{pm['min_base']:,} — hapus", flush=True)
                     positions.remove(p)
@@ -332,24 +332,25 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     pair = f"{coin}_idr"
                     if pair in config.STABLECOINS or pair in config.SKIP_COINS:
                         continue
-                    last_price = ticker_map.get(pair, {}).get("last", 0)
+                    last_price = ticker_map.get(pair, {}).get("last") or LIVE_TICKERS.get(pair, {}).get("last") or 0
+
+                    old = next((p for p in positions if p["pair"] == pair), None)
+                    if old:
+                        coin_value = qty * last_price if last_price else 0
+                        pair_min = _pair_meta.get(pair, {}).get("min_base", config.MIN_ORDER_IDR)
+                        if coin_value < pair_min and pair_min > 0:
+                            print(f"  {pair}: dust Rp{coin_value:,.0f} < min Rp{pair_min:,} — hapus", flush=True)
+                            positions.remove(old)
+                            persist.save_positions(positions)
+                        else:
+                            old["qty"] = qty
+                            old["amount_idr"] = qty * (old.get("entry_price") or 1)
+                        continue
+
                     coin_value = qty * last_price
                     pair_min = _pair_meta.get(pair, {}).get("min_base", config.MIN_ORDER_IDR)
                     if coin_value < pair_min:
                         print(f"  {pair}: dust Rp{coin_value:,.0f} < min Rp{pair_min:,} — skip tracking", flush=True)
-                        continue
-
-                    old = next((p for p in positions if p["pair"] == pair), None)
-                    if old:
-                        coin_value = qty * last_price
-                        pair_min = _pair_meta.get(pair, {}).get("min_base", config.MIN_ORDER_IDR)
-                        if coin_value < pair_min and pair_min > 0:
-                            print(f"  {pair}: dust Rp{coin_value:,.0f} < min Rp{pair_min:,} — hapus dari tracking", flush=True)
-                            positions.remove(old)
-                            persist.save_positions(positions)
-                            continue
-                        old["qty"] = qty
-                        old["amount_idr"] = qty * (old.get("entry_price") or 1)
                         continue
 
                     db_pos_pairs = {p.get("pair") for p in persist.load_positions()}
