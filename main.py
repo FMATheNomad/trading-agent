@@ -18,7 +18,7 @@ from risk_manager import RiskManager, PortfolioRiskManager
 from executor import place_order, get_balance, get_order
 from deadman import refresh_deadman, cancel_deadman
 from notifier import send_message
-from db import init_db, log_trade, log_decision, get_recent_trades
+from db import init_db, log_trade, log_decision, get_recent_trades, get_trade_count_today
 import persist
 from market_ws import market_ws_loop, LIVE_TICKERS, stop as mws_stop
 from private_ws import private_ws_loop, stop as pws_stop
@@ -460,11 +460,15 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             print(f"PM decision: {decision.get('decision')} | {decision.get('reasoning', '')[:100]}", flush=True)
 
         play_capital_pct = decision.get("play_capital_pct", pending_play_capital_pct * 100)
-        min_balance_needed = config.MIN_ORDER_IDR * 1.2
-        if actual_idr_balance < min_balance_needed * 3:
-            play_capital_pct = max(play_capital_pct, 80)
-        balance_idr = int(actual_idr_balance * play_capital_pct / 100)
-        balance_idr = max(balance_idr, config.MIN_ORDER_IDR)
+        if actual_idr_balance < config.MIN_ORDER_IDR:
+            print(f"Cash Rp{actual_idr_balance:,.0f} < MIN_ORDER Rp{config.MIN_ORDER_IDR:,}. Skipping buys.", flush=True)
+            balance_idr = 0
+        else:
+            min_balance_needed = config.MIN_ORDER_IDR * 1.2
+            if actual_idr_balance < min_balance_needed * 3:
+                play_capital_pct = max(play_capital_pct, 80)
+            balance_idr = int(actual_idr_balance * play_capital_pct / 100)
+            balance_idr = max(balance_idr, config.MIN_ORDER_IDR)
         print(f"CIO play capital: {play_capital_pct}% of Rp{actual_idr_balance:,.0f} = Rp{balance_idr:,}", flush=True)
 
         log_decision("PORTFOLIO", decision.get("decision", "HOLD"),
@@ -490,6 +494,12 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 sl_hits.append(f"{p['pair']} {result}: {pnl:+.0f} IDR")
                 _cooldown[p["pair"]] = time.time()
                 print(f"COOLDOWN: {p['pair']} set for 12h", flush=True)
+                min_traded = _pair_meta.get(p["pair"], {}).get("min_traded", 0.0001)
+                if p["qty"] < min_traded:
+                    print(f"  {p['pair']}: qty {p['qty']:.8f} < min_traded {min_traded} — skipping dust sell", flush=True)
+                    positions.remove(p)
+                    persist.save_positions(positions)
+                    continue
                 if not config.PAPER_TRADING and config.INDODAX_API_KEY:
                     try:
                         coin_name = p["pair"].split("_")[0]
