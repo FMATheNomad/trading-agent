@@ -537,6 +537,10 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         bot_pair_set = {p["pair"] for p in positions}
         trades = [t for t in trades if t.get("action") != "SELL" or t["pair"] in all_held]
         trades = [t for t in trades if not (t.get("action") == "SELL" and t["pair"] in bot_pair_set)]
+        if cycle_counter <= 1:
+            trades = [t for t in trades if t.get("action") != "SELL"]
+            if any(t.get("action") == "SELL" for t in decision.get("trades", [])):
+                print("STARTUP GUARD: blocked CIO sells (first cycle)", flush=True)
         trades = [t for t in trades if t.get("action") != "BUY" or t["pair"] not in _coin_blacklist]
         trades = [t for t in trades if t.get("action") != "BUY" or t["pair"] not in _cooldown]
         if _coin_blacklist:
