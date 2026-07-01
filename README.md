@@ -189,30 +189,4 @@ railway volume add -m /data           # persistent state
 railway up --service trading-agent
 ```
 
-## Audit Checklist (untuk AI Agent lain)
 
-Project ini di-claim sudah **fully autonomous.** Sebelum menyatakan siap/tidak, periksa:
-
-### Wajib diperiksa:
-- [ ] Apakah ada error/crash di log 24 jam terakhir?
-- [ ] Apakah SL/TP berfungsi sesuai ATR?
-- [ ] Apakah CIO bisa entry tanpa stuck?
-- [ ] Apakah market order selalu terisi?
-- [ ] Apakah deadman switch aktif?
-- [ ] Apakah persist state survive restart?
-- [ ] Apakah Telegram notif tidak spam?
-- [ ] Apakah ada posisi duplikat?
-
-### Critical Paths:
-- `main.py:150-860` — portfolio_cycle: orchestrator utama
-- `risk_manager.py:44-53` — get_sl_tp: ATR-based SL/TP
-- `main.py:573-610` — trade filter: profit-only + blacklist + startup guard
-- `main.py:755-835` — trade execution + position tracking
-- `persist.py` — JSON state persistence via volume
-- `main.py:890-940` — startup: restore + cleanup + guard
-
-### Catatan untuk auditor:
-- Config di `config.py` — semua parameter bisa di-tuning via `.env`
-- Bot ini LIVE trading dengan uang real. Jangan ubah parameter tanpa konfirmasi.
-- Equity saat audit: ~Rp300-350rb (seed Rp200rb + deposit)
-- Bot berjalan di Railway region Southeast Asia
