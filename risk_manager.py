@@ -7,6 +7,21 @@ class RiskManager:
         self.daily_start_balance = config.PLAY_CAPITAL_IDR
         self.today_peak = config.PLAY_CAPITAL_IDR
         self.trailing_highs: dict[str, float] = {}
+        self.daily_target_hit = False
+        self.daily_loss_stopped = False
+
+    def check_daily_limits(self, total_equity: float) -> str | None:
+        if total_equity > self.today_peak:
+            self.today_peak = total_equity
+        daily_pnl = total_equity - self.daily_start_balance
+        daily_pnl_pct = daily_pnl / self.daily_start_balance * 100 if self.daily_start_balance else 0
+        if daily_pnl_pct >= 10 and not self.daily_target_hit:
+            self.daily_target_hit = True
+            return "DAILY_TARGET"
+        if total_equity < config.DAILY_LOSS_FLOOR_IDR and not self.daily_loss_stopped:
+            self.daily_loss_stopped = True
+            return "DAILY_LOSS_LIMIT"
+        return None
 
     def should_stop_trading(self, total_equity: float) -> bool:
         if total_equity > self.today_peak:
@@ -77,27 +92,6 @@ class RiskManager:
                 self.trailing_highs[pair] = current_price
             if pair and pnl_pct > 0:
                 trail_stop = self.trailing_highs[pair] * (1 + abs(config.STOP_LOSS_PCT) * 0.5)
-                if current_price >= trail_stop:
-                    return "TRAILING_SL"
-        if pnl_pct <= config.STOP_LOSS_PCT:
-            return "SL_HIT"
-        if pnl_pct >= config.TAKE_PROFIT_PCT:
-            return "TP_HIT"
-        return None
-        if side.upper() == "BUY":
-            pnl_pct = (current_price - entry_price) / entry_price
-            if pair and current_price > self.trailing_highs.get(pair, entry_price):
-                self.trailing_highs[pair] = current_price
-            if pair and pnl_pct > 0:
-                trail_stop = self.trailing_highs[pair] * (1 - abs(config.STOP_LOSS_PCT) * 0.6)
-                if current_price <= trail_stop:
-                    return "TRAILING_SL"
-        else:
-            pnl_pct = (entry_price - current_price) / entry_price
-            if pair and current_price < self.trailing_highs.get(pair, entry_price):
-                self.trailing_highs[pair] = current_price
-            if pair and pnl_pct > 0:
-                trail_stop = self.trailing_highs[pair] * (1 + abs(config.STOP_LOSS_PCT) * 0.6)
                 if current_price >= trail_stop:
                     return "TRAILING_SL"
         if pnl_pct <= config.STOP_LOSS_PCT:

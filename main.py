@@ -39,6 +39,9 @@ _prev_regime: str = ""
 _prev_equity: float = 0
 _prev_signal_count: int = 0
 _report_sent_count: int = 0
+_coin_blacklist: set[str] = set()
+_cio_stats: dict = {"total_decisions": 0, "buys": 0, "sells": 0, "wins": 0, "losses": 0}
+_tp_limit_orders: dict[str, int] = {}
 
 def classify_regime(all_signals: dict, ohlcv_map_1h: dict | None = None) -> dict:
     signals = [s.get("raw_signal") for s in all_signals.values() if s.get("raw_signal")]
@@ -206,7 +209,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         print(f"Regime: {regime_info['regime']}{hmm_tag} | B:{regime_info['buy_ratio']} S:{regime_info['sell_ratio']} "
               f"Score:{regime_info['avg_score']} HC:{regime_info['high_conviction_count']}", flush=True)
 
-        if not xgboost_signal.trained and len(ohlcv_map_1h) >= config.ML_TRAIN_MIN_SAMPLES:
+        if (not xgboost_signal.trained or cycle_counter % 50 == 0) and len(ohlcv_map_1h) >= config.ML_TRAIN_MIN_SAMPLES:
             try:
                 xgboost_signal.train(ohlcv_map_1h)
                 if xgboost_signal.trained:
@@ -284,6 +287,18 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         if total_equity > portfolio_risk.peak_capital:
             save_peak_capital(total_equity)
 
+        daily_limit = risk.check_daily_limits(total_equity)
+        if daily_limit == "DAILY_TARGET":
+            msg = f"🎯 DAILY TARGET +10% HIT! Equity: Rp{total_equity:,.0f}. Stop trading hari ini."
+            await send_message(msg)
+            print(msg, flush=True)
+            return
+        if daily_limit == "DAILY_LOSS_LIMIT":
+            msg = f"🛑 DAILY LOSS LIMIT HIT! Equity: Rp{total_equity:,.0f}. Stop trading hari ini."
+            await send_message(msg)
+            print(msg, flush=True)
+            return
+
         if portfolio_risk.check_portfolio_stop(total_equity):
             msg = (f"⚠️ PORTFOLIO DRAWDOWN {config.PORTFOLIO_STOP_LOSS_PCT*100}% — "
                    f"Reducing play capital. Equity: Rp{total_equity:,.0f}")
@@ -291,7 +306,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             print(msg, flush=True)
 
         if risk.should_stop_trading(total_equity):
-            await send_message(f"⚠️ Daily loss warning — Equity: Rp{total_equity:,.0f}. Lanjut trading dengan hati-hati.")
+            await send_message(f"⚠️ Daily loss warning — Equity: Rp{total_equity:,.0f}.")
 
         all_positions = positions + external_positions
         for p in all_positions:
@@ -458,6 +473,14 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     print(f"  Ext sell failed {p['pair']}: {e}", flush=True)
                     sl_hits.append(f"{p['pair']} {result} (ext): {pnl:+.0f} IDR (sell error: {str(e)[:30]})")
 
+        for sl_hit in sl_hits:
+            if "SL_HIT" in sl_hit or "TRAILING_SL" in sl_hit:
+                pair = sl_hit.split(" ")[0].replace(":", "")
+                _coin_blacklist.add(pair)
+                print(f"BLACKLIST: {pair} added (hit stop loss)", flush=True)
+        if len(_coin_blacklist) > 20:
+            _coin_blacklist.clear()
+
         if sl_hits:
             await send_message("SL/TP triggered:\n" + "\n".join(sl_hits))
             if config.AUTO_COMPOUND:
@@ -476,6 +499,11 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         trades = decision.get("trades", [])
         all_held = {p["pair"] for p in positions} | {p["pair"] for p in external_positions}
         trades = [t for t in trades if t.get("action") != "SELL" or t["pair"] in all_held]
+        trades = [t for t in trades if t.get("action") != "BUY" or t["pair"] not in _coin_blacklist]
+        if _coin_blacklist:
+            blocked = [t for t in decision.get("trades", []) if t.get("action") == "BUY" and t["pair"] in _coin_blacklist]
+            if blocked:
+                print(f"BLACKLIST: Skipped BUY for {', '.join(t['pair'] for t in blocked)}", flush=True)
         extra_buys = [t for t in trades if t.get("action") == "BUY" and t["pair"] in all_held]
         new_buys = [t for t in trades if t.get("action") == "BUY" and t["pair"] not in all_held]
         slots_left = max(0, config.MAX_OPEN_POSITIONS - len(all_held))
@@ -504,9 +532,11 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     msg_lines.append(f"  {p}: {s.get('raw_signal')}({s.get('score', 0)}) {s.get('conviction', '')}")
                 needs_report = True
             if cycle_counter % 60 == 0:
+                cio_winrate = (_cio_stats["wins"] / max(_cio_stats["sells"], 1)) * 100
                 msg_lines.append(f"📋 CIO Summary (Cycle #{cycle_counter})")
                 msg_lines.append(f"Regime: {regime_info['regime']} | Equity: Rp{total_equity:,.0f}")
                 msg_lines.append(f"Positions: {len(positions)} bot + {len(external_positions)} ext | Cash: Rp{actual_idr_balance:,.0f}")
+                msg_lines.append(f"CIO Stats: {_cio_stats['buys']}B/{_cio_stats['sells']}S | WinRate: {cio_winrate:.0f}% | Blacklist: {len(_coin_blacklist)}")
                 needs_report = True
             if needs_report or (msg_lines and _report_sent_count == 0):
                 _report_sent_count += 1
@@ -637,11 +667,55 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     "atr_pct": atr_pct if ohlcv else None,
                 })
                 save_positions(positions)
+                if not config.PAPER_TRADING and config.INDODAX_API_KEY:
+                    try:
+                        tp_price = int(price * (1 + config.TAKE_PROFIT_PCT))
+                        coin_name = pid.split("_")[0]
+                        tp_params = {
+                            "method": "trade", "timestamp": int(time.time() * 1000),
+                            "recvWindow": "5000", "pair": pid, "type": "sell",
+                            "price": str(tp_price), coin_name: f"{qty:.8f}",
+                            "order_type": "limit",
+                        }
+                        tp_body = urlencode(tp_params)
+                        tp_sig = hmac.new(config.INDODAX_SECRET_KEY.encode(), tp_body.encode(), hashlib.sha512).hexdigest()
+                        tp_r = await client.post(config.INDODAX_TAPI_URL, headers={
+                            "Key": config.INDODAX_API_KEY, "Sign": tp_sig,
+                            "Content-Type": "application/x-www-form-urlencoded",
+                        }, content=tp_body)
+                        tp_res = tp_r.json()
+                        if tp_res.get("success") == 1:
+                            oid = tp_res["return"].get("order_id", 0)
+                            _tp_limit_orders[pid] = oid
+                            print(f"  TP LIMIT ORDER placed for {pid} @ {tp_price} (order_id={oid})", flush=True)
+                    except Exception as e:
+                        print(f"  TP limit order failed {pid}: {e}", flush=True)
             elif action == "SELL":
                 positions = [p for p in positions if p["pair"] != pid]
                 save_positions(positions)
+                if pid in _tp_limit_orders and not config.PAPER_TRADING and config.INDODAX_API_KEY:
+                    try:
+                        oid = _tp_limit_orders.pop(pid)
+                        cancel_params = {
+                            "method": "cancelOrder", "timestamp": int(time.time() * 1000),
+                            "recvWindow": "5000", "pair": pid,
+                            "order_id": str(oid), "type": "sell",
+                        }
+                        cancel_body = urlencode(cancel_params)
+                        cancel_sig = hmac.new(config.INDODAX_SECRET_KEY.encode(), cancel_body.encode(), hashlib.sha512).hexdigest()
+                        await client.post(config.INDODAX_TAPI_URL, headers={
+                            "Key": config.INDODAX_API_KEY, "Sign": cancel_sig,
+                            "Content-Type": "application/x-www-form-urlencoded",
+                        }, content=cancel_body)
+                        print(f"  TP LIMIT ORDER cancelled for {pid} (order_id={oid})", flush=True)
+                    except Exception as e:
+                        print(f"  Cancel TP limit failed {pid}: {e}", flush=True)
 
         if executed_trades:
+            _cio_stats["total_decisions"] += 1
+            for t in executed_trades:
+                _cio_stats["buys" if t.get("action") == "BUY" else "sells"] += 1
+
             msg_lines = [f"{'[PAPER] ' if config.PAPER_TRADING else ''}FMA ALPHA QUANT LABS — EKSEKUSI"]
             for t in executed_trades:
                 pid = t["pair"]
@@ -832,6 +906,23 @@ async def main():
         try:
             async with httpx.AsyncClient() as _dc:
                 await cancel_deadman(_dc)
+        except Exception:
+            pass
+    if _tp_limit_orders and config.INDODAX_API_KEY:
+        try:
+            for pid, oid in list(_tp_limit_orders.items()):
+                cancel_params = {
+                    "method": "cancelOrder", "timestamp": int(time.time() * 1000),
+                    "recvWindow": "5000", "pair": pid,
+                    "order_id": str(oid), "type": "sell",
+                }
+                cancel_body = urlencode(cancel_params)
+                cancel_sig = hmac.new(config.INDODAX_SECRET_KEY.encode(), cancel_body.encode(), hashlib.sha512).hexdigest()
+                async with httpx.AsyncClient() as _tc:
+                    await _tc.post(config.INDODAX_TAPI_URL, headers={
+                        "Key": config.INDODAX_API_KEY, "Sign": cancel_sig,
+                        "Content-Type": "application/x-www-form-urlencoded",
+                    }, content=cancel_body)
         except Exception:
             pass
     print("Shutdown complete.", flush=True)
