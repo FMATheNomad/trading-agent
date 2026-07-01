@@ -43,6 +43,7 @@ _report_sent_count: int = 0
 _coin_blacklist: set[str] = set()
 _cio_stats: dict = {"total_decisions": 0, "buys": 0, "sells": 0, "wins": 0, "losses": 0}
 _tp_limit_orders: dict[str, int] = {}
+_pending_orders: dict[str, dict] = {}
 
 def classify_regime(all_signals: dict, ohlcv_map_1h: dict | None = None) -> dict:
     signals = [s.get("raw_signal") for s in all_signals.values() if s.get("raw_signal")]
@@ -153,6 +154,52 @@ async def portfolio_cycle(client: httpx.AsyncClient):
     global positions, cycle_counter, _prev_regime, _prev_equity, _prev_signal_count, _report_sent_count
     cycle_counter += 1
     _t0 = time.time()
+
+    if _pending_orders and config.INDODAX_API_KEY and not config.PAPER_TRADING:
+        for pid in list(_pending_orders.keys()):
+            try:
+                oid = _pending_orders[pid]["order_id"]
+                order_info = await get_order(client, oid, pair=pid)
+                if order_info is None:
+                    raise Exception("order not found")
+                remain_str = str(order_info.get("remain_rp", order_info.get("remain_idr", 0)))
+                remain = float(remain_str) if remain_str else 0
+                if remain > 0:
+                    cancel_params = {
+                        "method": "cancelOrder", "timestamp": int(time.time() * 1000),
+                        "recvWindow": "5000", "pair": pid,
+                        "order_id": str(oid), "type": "buy",
+                    }
+                    cancel_body = urlencode(cancel_params)
+                    cancel_sig = hmac.new(config.INDODAX_SECRET_KEY.encode(), cancel_body.encode(), hashlib.sha512).hexdigest()
+                    cr = await client.post(config.INDODAX_TAPI_URL, headers={
+                        "Key": config.INDODAX_API_KEY, "Sign": cancel_sig,
+                        "Content-Type": "application/x-www-form-urlencoded",
+                    }, content=cancel_body)
+                    crj = cr.json()
+                    if crj.get("success") == 1:
+                        price = _pending_orders[pid]["price"]
+                        amount = _pending_orders[pid]["amount"]
+                        coin = pid.split("_")[0]
+                        print(f"CANCEL & MARKET: {pid} unfilled maker → market order @ {price}", flush=True)
+                        market_params = {
+                            "method": "trade", "timestamp": int(time.time() * 1000),
+                            "recvWindow": "5000", "pair": pid, "type": "buy",
+                            "price": str(int(price)), "idr": str(int(amount)),
+                            "order_type": "market",
+                        }
+                        market_body = urlencode(market_params)
+                        market_sig = hmac.new(config.INDODAX_SECRET_KEY.encode(), market_body.encode(), hashlib.sha512).hexdigest()
+                        mr = await client.post(config.INDODAX_TAPI_URL, headers={
+                            "Key": config.INDODAX_API_KEY, "Sign": market_sig,
+                            "Content-Type": "application/x-www-form-urlencoded",
+                        }, content=market_body)
+                        mj = mr.json()
+                        if mj.get("success") == 1:
+                            print(f"  MARKET BUY {pid} filled: {mj['return']}", flush=True)
+                        del _pending_orders[pid]
+            except Exception:
+                del _pending_orders[pid]
 
     try:
         print("Scanning market for viable pairs...", flush=True)
@@ -660,6 +707,14 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 print(f"  Order failed {pid}: {e}", flush=True)
                 await send_message(f"Order failed {pid}: {e}")
                 continue
+            if use_maker and order.get("order_id"):
+                _pending_orders[pid] = {
+                    "order_id": int(order["order_id"]),
+                    "price": price,
+                    "amount": amount,
+                    "cycle": cycle_counter,
+                }
+                print(f"  MAKER ORDER tracked: {pid} (order_id={order['order_id']})", flush=True)
             log_trade(action.lower(), price, qty, amount,
                       order_type="limit" if config.PAPER_TRADING else "market",
                       status="simulated" if config.PAPER_TRADING else "placed",
@@ -702,6 +757,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             elif action == "SELL":
                 positions = [p for p in positions if p["pair"] != pid]
                 save_positions(positions)
+                _pending_orders.pop(pid, None)
                 if pid in _tp_limit_orders and not config.PAPER_TRADING and config.INDODAX_API_KEY:
                     try:
                         oid = _tp_limit_orders.pop(pid)
@@ -915,6 +971,23 @@ async def main():
         try:
             async with httpx.AsyncClient() as _dc:
                 await cancel_deadman(_dc)
+        except Exception:
+            pass
+    if _pending_orders and config.INDODAX_API_KEY:
+        try:
+            for pid, po in list(_pending_orders.items()):
+                cancel_params = {
+                    "method": "cancelOrder", "timestamp": int(time.time() * 1000),
+                    "recvWindow": "5000", "pair": pid,
+                    "order_id": str(po["order_id"]), "type": "buy",
+                }
+                cancel_body = urlencode(cancel_params)
+                cancel_sig = hmac.new(config.INDODAX_SECRET_KEY.encode(), cancel_body.encode(), hashlib.sha512).hexdigest()
+                async with httpx.AsyncClient() as _pc:
+                    await _pc.post(config.INDODAX_TAPI_URL, headers={
+                        "Key": config.INDODAX_API_KEY, "Sign": cancel_sig,
+                        "Content-Type": "application/x-www-form-urlencoded",
+                    }, content=cancel_body)
         except Exception:
             pass
     if _tp_limit_orders and config.INDODAX_API_KEY:
