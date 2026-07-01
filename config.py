@@ -5,7 +5,7 @@ load_dotenv()
 
 # --- Dana bot — Rp200rb target -> Rp500rb dalam beberapa hari ---
 PLAY_CAPITAL_IDR = 200_000
-MIN_ORDER_IDR = 20_000
+MIN_ORDER_IDR = 25_000
 DEFAULT_PLAY_CAPITAL_PCT = 0.8
 
 # --- Portfolio ---

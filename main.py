@@ -29,7 +29,6 @@ hmm_detector = HMMRegimeDetector(n_states=config.HMM_N_STATES)
 coint_engine = CointegrationEngine(z_entry=config.COINT_Z_ENTRY, z_exit=config.COINT_Z_EXIT)
 xgboost_signal = XGBoostSignal()
 positions: list[dict] = []
-external_positions: list[dict] = []
 shutdown_flag = False
 
 regime_history: list[str] = []
@@ -289,10 +288,6 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             pair_str = " ".join(f"{p['pair']}={p['ratio']}" for p in pair_suggestions)
             print(f"Pairs: {pair_str}", flush=True)
 
-        for p in external_positions:
-            if p.get("entry_price", 0) > 0:
-                _ext_entry_prices[p["pair"]] = p["entry_price"]
-        external_positions.clear()
         actual_idr_balance = config.PLAY_CAPITAL_IDR
 
         db_pos_pairs = {p.get("pair") for p in persist.load_positions()}
@@ -323,28 +318,15 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     if entry_price > 0:
                         print(f"  {pair}: entry_price={entry_price:,}", flush=True)
 
-                    if cycle_counter <= 1:
-                        external_positions.append({
-                            "pair": pair, "side": "BUY",
-                            "entry_price": entry_price,
-                            "qty": qty,
-                            "amount_idr": qty * (entry_price or 1),
-                            "current_price": last_price,
-                            "real": True,
-                        })
-                        print(f"  {pair}: restored (CIO entry-only, exit via SL/TP)", flush=True)
-                    else:
-                        positions.append({
-                            "pair": pair, "side": "BUY",
-                            "entry_price": entry_price,
-                            "qty": qty,
-                            "amount_idr": qty * (entry_price or 1),
-                            "atr_pct": None,
-                            "entry_time": time.time(),
-                        })
-                if external_positions:
-                    ext_summary = ", ".join(f"{p['pair']}({p['qty']})" for p in external_positions)
-                    print(f"External positions: {ext_summary}", flush=True)
+                    positions.append({
+                        "pair": pair, "side": "BUY",
+                        "entry_price": entry_price,
+                        "qty": qty,
+                        "amount_idr": qty * (entry_price or 1),
+                        "atr_pct": None,
+                        "entry_time": time.time(),
+                    })
+                    print(f"  {pair}: restored to positions", flush=True)
             except Exception as e:
                 print(f"Balance fetch error: {e} (using previous balance: Rp{actual_idr_balance:,.0f})", flush=True)
 
@@ -354,11 +336,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             p["qty"] * ticker_map.get(p["pair"], {}).get("last", p["entry_price"])
             for p in positions
         )
-        ext_equity = sum(
-            e["qty"] * (ticker_map.get(e["pair"], {}).get("last") or e.get("current_price") or 0)
-            for e in external_positions
-        )
-        total_equity = actual_idr_balance + paper_equity + ext_equity
+        total_equity = actual_idr_balance + paper_equity
         max_positions = config.max_positions_for_equity(total_equity)
         saved_peak = persist.load_peak_capital()
         if saved_peak and saved_peak > portfolio_risk.peak_capital:
@@ -382,8 +360,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         if risk.should_stop_trading(total_equity):
             await send_message(f"⚠️ Daily loss warning — Equity: Rp{total_equity:,.0f}.")
 
-        all_positions = positions + external_positions
-        for p in all_positions:
+        for p in positions:
             last = ticker_map.get(p["pair"], {}).get("last", p.get("current_price") or p.get("entry_price") or 0)
             p["pnl_pct"] = round(pnl_pct(p.get("entry_price") or 0, last, p["side"]), 2) if last else 0
 
@@ -395,9 +372,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 "qty": p["qty"],
                 "pnl_pct": p.get("pnl_pct", 0),
                 "current_value": p["qty"] * ticker_map.get(p["pair"], {}).get("last", 0),
-                "real": p.get("real", False),
             }
-            for p in all_positions
+            for p in positions
         ]
 
         if len(ohlcv_map_1h) >= 5 and (not hmm_detector.trained or cycle_counter % config.HMM_RETRAIN_INTERVAL == 0):
@@ -421,9 +397,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         has_active_signal = any(
             s.get("raw_signal") in ("BUY", "SELL") and s.get("score", 0) >= 3 for s in all_signals.values()
         )
-        has_external = len(external_positions) > 0
-        has_positions = len(positions) > 0 or has_external
-        nothing_interesting = not has_active_signal and not has_external
+        has_positions = len(positions) > 0
+        nothing_interesting = not has_active_signal and not has_positions
         equity_changed = abs(total_equity - _prev_equity) / max(_prev_equity, 1) > 0.05 if _prev_equity > 0 else False
         regime_changed = regime_info["regime"] != _prev_regime if _prev_regime else False
         signal_count = sum(1 for s in all_signals.values() if s.get("raw_signal") in ("BUY", "SELL"))
@@ -539,53 +514,6 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     except Exception as e:
                         print(f"  Cancel TP failed {p['pair']}: {e}", flush=True)
 
-        for p in list(external_positions):
-            ep = p.get("entry_price", 0)
-            if ep <= 0:
-                continue
-            last = ticker_map.get(p["pair"], {}).get("last", p.get("current_price", 0))
-            atr_e = risk.compute_atr(ohlcv_map_1h.get(p["pair"], [])) if p.get("pair") in ohlcv_map_1h else None
-            result = risk.check_sl_tp(ep, last, p["side"], pair=p["pair"], atr_pct=atr_e)
-            if not result and atr_e:
-                atr_sl_e = atr_e * config.ATR_SL_MULTIPLIER
-                dyn_sl_e = ep * (1 - atr_sl_e / 100) if p["side"] == "BUY" else ep * (1 + atr_sl_e / 100)
-                if (p["side"] == "BUY" and last <= dyn_sl_e) or (p["side"] == "SELL" and last >= dyn_sl_e):
-                    result = "ATR_SL"
-            if result:
-                print(f"  EXT SL CHECK: {p['pair']} entry={ep:,} last={last:,} result={result}", flush=True)
-                ext_value = p["qty"] * last
-                if ext_value < config.MIN_ORDER_IDR:
-                    print(f"  {p['pair']}: tiny (Rp{ext_value:,.0f}) — CIO handles it", flush=True)
-                    continue
-            if result:
-                pnl = (last - p["entry_price"]) * p["qty"]
-                try:
-                    coin_name = p["pair"].split("_")[0]
-                    _ts_ext = int(time.time() * 1000)
-                    s_params = {"method":"trade","timestamp":_ts_ext,"recvWindow":"5000","pair":p["pair"],"type":"sell",
-                                coin_name: fmt_qty(p["pair"], p["qty"]), "order_type":"market"}
-                    s_body = urlencode(s_params)
-                    s_sig = hmac.new(config.INDODAX_SECRET_KEY.encode(),s_body.encode(),hashlib.sha512).hexdigest()
-                    sr = await client.post(config.INDODAX_TAPI_URL, headers={
-                        "Key":config.INDODAX_API_KEY,"Sign":s_sig,
-                        "Content-Type":"application/x-www-form-urlencoded",
-                    }, content=s_body)
-                    sell_res = sr.json()
-                    if sell_res.get("success") == 1:
-                        external_positions.remove(p)
-                        log_trade("sell", last, p["qty"], last * p["qty"],
-                                  status="closed", pnl=pnl, reason=result)
-                        sl_hits.append(f"{p['pair']} {result} (ext): {pnl:+.0f} IDR")
-                        _cooldown[p["pair"]] = time.time()
-                        print(f"COOLDOWN: {p['pair']} set for 12h (SL ext)", flush=True)
-                        print(f"  SOLD {p['pair']} at market", flush=True)
-                    else:
-                        err = sell_res.get('error', 'unknown')
-                        print(f"  Sell failed {p['pair']}: {err} — CIO will decide", flush=True)
-                except Exception as e:
-                    print(f"  Ext sell failed {p['pair']}: {e}", flush=True)
-                    sl_hits.append(f"{p['pair']} {result} (ext): {pnl:+.0f} IDR (sell error: {str(e)[:30]})")
-
         for sl_hit in sl_hits:
             if "SL_HIT" in sl_hit or "TRAILING_SL" in sl_hit:
                 pair = sl_hit.split(" ")[0].replace(":", "")
@@ -615,14 +543,14 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             decision["trades"] = [t for t in decision.get("trades", []) if t.get("action") != "BUY"]
 
         trades = decision.get("trades", [])
-        all_held = {p["pair"] for p in positions} | {p["pair"] for p in external_positions}
+        all_held = {p["pair"] for p in positions}
         bot_pair_set = {p["pair"] for p in positions}
         trades = [t for t in trades if t.get("action") != "SELL" or t["pair"] in all_held]
         profit_sells = []
         for t in list(trades):
             if t.get("action") == "SELL":
                 sell_pair = t["pair"]
-                match = next((p for p in positions if p["pair"] == sell_pair), None) or next((p for p in external_positions if p["pair"] == sell_pair), None)
+                match = next((p for p in positions if p["pair"] == sell_pair), None)
                 if match:
                     price_now = ticker_map.get(sell_pair, {}).get("last", 0)
                     entry = match.get("entry_price", 0)
@@ -693,7 +621,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             print(f"Cycle done in {int(time.time() - _t0)}s. Sleeping.", flush=True)
             return
 
-        correlated = correlation_risk(all_positions + [{"pair": t["pair"], "entry_price": 0} for t in valid_trades if t.get("action") == "BUY"], ticker_map)
+        correlated = correlation_risk(positions + [{"pair": t["pair"], "entry_price": 0} for t in valid_trades if t.get("action") == "BUY"], ticker_map)
         if correlated:
             corr_pairs = set()
             for c in correlated:
@@ -711,67 +639,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             action = t["action"]
             alloc = t["allocation_pct"]
 
-            ext = next((e for e in external_positions if e["pair"] == pid), None)
-            if ext and action == "SELL":
-                qty = ext["qty"]
-                ticker = ticker_map.get(pid, {})
-                price = ticker.get("buy", 0)
-                entry_price_ext = ext.get("entry_price", 0)
-                if not price:
-                    continue
-                print(f"  SELL external {pid} @ {price} | {qty} coin", flush=True)
-                try:
-                    _ts_cio = int(time.time() * 1000)
-                    coin_name = pid.split("_")[0]
-                    sell_params = {
-                        "method": "trade", "timestamp": _ts_cio, "recvWindow": "5000",
-                        "pair": pid, "type": "sell",
-                        coin_name: fmt_qty(pid, qty), "order_type": "market",
-                    }
-                    sell_body = urlencode(sell_params)
-                    sell_sig = hmac.new(config.INDODAX_SECRET_KEY.encode(),
-                                         sell_body.encode(), hashlib.sha512).hexdigest()
-                    sr = await client.post(config.INDODAX_TAPI_URL, headers={
-                        "Key": config.INDODAX_API_KEY, "Sign": sell_sig,
-                        "Content-Type": "application/x-www-form-urlencoded",
-                    }, content=sell_body)
-                    sell_result = sr.json()
-                    print(f"  Real sell result: {sell_result}", flush=True)
-                    if sell_result.get("success") == 1:
-                        received = sell_result["return"].get("receive_rp", 0)
-                        external_positions.remove(ext)
-                        log_trade("sell", price, qty, float(received), status="closed",
-                                  pnl=float(received) - ext.get("amount_idr", 0),
-                                  reason=f"CIO decision: {t.get('reason', '')}")
-                        t["entry_price"] = entry_price_ext
-                        t["exec_price"] = price
-                        executed_trades.append(t)
-                        _cooldown[pid] = time.time()
-                        print(f"COOLDOWN: {pid} set for 12h after CIO sell", flush=True)
-                        await send_message(f"CIO EKSEKUSI: JUAL {pid}\n"
-                                           f"Qty: {qty} | Diterima: Rp{received:,}")
-                        if pid in _tp_limit_orders and not config.PAPER_TRADING and config.INDODAX_API_KEY:
-                            try:
-                                oid = _tp_limit_orders.pop(pid)
-                                cancel_params = {
-                                    "method": "cancelOrder", "timestamp": int(time.time() * 1000),
-                                    "recvWindow": "5000", "pair": pid,
-                                    "order_id": str(oid), "type": "sell",
-                                }
-                                cancel_body = urlencode(cancel_params)
-                                cancel_sig = hmac.new(config.INDODAX_SECRET_KEY.encode(), cancel_body.encode(), hashlib.sha512).hexdigest()
-                                await client.post(config.INDODAX_TAPI_URL, headers={
-                                    "Key": config.INDODAX_API_KEY, "Sign": cancel_sig,
-                                    "Content-Type": "application/x-www-form-urlencoded",
-                                }, content=cancel_body)
-                                print(f"  TP ORDER CANCELLED for {pid} (order_id={oid})", flush=True)
-                            except Exception as e:
-                                print(f"  Cancel TP order failed {pid}: {e}", flush=True)
-                except Exception as e:
-                    print(f"  Failed sell {pid}: {e}", flush=True)
-                continue
-
-            match = next((e for e in positions if e["pair"] == pid), None)
+            match = next((p for p in positions if p["pair"] == pid), None)
             if action == "SELL" and match:
                 qty = match["qty"]
                 ticker = ticker_map.get(pid, {})
@@ -894,10 +762,9 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 pnl_tag = f" [{pnl_pct_real:+.1f}%]" if t.get("entry_price") and pnl_pct_real else ""
                 action_label = "BUY" if t.get("action") == "BUY" else ("SELL" if t.get("action") == "SELL" else t.get("action", ""))
                 msg_lines.append(f"{action_label} {pid}{pnl_tag} ({t['allocation_pct']}%) — {reason[:80]}")
-            total_pos = len(positions) + len(external_positions)
             msg_lines.append(f"Total posisi: {len(positions)} | Cash: Rp{actual_idr_balance:,.0f} (budget: Rp{balance_idr:,})")
             await send_message("\n".join(msg_lines))
-            print(f"Portfolio: {total_pos} total positions | Cash: Rp{actual_idr_balance:,.0f} (budget: Rp{balance_idr:,})", flush=True)
+            print(f"Portfolio: {len(positions)} total positions | Cash: Rp{actual_idr_balance:,.0f} (budget: Rp{balance_idr:,})", flush=True)
 
         seen = set()
         deduped = []
@@ -1031,19 +898,16 @@ async def main():
                             cid = upd.get("message", {}).get("chat", {}).get("id")
                             if txt in ("/start", "/status"):
                                 pos_text = "No positions"
-                                ext_text = ""
                                 if positions:
                                     pos_text = "\n".join(
                                         f"{p['pair']} {p['side']} @ {p['entry_price']} ({p.get('pnl_pct', 0):+.2f}%)"
                                         for p in positions[:10]
                                     )
-                                if external_positions:
-                                    ext_text = "\nExt: " + ", ".join(f"{p['pair']}({p['qty']})" for p in external_positions[:5])
                                 text = (f"FMA ALPHA QUANT LABS 🤖\n"
                                         f"Target: Rp200k → Rp500k 🔥\n"
                                         f"Status: {'PAPER' if config.PAPER_TRADING else 'LIVE'}\n"
                                         f"CIO manages play capital\n"
-                                        f"Bot positions: {len(positions)}\n{pos_text}{ext_text}")
+                                        f"Bot positions: {len(positions)}\n{pos_text}")
                                 async with httpx.AsyncClient() as cc:
                                     await cc.post(
                                         f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
@@ -1051,8 +915,8 @@ async def main():
                                     )
                             elif not txt.startswith("/") and config.DEEPSEEK_API_KEY:
                                 bal = f"Rp{_latest_balance:,.0f}" if _latest_balance else "?"
-                                coins = ", ".join(f"{p['pair']}({p['qty']})" for p in external_positions[:8])
-                                ctx = f"Cash: {bal} | Coins: {coins or 'none'}" if external_positions else f"Cash: {bal}"
+                                coins = ", ".join(f"{p['pair']}({p['qty']})" for p in positions[:8])
+                                ctx = f"Cash: {bal} | Coins: {coins or 'none'}" if positions else f"Cash: {bal}"
                                 async with httpx.AsyncClient() as cc:
                                     await cc.post(
                                         f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
