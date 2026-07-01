@@ -548,9 +548,16 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                         if sj.get("success") == 1:
                             remain = float(sj["return"].get(f"remain_{coin_name}", 0))
                             if remain > 0:
-                                p["qty"] = remain
-                                persist.save_positions(positions)
-                                print(f"  PARTIAL SELL {p['pair']}: {remain} remaining", flush=True)
+                                remain_val = remain * last
+                                pair_min = _pair_meta.get(p["pair"], {}).get("min_base", config.MIN_ORDER_IDR)
+                                if remain_val < pair_min:
+                                    print(f"  PARTIAL SELL {p['pair']}: dust Rp{remain_val:,.0f} — hapus", flush=True)
+                                    positions.remove(p)
+                                    persist.save_positions(positions)
+                                else:
+                                    p["qty"] = remain
+                                    persist.save_positions(positions)
+                                    print(f"  PARTIAL SELL {p['pair']}: {remain:.6f} remaining", flush=True)
                                 continue
                             print(f"  SOLD {p['pair']} at market", flush=True)
                             positions.remove(p)
@@ -909,8 +916,14 @@ async def _realtime_sltp_check(pair: str, price: float):
                 coin = pair.split("_")[0]
                 remain = float(sj["return"].get(f"remain_{coin}", 0))
                 if remain > 0:
-                    p["qty"] = remain
-                    print(f"  REALTIME partial sell {pair}: {remain} remaining", flush=True)
+                    remain_val = remain * price
+                    pair_min = _pair_meta.get(pair, {}).get("min_base", config.MIN_ORDER_IDR)
+                    if remain_val < pair_min:
+                        print(f"  REALTIME partial sell {pair}: dust Rp{remain_val:,.0f} — hapus tracking", flush=True)
+                        positions.remove(p)
+                    else:
+                        p["qty"] = remain
+                        print(f"  REALTIME partial sell {pair}: {remain:.6f} remaining", flush=True)
                     return
                 positions.remove(p)
                 log_trade("sell", price, p["qty"], price * p["qty"], status="closed", pnl=pnl, reason=f"realtime_{result}")
