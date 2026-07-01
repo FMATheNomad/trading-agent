@@ -842,6 +842,17 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             await send_message("\n".join(msg_lines))
             print(f"Portfolio: {total_pos} total positions | Cash: Rp{actual_idr_balance:,.0f} (budget: Rp{balance_idr:,})", flush=True)
 
+        seen = set()
+        deduped = []
+        for p in positions:
+            if p["pair"] not in seen:
+                seen.add(p["pair"])
+                deduped.append(p)
+        if len(deduped) != len(positions):
+            positions[:] = deduped
+            persist.save_positions(positions)
+            print(f"DEDUP: removed {len(positions) - len(deduped)} duplicate positions", flush=True)
+
         if positions and config.INDODAX_API_KEY:
             pair_str = ",".join(p["pair"] for p in positions[:5])
             await refresh_deadman(client, pair_str)
