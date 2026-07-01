@@ -307,6 +307,11 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     if pair in config.STABLECOINS or pair in config.SKIP_COINS:
                         continue
                     last_price = ticker_map.get(pair, {}).get("last", 0)
+                    coin_value = qty * last_price
+                    pair_min = _pair_meta.get(pair, {}).get("min_base", config.MIN_ORDER_IDR)
+                    if coin_value < pair_min:
+                        print(f"  {pair}: dust Rp{coin_value:,.0f} < min Rp{pair_min:,} — skip tracking", flush=True)
+                        continue
 
                     old = next((p for p in positions if p["pair"] == pair), None)
                     if old:
@@ -476,6 +481,11 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     pnl = (p["entry_price"] - last) * p["qty"]
                 dust_value = p["qty"] * last
                 pair_min = _pair_meta.get(p["pair"], {}).get("min_base", config.MIN_ORDER_IDR)
+                if dust_value < pair_min:
+                    print(f"  {p['pair']}: dust Rp{dust_value:,.0f} < min Rp{pair_min:,} — hapus tracking", flush=True)
+                    positions.remove(p)
+                    persist.save_positions(positions)
+                    continue
                 sl_hits.append(f"{p['pair']} {result}: {pnl:+.0f} IDR")
                 _cooldown[p["pair"]] = time.time()
                 print(f"COOLDOWN: {p['pair']} set for 12h", flush=True)
