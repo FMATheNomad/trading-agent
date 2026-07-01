@@ -5,6 +5,11 @@ import config
 
 LIVE_TICKERS: dict[str, dict] = {}
 _ws = None
+_on_tick_callback = None
+
+def set_on_tick(callback):
+    global _on_tick_callback
+    _on_tick_callback = callback
 
 async def market_ws_loop():
     global _ws
@@ -33,15 +38,18 @@ async def market_ws_loop():
                             if len(entry) >= 8:
                                 pair_id = entry[0]
                                 pair = pair_id.replace("idr", "_idr") if not pair_id.endswith("_idr") else pair_id
+                                price = float(entry[2])
                                 LIVE_TICKERS[pair] = {
-                                    "last": float(entry[2]),
+                                    "last": price,
                                     "low_24h": float(entry[3]),
                                     "high_24h": float(entry[4]),
                                     "open_24h": float(entry[5]),
                                     "vol_idr": float(entry[6]),
                                     "vol_coin": float(entry[7]),
-                                    "change_24h": ((float(entry[2]) - float(entry[5])) / float(entry[5]) * 100) if float(entry[5]) else 0,
+                                    "change_24h": ((price - float(entry[5])) / float(entry[5]) * 100) if float(entry[5]) else 0,
                                 }
+                                if _on_tick_callback:
+                                    asyncio.ensure_future(_on_tick_callback(pair, price))
                     except Exception:
                         pass
         except Exception as e:

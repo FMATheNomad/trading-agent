@@ -20,7 +20,7 @@ from deadman import refresh_deadman, cancel_deadman
 from notifier import send_message
 from db import init_db, log_trade, log_decision, get_recent_trades, get_trade_count_today, save_chat, get_chat_history, init_chat_db
 import persist
-from market_ws import market_ws_loop, LIVE_TICKERS, stop as mws_stop
+from market_ws import market_ws_loop, LIVE_TICKERS, stop as mws_stop, set_on_tick
 from private_ws import private_ws_loop, stop as pws_stop
 
 risk = RiskManager()
@@ -51,6 +51,7 @@ _latest_all_signals: dict = {}
 _latest_ohlcv_map_1h: dict = {}
 _last_actual_balance: float = 0
 _order_error_cooldown: dict[str, float] = {}
+_realtime_sltp_last: dict[str, float] = {}
 
 def classify_regime(all_signals: dict, ohlcv_map_1h: dict | None = None) -> dict:
     signals = [s.get("raw_signal") for s in all_signals.values() if s.get("raw_signal")]
@@ -856,6 +857,55 @@ async def _balance_poller(client: httpx.AsyncClient):
             print(f"Balance poller error: {e}", flush=True)
         await asyncio.sleep(30)
 
+async def _realtime_sltp_check(pair: str, price: float):
+    now_t = time.time()
+    if now_t - _realtime_sltp_last.get(pair, 0) < 10:
+        return
+    _realtime_sltp_last[pair] = now_t
+    if shutdown_flag:
+        return
+    p = next((x for x in positions if x["pair"] == pair), None)
+    if not p:
+        return
+    atr_val = p.get("atr_pct") or risk.compute_atr(_latest_ohlcv_map_1h.get(pair, []))
+    result = risk.check_sl_tp(p["entry_price"], price, p["side"], pair=pair, atr_pct=atr_val)
+    if not result and atr_val:
+        atr_sl = atr_val * config.ATR_SL_MULTIPLIER
+        dyn_sl = p["entry_price"] * (1 - atr_sl / 100) if p["side"] == "BUY" else p["entry_price"] * (1 + atr_sl / 100)
+        if (p["side"] == "BUY" and price <= dyn_sl) or (p["side"] == "SELL" and price >= dyn_sl):
+            result = "ATR_SL"
+    if not result:
+        return
+    dust_val = p["qty"] * price
+    pair_min = _pair_meta.get(pair, {}).get("min_base", config.MIN_ORDER_IDR)
+    if dust_val < pair_min:
+        print(f"  REALTIME SL: {pair} dust Rp{dust_val:,.0f} — hapus", flush=True)
+        positions.remove(p)
+        return
+    pnl = (price - p["entry_price"]) * p["qty"]
+    print(f"  REALTIME SL: {pair} {result} ({pnl:+.0f} IDR)", flush=True)
+    try:
+        async with httpx.AsyncClient() as c:
+            coin = pair.split("_")[0]
+            sp = {"method":"trade","timestamp":int(time.time()*1000),"recvWindow":"5000","pair":pair,
+                  "type":"sell", coin: fmt_qty(pair, p["qty"]), "order_type":"market"}
+            sb = urlencode(sp)
+            ss = hmac.new(config.INDODAX_SECRET_KEY.encode(), sb.encode(), hashlib.sha512).hexdigest()
+            sr = await c.post(config.INDODAX_TAPI_URL, headers={
+                "Key": config.INDODAX_API_KEY, "Sign": ss,
+                "Content-Type": "application/x-www-form-urlencoded",
+            }, content=sb)
+            sj = sr.json()
+            if sj.get("success") == 1:
+                positions.remove(p)
+                log_trade("sell", price, p["qty"], price * p["qty"], status="closed", pnl=pnl, reason=f"realtime_{result}")
+                await send_message(f"⚡ REALTIME {result}: SELL {pair}\n{pnl:+.0f} IDR ({pnl/(p['entry_price']*p['qty'])*100:+.2f}%)")
+                _cooldown[pair] = time.time()
+            else:
+                print(f"  REALTIME sell failed {pair}: {sj.get('error','?')}", flush=True)
+    except Exception as e:
+        print(f"  REALTIME sell error {pair}: {e}", flush=True)
+
 async def main():
     global _latest_balance, shutdown_flag
 
@@ -1134,6 +1184,7 @@ async def main():
                 pass
             await asyncio.sleep(5)
 
+    set_on_tick(_realtime_sltp_check)
     ws_task = asyncio.create_task(market_ws_loop())
     pws_task = asyncio.create_task(private_ws_loop())
     for _ in range(6):
