@@ -558,8 +558,9 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                         except Exception:
                             pass
                         _ts_s = int(time.time() * 1000)
+                        qty_str = f"{sl_qty:.8f}".rstrip("0").rstrip(".") or "0"
                         sp = {"method":"trade","timestamp":_ts_s,"recvWindow":"5000","pair":p["pair"],"type":"sell",
-                              coin_name: fmt_qty(p["pair"], sl_qty), "order_type":"market"}
+                              coin_name: qty_str, "order_type":"market"}
                         sb = urlencode(sp)
                         ss = hmac.new(config.INDODAX_SECRET_KEY.encode(),sb.encode(),hashlib.sha512).hexdigest()
                         sr = await client.post(config.INDODAX_TAPI_URL, headers={
@@ -934,8 +935,9 @@ async def _realtime_sltp_check(pair: str, price: float):
     try:
         async with httpx.AsyncClient() as c:
             coin = pair.split("_")[0]
+            rt_qty_str = f"{p['qty']:.8f}".rstrip("0").rstrip(".") or "0"
             sp = {"method":"trade","timestamp":int(time.time()*1000),"recvWindow":"5000","pair":pair,
-                  "type":"sell", coin: fmt_qty(pair, p["qty"]), "order_type":"market"}
+                  "type":"sell", coin: rt_qty_str, "order_type":"market"}
             sb = urlencode(sp)
             ss = hmac.new(config.INDODAX_SECRET_KEY.encode(), sb.encode(), hashlib.sha512).hexdigest()
             sr = await c.post(config.INDODAX_TAPI_URL, headers={
