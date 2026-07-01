@@ -788,69 +788,16 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             executed_trades.append(t)
 
             if action == "BUY":
-                if config.PARTIAL_TP_ENABLED and ohlcv and atr_pct:
-                    tp1_pct = config.PARTIAL_TP_FIRST_PCT
-                    taker_qty = qty * tp1_pct
-                    runner_qty = qty * (1 - tp1_pct)
-                    tp1_price = int(price * (1 + atr_pct * config.PARTIAL_TP_FIRST_MULTIPLIER / 100))
-                else:
-                    taker_qty = qty
-                    runner_qty = qty
-                    tp1_price = tp_limit_price if tp_limit_price > 0 else int(price * (1 + config.TAKE_PROFIT_PCT))
-
-                if runner_qty > 0:
-                    positions.append({
-                        "pair": pid,
-                        "side": action,
-                        "entry_price": price,
-                        "qty": runner_qty,
-                        "amount_idr": amount * (runner_qty / qty),
-                        "atr_pct": atr_pct if ohlcv else None,
-                        "entry_time": time.time(),
-                    })
-                    persist.save_positions(positions)
-
-                if not config.PAPER_TRADING and config.INDODAX_API_KEY:
-                    try:
-                        coin_name = pid.split("_")[0]
-                        tp_params = {
-                            "method": "trade", "timestamp": int(time.time() * 1000),
-                            "recvWindow": "5000", "pair": pid, "type": "sell",
-                            "price": str(tp1_price), coin_name: fmt_qty(pid, taker_qty),
-                            "order_type": "limit",
-                        }
-                        tp_body = urlencode(tp_params)
-                        tp_sig = hmac.new(config.INDODAX_SECRET_KEY.encode(), tp_body.encode(), hashlib.sha512).hexdigest()
-                        tp_r = await client.post(config.INDODAX_TAPI_URL, headers={
-                            "Key": config.INDODAX_API_KEY, "Sign": tp_sig,
-                            "Content-Type": "application/x-www-form-urlencoded",
-                        }, content=tp_body)
-                        tp_res = tp_r.json()
-                        if tp_res.get("success") == 1:
-                            oid = tp_res["return"].get("order_id", 0)
-                            _tp_limit_orders[pid] = oid
-                            print(f"  TP1 LIMIT placed: {fmt_qty(pid, taker_qty)} @ {tp1_price} (ATR×{config.PARTIAL_TP_FIRST_MULTIPLIER:.1f}) — runner: {fmt_qty(pid, runner_qty)}", flush=True)
-                        else:
-                            if runner_qty <= 0:
-                                positions.append({
-                                    "pair": pid, "side": action,
-                                    "entry_price": price, "qty": qty,
-                                    "amount_idr": amount,
-                                    "atr_pct": atr_pct if ohlcv else None,
-                                    "entry_time": time.time(),
-                                })
-                                persist.save_positions(positions)
-                    except Exception as e:
-                        print(f"  TP limit order failed {pid}: {e}", flush=True)
-                        if runner_qty <= 0:
-                            positions.append({
-                                "pair": pid, "side": action,
-                                "entry_price": price, "qty": qty,
-                                "amount_idr": amount,
-                                "atr_pct": atr_pct if ohlcv else None,
-                                "entry_time": time.time(),
-                            })
-                            persist.save_positions(positions)
+                positions.append({
+                    "pair": pid,
+                    "side": action,
+                    "entry_price": price,
+                    "qty": qty,
+                    "amount_idr": amount,
+                    "atr_pct": atr_pct if ohlcv else None,
+                    "entry_time": time.time(),
+                })
+                persist.save_positions(positions)
             elif action == "SELL":
                 positions = [p for p in positions if p["pair"] != pid]
                 persist.save_positions(positions)
