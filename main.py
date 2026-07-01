@@ -689,8 +689,14 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 order = await place_order(client, action.lower(), price, amount,
                                            pair=pid, order_type="market")
             except Exception as e:
-                print(f"  Order failed {pid}: {e}", flush=True)
-                await send_message(f"Order failed {pid}: {e}")
+                err_str = str(e)
+                print(f"  Order failed {pid}: {err_str}", flush=True)
+                await send_message(f"Order failed {pid}: {err_str}")
+                if action == "SELL" and "insufficient" in err_str.lower():
+                    positions = [p for p in positions if p["pair"] != pid]
+                    save_positions(positions)
+                    _tp_limit_orders.pop(pid, None)
+                    print(f"  REMOVED {pid} from tracking (sell failed)", flush=True)
                 continue
             log_trade(action.lower(), price, qty, amount,
                       order_type="limit" if config.PAPER_TRADING else "market",
