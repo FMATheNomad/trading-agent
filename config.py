@@ -26,19 +26,37 @@ MAX_SECTOR_EXPOSURE_PCT = 0.7
 
 # --- Mode Profile ---
 ALPHA_MODE = os.getenv("ALPHA_MODE", "true").strip().lower() == "true"
+INSANE_MODE = os.getenv("INSANE_MODE", "false").strip().lower() == "true"
 
 # --- Risk per trade ---
 POSITION_SIZE_PCT = 0.85
-if ALPHA_MODE:
+if INSANE_MODE:
+    STOP_LOSS_PCT = -0.12
+    TAKE_PROFIT_PCT = 0.35
+    DAILY_LOSS_FLOOR_IDR = 100_000
+    PORTFOLIO_STOP_LOSS_PCT = -0.50
+    MIN_24H_VOLUME_IDR = 50_000_000
+    MAX_SCAN_PAIRS = 50
+    MAX_OPEN_POSITIONS = 6
+    POSITION_SIZE_PCT = 0.95
+    MAX_POSITION_PCT_PER_ASSET = 1.0
+    MAX_DAILY_TRADES = 20
+    KELLY_FRACTION = 0.5
+    PROFIT_SELL_THRESHOLD = 0.5
+elif ALPHA_MODE:
     STOP_LOSS_PCT = -0.08
     TAKE_PROFIT_PCT = 0.25
     DAILY_LOSS_FLOOR_IDR = 60_000
     PORTFOLIO_STOP_LOSS_PCT = -0.35
+    MAX_DAILY_TRADES = 10
+    PROFIT_SELL_THRESHOLD = 2.0
 else:
     STOP_LOSS_PCT = -0.05
     TAKE_PROFIT_PCT = 0.05
     DAILY_LOSS_FLOOR_IDR = 60_000
     PORTFOLIO_STOP_LOSS_PCT = -0.20
+    MAX_DAILY_TRADES = 10
+    PROFIT_SELL_THRESHOLD = 2.0
 TAKER_FEE_PCT = 0.0035
 
 # --- Hanya koin fundamental — tidak ada meme/shitcoin ---
@@ -113,8 +131,10 @@ PARTIAL_TP_RUNNER_TRAIL_MULTIPLIER = 0.5
 MAKER_FIRST = os.getenv("MAKER_FIRST", "false").strip().lower() == "true"
 MAKER_SLIPPAGE = 0.001
 
-# --- Daily trade limit ---
-MAX_DAILY_TRADES = int(os.getenv("MAX_DAILY_TRADES", "10"))
+# --- Max trades/day (bisa di-override via env) ---
+_MAX_DAILY_TRADES_ENV = os.getenv("MAX_DAILY_TRADES")
+if _MAX_DAILY_TRADES_ENV is not None:
+    MAX_DAILY_TRADES = int(_MAX_DAILY_TRADES_ENV)
 
 # --- Auto Compound ---
 AUTO_COMPOUND = True

@@ -645,7 +645,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     price_now = LIVE_TICKERS.get(sell_pair, {}).get("last") or ticker_map.get(sell_pair, {}).get("last", 0)
                     entry = match.get("entry_price", 0)
                     pnl = (price_now - entry) / entry * 100 if entry else 0
-                    if pnl >= 2:
+                    if pnl >= config.PROFIT_SELL_THRESHOLD:
                         profit_sells.append(t)
                         print(f"PROFIT ROTATE: sell {sell_pair} (+{pnl:.1f}%)", flush=True)
         trades = [t for t in trades if not (t.get("action") == "SELL" and t not in profit_sells)]
@@ -968,7 +968,8 @@ async def main():
     print(f"  Model: {config.DEEPSEEK_MODEL}", flush=True)
     print(f"  Max positions: {config.MAX_OPEN_POSITIONS} (dynamic: {config.max_positions_for_equity(config.PLAY_CAPITAL_IDR)}-6)", flush=True)
     print(f"  CIO selects coins from top {config.MAX_SCAN_PAIRS} by volume", flush=True)
-    print(f"  Mode: {'🔴 ALPHA' if config.ALPHA_MODE else ' STANDARD'} | SL ATR×{config.ATR_SL_MULTIPLIER:.0f} | TP ATR×{config.ATR_TP_MULTIPLIER:.0f}", flush=True)
+    mode_label = "🔴 INSANE" if config.INSANE_MODE else ("🔴 ALPHA" if config.ALPHA_MODE else " STANDARD")
+    print(f"  Mode: {mode_label} | SL ATR×{config.ATR_SL_MULTIPLIER:.0f} | TP ATR×{config.ATR_TP_MULTIPLIER:.0f}", flush=True)
     print("=" * 50, flush=True)
 
     signal.signal(signal.SIGTERM, handle_sig)
@@ -1025,11 +1026,12 @@ async def main():
         except Exception as e:
             print(f"Order cleanup: {e}", flush=True)
 
+    mode_n = "INSANE 🚀" if config.INSANE_MODE else ("ALPHA 🔴" if config.ALPHA_MODE else "STANDARD")
     ok = await send_message(
         f"🤖 FMA ALPHA QUANT LABS started\n"
         f"CIO aktif — target Rp200k → Rp500k 🔥\n"
         f"CIO scans top {config.MAX_SCAN_PAIRS} pairs by volume\n"
-        f"Mode: {'PAPER' if config.PAPER_TRADING else 'LIVE'} | Alpha Mode ON\n"
+        f"Mode: {'PAPER' if config.PAPER_TRADING else 'LIVE'} | {mode_n}\n"
         f"SL ATR×{config.ATR_SL_MULTIPLIER:.0f} | TP ATR×{config.ATR_TP_MULTIPLIER:.0f}\n"
         f"Notifikasi hanya event-based (no spam tiap 5 menit)"
     )
@@ -1160,7 +1162,7 @@ async def main():
                                     for p in positions[:5]:
                                         lp = LIVE_TICKERS.get(p["pair"], {}).get("last") or _latest_ticker_map.get(p["pair"], {}).get("last") or p.get("entry_price", 0)
                                         pnl = pnl_pct(p.get("entry_price") or 0, lp, p["side"])
-                                        if pnl < 2:
+                                        if pnl < config.PROFIT_SELL_THRESHOLD:
                                             reason += f"\n- {p['pair']} ({pnl:+.2f}%) belum ≥2% profit"
                                 async with httpx.AsyncClient() as cc:
                                     await cc.post(

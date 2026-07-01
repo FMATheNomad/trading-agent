@@ -35,11 +35,25 @@ Target: ATR×3 TP, ATR×2 SL. Risk-reward ~1.5:1 (ATR-based, adaptif).
 - Hot Now + any BUY signal = execute immediately
 - TF alignment preferred but NOT required
 - Play capital 70-95% on high conviction setups
-- CRITICAL: Account Rp{config.PLAY_CAPITAL_IDR:,}. Butuh ~3-4 trade besar untuk 1.67x lipat. Jangan HOLD terus — cari edge SETIAP cycle. Tapi jangan maksa kalo bener-bener gak ada setup (volume sepi, sideways tipis).
+- CRITICAL: Account Rp{config.PLAY_CAPITAL_IDR:,}. Jangan HOLD terus — cari edge SETIAP cycle.
 - Prioritaskan coin dengan vol spike + momentum kuat + 24h gainer
 """
 
-SYSTEM_PROMPT = BASE_PROMPT + (ALPHA_PROMPT if config.ALPHA_MODE else "")
+INSANE_PROMPT = f"""
+
+## 🚀 INSANE MODE ACTIVE — target: {config.PLAY_CAPITAL_IDR:,} → 1.000.000 🔥🔥🔥
+Target: ATR×3 TP, ATR×2 SL. Risk-reward ~1.5:1 (ATR-based).
+- 🔥 BUY score ≥+1 is tradeable — lebih agresif, frekuensi tinggi
+- 🔥 Hot Now + signal APAPUN = eksekusi tanpa ragu
+- 🔥 TF alignment DISARANKAN tapi gak wajib
+- 🔥 Play capital 80-100% — maksimalkan setiap peluang
+- 🔥 Boleh jual rugi asal ada sinyal kuat buat rotate ke setup lebih baik
+- 🔥 ALL IN approach — size besar, hold singkat, profit cepat
+- 🔥 Target 500k → 1 juta secepat mungkin
+- 🔥 Scale in/out partial untuk posisi besar
+"""
+
+SYSTEM_PROMPT = BASE_PROMPT + (INSANE_PROMPT if config.INSANE_MODE else (ALPHA_PROMPT if config.ALPHA_MODE else ""))
 
 _strategy_map = {
     "BULL": "AGGRESSIVE (trend-follow, size up)",
