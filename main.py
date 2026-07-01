@@ -1060,6 +1060,43 @@ async def main():
                                 save_chat("assistant", reason)
                                 continue
 
+                            if txt.startswith("/atr"):
+                                coin_arg = txt.replace("/atr", "").strip().upper()
+                                pairs_to_check = []
+                                if coin_arg:
+                                    pid = coin_arg if coin_arg.endswith("_IDR") else f"{coin_arg}_IDR"
+                                    pairs_to_check = [pid.lower()]
+                                else:
+                                    pairs_to_check = [p["pair"] for p in positions]
+                                if not pairs_to_check:
+                                    async with httpx.AsyncClient() as cc:
+                                        await cc.post(f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
+                                            json={"chat_id": cid, "text": "Tidak ada posisi. Gunakan: /atr <coin>"})
+                                    continue
+                                atr_lines = []
+                                for pid in pairs_to_check[:8]:
+                                    try:
+                                        ohlcv = await fetch_ohlcv(client, pair=pid, tf=60, limit=50)
+                                        if len(ohlcv) < 15:
+                                            atr_lines.append(f"{pid}: data OHLCV kurang")
+                                            continue
+                                        atr_val = risk.compute_atr(ohlcv)
+                                        price = float(ohlcv[-1]["close"])
+                                        p = next((x for x in positions if x["pair"] == pid), None)
+                                        entry = p["entry_price"] if p else price
+                                        side = p["side"] if p else "BUY"
+                                        sl, tp = risk.get_sl_tp(entry, side, atr_val)
+                                        pnl = pnl_pct(entry, price, side) if p else 0
+                                        tag = f" ({pnl:+.1f}%)" if p else ""
+                                        atr_lines.append(f"{pid:15} Rp{price:>8,.0f} | ATR {atr_val:.1f}% | SL Rp{sl:,.0f} | TP Rp{tp:,.0f}{tag}")
+                                    except Exception as e:
+                                        atr_lines.append(f"{pid}: error ({str(e)[:30]})")
+                                msg = "-- ATR Levels --\n" + "\n".join(atr_lines)
+                                async with httpx.AsyncClient() as cc:
+                                    await cc.post(f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
+                                        json={"chat_id": cid, "text": msg})
+                                continue
+
                             if txt.startswith("/"):
                                 async with httpx.AsyncClient() as cc:
                                     await cc.post(
