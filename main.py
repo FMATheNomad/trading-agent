@@ -546,6 +546,12 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                         }, content=sb)
                         sj = sr.json()
                         if sj.get("success") == 1:
+                            remain = float(sj["return"].get(f"remain_{coin_name}", 0))
+                            if remain > 0:
+                                p["qty"] = remain
+                                persist.save_positions(positions)
+                                print(f"  PARTIAL SELL {p['pair']}: {remain} remaining", flush=True)
+                                continue
                             print(f"  SOLD {p['pair']} at market", flush=True)
                             positions.remove(p)
                             persist.save_positions(positions)
@@ -900,6 +906,12 @@ async def _realtime_sltp_check(pair: str, price: float):
             }, content=sb)
             sj = sr.json()
             if sj.get("success") == 1:
+                coin = pair.split("_")[0]
+                remain = float(sj["return"].get(f"remain_{coin}", 0))
+                if remain > 0:
+                    p["qty"] = remain
+                    print(f"  REALTIME partial sell {pair}: {remain} remaining", flush=True)
+                    return
                 positions.remove(p)
                 log_trade("sell", price, p["qty"], price * p["qty"], status="closed", pnl=pnl, reason=f"realtime_{result}")
                 await send_message(f"⚡ REALTIME {result}: SELL {pair}\n{pnl:+.0f} IDR ({pnl/(p['entry_price']*p['qty'])*100:+.2f}%)")
