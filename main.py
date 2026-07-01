@@ -398,6 +398,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             except Exception:
                 pass
 
+        can_trade = actual_idr_balance >= config.MIN_ORDER_IDR
         has_active_signal = any(
             s.get("raw_signal") in ("BUY", "SELL") and s.get("score", 0) >= 3 for s in all_signals.values()
         )
@@ -408,16 +409,17 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         signal_count = sum(1 for s in all_signals.values() if s.get("raw_signal") in ("BUY", "SELL"))
         new_signals = signal_count > _prev_signal_count + 1 if _prev_signal_count > 0 else False
 
-        needs_deepseek = has_active_signal or has_positions or regime_changed or equity_changed or new_signals or (cycle_counter % 3 == 0)
-        skip_llm = not needs_deepseek and nothing_interesting
+        needs_deepseek = (can_trade or has_positions) and (has_active_signal or regime_changed or equity_changed or new_signals or (cycle_counter % 6 == 0))
+        skip_llm = not needs_deepseek
 
         _prev_equity = total_equity
         _prev_regime = regime_info["regime"]
         _prev_signal_count = signal_count
 
         if skip_llm:
-            print(f"LLM SKIPPED — sideways throttle (cycle {cycle_counter})", flush=True)
-            decision = {"decision": "HOLD", "reasoning": "Sideways, nothing new — skipping LLM", "trades": []}
+            if cycle_counter % 12 == 0:
+                print(f"LLM SKIPPED — no cash to trade (cycle {cycle_counter})", flush=True)
+            decision = {"decision": "HOLD", "reasoning": "No cash to trade — ATR SL/TP aktif", "trades": []}
         else:
             print("Calling DeepSeek portfolio manager...", flush=True)
             portfolio_pnl = ((total_equity - config.PLAY_CAPITAL_IDR) / config.PLAY_CAPITAL_IDR * 100
@@ -584,37 +586,13 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             print(f"Limited new buys to {slots_left} (max {max_positions} unique, equity Rp{total_equity:,.0f})", flush=True)
 
         if not trades:
-            msg_lines = []
-            needs_report = False
-            if regime_changed and _prev_regime:
-                msg_lines.append(f"🔄 Regime shift: {_prev_regime} → {regime_info['regime']}")
-                msg_lines.append(f"B:{regime_info['buy_ratio']} S:{regime_info['sell_ratio']} | {len(all_signals)} pairs scanned")
-                needs_report = True
-            if equity_changed and _prev_equity > 0:
-                eq_change = ((total_equity - _prev_equity) / _prev_equity * 100)
-                msg_lines.append(f"💰 Equity: Rp{total_equity:,.0f} ({eq_change:+.1f}%)")
-                needs_report = True
-            if new_signals:
-                msg_lines.append(f"📊 New actionable signals: {signal_count}")
-                needs_report = True
-            if has_active_signal and not skip_llm:
-                top = sorted(all_signals.items(), key=lambda x: abs(x[1].get("score", 0)), reverse=True)[:3]
-                msg_lines.append("🔥 Top setups:")
-                for p, s in top:
-                    msg_lines.append(f"  {p}: {s.get('raw_signal')}({s.get('score', 0)}) {s.get('conviction', '')}")
-                needs_report = True
-            if cycle_counter % 60 == 0:
-                cio_winrate = (_cio_stats["wins"] / max(_cio_stats["sells"], 1)) * 100
-                msg_lines.append(f"📋 CIO Summary (Cycle #{cycle_counter})")
-                msg_lines.append(f"Regime: {regime_info['regime']} | Equity: Rp{total_equity:,.0f}")
-                msg_lines.append(f"Positions: {len(positions)} | Cash: Rp{actual_idr_balance:,.0f}")
-                msg_lines.append(f"CIO Stats: {_cio_stats['buys']}B/{_cio_stats['sells']}S | WinRate: {cio_winrate:.0f}% | Blacklist: {len(_coin_blacklist)}")
-                needs_report = True
-            if needs_report or (msg_lines and _report_sent_count == 0):
-                _report_sent_count += 1
-                msg_lines.append(f"Cycle #{cycle_counter}")
-                await send_message("\n".join(msg_lines))
             print(f"Cycle done in {int(time.time() - _t0)}s. Sleeping.", flush=True)
+            if cycle_counter % 60 == 0:
+                await send_message(
+                    f"📋 Cycle #{cycle_counter}: {regime_info['regime']} | "
+                    f"Equity: Rp{total_equity:,.0f} | {len(positions)} pos | "
+                    f"Cash: Rp{actual_idr_balance:,.0f}"
+                )
             if positions and config.INDODAX_API_KEY:
                 pair_str = ",".join(p["pair"] for p in positions[:5])
                 await refresh_deadman(client, pair_str)
