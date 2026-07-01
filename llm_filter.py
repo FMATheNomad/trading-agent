@@ -2,7 +2,7 @@ import json
 from openai import OpenAI
 import config
 
-BASE_PROMPT = """You are CIO of FMA ALPHA QUANT LABS. Your ONLY mission: grow Rp200.000 → Rp500.000 in days.
+BASE_PROMPT = f"""You are CIO of FMA ALPHA QUANT LABS. Your ONLY mission: grow Rp{config.PLAY_CAPITAL_IDR:,} → Rp500.000 in days.
 
 This is a small account. Every trade must count. You eat what you kill.
 
