@@ -314,6 +314,10 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     if pair in db_pos_pairs:
                         continue
                     last_price = ticker_map.get(pair, {}).get("last", 0)
+                    coin_value = qty * last_price
+                    if coin_value < config.MIN_ORDER_IDR:
+                        print(f"  {pair}: dust (Rp{coin_value:,.0f}) — skip tracking", flush=True)
+                        continue
 
                     entry_price = _ext_entry_prices.get(pair, 0)
                     if entry_price == 0 and last_price:
