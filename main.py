@@ -325,6 +325,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             for e in external_positions
         )
         total_equity = actual_idr_balance + paper_equity + ext_equity
+        max_positions = config.max_positions_for_equity(total_equity)
         saved_peak = load_peak_capital()
         if saved_peak and saved_peak > portfolio_risk.peak_capital:
             portfolio_risk.peak_capital = saved_peak
@@ -576,10 +577,10 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         selling_pairs = {t["pair"] for t in trades if t.get("action") == "SELL"}
         extra_buys = [t for t in trades if t.get("action") == "BUY" and t["pair"] in all_held]
         new_buys = [t for t in trades if t.get("action") == "BUY" and t["pair"] not in all_held]
-        slots_left = max(0, config.MAX_OPEN_POSITIONS - len(all_held - selling_pairs))
+        slots_left = max(0, max_positions - len(all_held - selling_pairs))
         if len(new_buys) > slots_left:
             trades = [t for t in trades if t.get("action") == "SELL"] + extra_buys + new_buys[:slots_left]
-            print(f"Limited new buys to {slots_left} (max {config.MAX_OPEN_POSITIONS} unique)", flush=True)
+            print(f"Limited new buys to {slots_left} (max {max_positions} unique, equity Rp{total_equity:,.0f})", flush=True)
 
         if not trades:
             msg_lines = []
@@ -874,7 +875,7 @@ async def main():
     print(f"  Mode: {'PAPER' if config.PAPER_TRADING else 'LIVE'}", flush=True)
     print(f"  CIO manages play capital dynamically", flush=True)
     print(f"  Model: {config.DEEPSEEK_MODEL}", flush=True)
-    print(f"  Max positions: {config.MAX_OPEN_POSITIONS}", flush=True)
+    print(f"  Max positions: {config.MAX_OPEN_POSITIONS} (dynamic: {config.max_positions_for_equity(config.PLAY_CAPITAL_IDR)}-6)", flush=True)
     print(f"  CIO selects coins from top {config.MAX_SCAN_PAIRS} by volume", flush=True)
     print(f"  Mode: {'🔴 ALPHA' if config.ALPHA_MODE else ' STANDARD'} | SL {abs(config.STOP_LOSS_PCT)*100:.0f}% (min) | TP ATR×{config.ATR_TP_MULTIPLIER:.0f}", flush=True)
     print("=" * 50, flush=True)
@@ -937,7 +938,7 @@ async def main():
         f"CIO aktif — target Rp200k → Rp500k 🔥\n"
         f"CIO scans top {config.MAX_SCAN_PAIRS} pairs by volume\n"
         f"Mode: {'PAPER' if config.PAPER_TRADING else 'LIVE'} | Alpha Mode ON\n"
-        f"SL min 8% | TP ATR×3 dinamis | Max {config.MAX_OPEN_POSITIONS} positions\n"
+        f"SL min 8% | TP ATR×3 dinamis | Max posisi dinamis (4-6)\n"
         f"Notifikasi hanya event-based (no spam tiap 5 menit)"
     )
     print(f"Telegram: {'OK' if ok else 'FAILED'}", flush=True)

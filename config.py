@@ -11,6 +11,13 @@ DEFAULT_PLAY_CAPITAL_PCT = 0.8
 # --- Portfolio ---
 PORTFOLIO_MODE = True
 MAX_OPEN_POSITIONS = 4
+def max_positions_for_equity(equity: float) -> int:
+    if equity >= 10_000_000:
+        return 6
+    if equity >= 5_000_000:
+        return 5
+    return 4
+
 MIN_24H_VOLUME_IDR = 100_000_000
 MAX_SCAN_PAIRS = 40
 OHLCV_FETCH_CONCURRENCY = 10
