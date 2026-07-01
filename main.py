@@ -548,9 +548,17 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 if not config.PAPER_TRADING and config.INDODAX_API_KEY:
                     try:
                         coin_name = p["pair"].split("_")[0]
+                        sl_qty = p["qty"]
+                        try:
+                            info_sl = await get_balance(client)
+                            real_sl = float(info_sl.get("balance", {}).get(coin_name, 0))
+                            if real_sl > 0:
+                                sl_qty = real_sl
+                        except Exception:
+                            pass
                         _ts_s = int(time.time() * 1000)
                         sp = {"method":"trade","timestamp":_ts_s,"recvWindow":"5000","pair":p["pair"],"type":"sell",
-                              coin_name: fmt_qty(p["pair"], p["qty"]), "order_type":"market"}
+                              coin_name: fmt_qty(p["pair"], sl_qty), "order_type":"market"}
                         sb = urlencode(sp)
                         ss = hmac.new(config.INDODAX_SECRET_KEY.encode(),sb.encode(),hashlib.sha512).hexdigest()
                         sr = await client.post(config.INDODAX_TAPI_URL, headers={
@@ -703,7 +711,16 @@ async def portfolio_cycle(client: httpx.AsyncClient):
 
             match = next((p for p in positions if p["pair"] == pid), None)
             if action == "SELL" and match:
-                qty = match["qty"]
+                sell_qty_raw = match["qty"]
+                if not config.PAPER_TRADING and config.INDODAX_API_KEY:
+                    try:
+                        info_now = await get_balance(client)
+                        real_bal = float(info_now.get("balance", {}).get(pid.split("_")[0], 0))
+                        if real_bal > 0:
+                            sell_qty_raw = real_bal
+                    except Exception:
+                        pass
+                qty = sell_qty_raw
                 ticker = ticker_map.get(pid, {})
                 price = ticker.get("buy", 0)
                 if not price:
