@@ -1,107 +1,135 @@
-# FMA ALPHA QUANT LABS 🤖 — Rp200k → Rp500k 🔥
+# FMA ALPHA QUANT LABS 🤖
 
-**Auto-trading bot untuk Indodax** dengan AI Chief Investment Officer (CIO) berbasis DeepSeek V4 Flash. Target agresif: menumbuhkan Rp200.000 menjadi Rp500.000 dalam hitungan hari. Menggabungkan multi-timeframe technical analysis, statistical arbitrage, regime detection, dan portfolio risk management.
+**AI trading bot untuk Indodax** — Systematic quant + AI Chief Investment Officer (DeepSeek). Target: compound equity secara stabil dengan risk management berlapis.
 
 ## Arsitektur
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    main.py (Orchestrator)               │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐  │
-│  │ Scan 40  │ │ OHLCV    │ │Indicators│ │  DeepSeek │  │
-│  │ Pairs    │→│ 1h + 4h  │→│ Scoring  │→│    CIO    │  │
-│  └──────────┘ └──────────┘ └──────────┘ └──────────┘  │
-│                                    ↓                   │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐                │
-│  │ Risk     │→│Validate  │→│ Execute  │                │
-│  │ Manager  │ │Allocation│ │ Order    │                │
-│  └──────────┘ └──────────┘ └──────────┘                │
-│                                    ↓                   │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐                │
-│  │ Telegram │ │ SQLite   │ │ Deadman  │                │
-│  │ Notif    │ │ Logging  │ │ Switch   │                │
-│  └──────────┘ └──────────┘ └──────────┘                │
-└─────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                     main.py (Orchestrator)                       │
+│  ┌──────────┐ ┌──────────┐ ┌────────────┐ ┌──────────────────┐ │
+│  │ Scan 40  │ │ OHLCV    │ │  HMM +    │ │   DeepSeek CIO    │ │
+│  │ Pairs    │→│ 1h + 4h  │→│Indicators │→│ (entry only)      │ │
+│  └──────────┘ └──────────┘ │+ XGBoost  │ └──────────────────┘ │
+│                            │+ Features │         ↓             │
+│  ┌──────────┐ ┌──────────┐ └────────────┘ ┌──────────────────┐ │
+│  │ SL/TP    │ │Validate  │← Kelly ← Cooldown ← Blacklist     │ │
+│  │ Trailing │ │Allocation│                └──────────────────┘ │
+│  └──────────┘ └──────────┘                                      │
+│       ↓                                                         │
+│  ┌──────────┐ ┌──────────┐ ┌──────────────────┐               │
+│  │ Telegram │ │ SQLite   │ │ Deadman Switch   │               │
+│  │ Event    │ │ Logging  │ │ + Order Cleanup  │               │
+│  └──────────┘ └──────────┘ └──────────────────┘               │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
-## Fitur
+## Fitur Lengkap
 
-### 📊 Market Analysis
-- **40+ pairs scan** by 24h volume (setiap 5 menit)
-- **Multi-timeframe**: 1h entry timing + 4h macro trend
-- **Technical indicators**: RSI(14), EMA(9/21/50), MACD, Bollinger Bands
-- **Volume spike detection** (ratio vs 20-candle average)
-- **Momentum streak** (consecutive candles direction)
-- **Multi-factor scoring**: -8 to +8 (BUY ≥+3, SELL ≤-3)
-- **Order book imbalance** (bid/ask pressure)
-- **Regime classifier**: BULL/BEAR/HIGH_VOL/SIDEWAYS
+### 📊 Market Analysis — 3-Layer Signal Stack
 
-### 🧠 AI Chief Investment Officer (DeepSeek)
-- **Portfolio manager** yang menganalisis SEMUA data pasar
-- **Regime-based strategy**: perilaku berubah sesuai kondisi pasar
-- **Multi-timeframe conviction** (TF alignment = HIGH conviction)
-- **Auto-adjust play capital** berdasarkan market conviction
-- **Dynamic SL/TP** berdasarkan ATR (Average True Range)
-- **Alpha Mode**: SL 10% TP 20%, lebih agresif
+| Layer | Modul | Fungsi |
+|---|---|---|
+| **Layer 1: Technical** | `indicators.py` | RSI(14), Stoch, ADX, MFI, EMA(9/21/50), MACD, BB, ATR, Hurst exponent, skew/kurtosis, VPIN, entropy, volume ratio, momentum streak |
+| **Layer 2: ML** | `ml_signal.py` | XGBoost ensemble — train dari OHLCV historis, infer real-time. Retrain tiap 50 cycle |
+| **Layer 3: AI** | `llm_filter.py` | DeepSeek V4 Flash sebagai portfolio manager, analyze semua data + regime + orderbook |
 
-### 📈 Pairs Trading (Stat-Arb)
-- **Z-score mean reversion** pada pasangan korelasi: BTC/ETH, SOL/ADA, BNB/XRP
-- Signal LONG_SPREAD (z < -2) / SHORT_SPREAD (z > 2)
-- Market-neutral strategy
+### 🧠 Regime Detection — HMM Probabilistic
+
+**Sebelum:** `if buys/total >= 0.4 → BULL` (heuristic)
+**Sesudah:** Hidden Markov Model 4-state dengan covariance analysis:
+
+| State | Karakteristik |
+|---|---|
+| SIDEWAYS | Volatility rendah, mean-reversion |
+| BULL | Vol medium, return positif |
+| BEAR | Vol medium, return negatif |
+| HIGH_VOL | Vol tinggi, outlier detection |
+
+Fallback ke heuristic kalo HMM confidence < 60%.
+
+### 📈 Cointegration Engine
+
+**Sebelum:** z-score simple dari ratio harga / rolling window
+**Sesudah:** Johansen test + ADF test + half-life mean reversion + Hurst exponent
+
+Pasangan: BTC/ETH, SOL/ADA, BNB/XRP. Signal LONG_SPREAD / SHORT_SPREAD saat z > 2 atau z < -2.
+
+### 💰 Entry & Exit Strategy
+
+```
+CIO → hanya bisa BUY   (entry only)
+Exit → SL / TP / Trailing Stop   (exit otomatis)
+Cooldown → 12 jam setelah posisi closed
+Blacklist → skip pair yang pernah SL
+```
 
 ### 📉 Risk Management
-| Parameter | Standard | Alpha (AKTIF) 🔴 |
-|-----------|----------|-------|
-| Stop Loss | 5% | **8%** |
-| Take Profit | 5% | **25%** |
-| Risk:Reward | 1:1 | **1:3** |
-| Daily Loss Floor | Rp60.000 | Rp60.000 |
-| Portfolio Drawdown | 20% | **35%** |
-| Max Positions | 3 | **4** |
-| Position Cap | 90% per asset | **95% per asset** |
-| Min Buy Score | ≥+3 | **≥+2** |
-| Play Capital | 30-60% | **70-95%** |
-| Fee Estimate | 0.35% taker | 0.35% taker |
 
-### 🔌 Koneksi Real-Time
-- **Market WebSocket**: streaming 24h summary semua pair
-- **Private WebSocket**: notifikasi order FILL/DONE real-time
-- **Balance Poller**: update saldo tiap 30 detik
-- **Deadman Switch** (15 menit): cancel semua order jika bot mati
+| Parameter | Alpha Mode 🔴 |
+|---|---|
+| Stop Loss | min **8%** (ATR×1.5 floor) |
+| Take Profit | **ATR×3** dinamis (1.5% utk BTC, 25%+ utk memecoin) |
+| Trailing Stop | **4%** dari harga tertinggi |
+| Position Sizing | **Kelly Criterion** (optimal f) |
+| Max Positions | **4** |
+| Allocation per asset | max **95%** |
+| Portfolio Drawdown | **35%** |
+| Daily Loss Floor | **Rp60.000** (real stop, bukan warning) |
+| Fee Model | **Market order** (~0.35% taker) |
+| Cooldown | **12 jam** — gak re-entry pair yg baru dijual |
+| Coin Blacklist | Otomatis — pair yang kena SL diskip |
 
-### 📱 Telegram Bot
-- Notifikasi tiap 5 menit: `CIO: HOLD/REBALANCE | Regime: X | Play: X%`
-- `/status` — cek portfolio, posisi, mode
-- SL/TP trigger notifications
-- Order execution reports
+### 🔌 Real-Time & Execution
+
+- **Market WebSocket** — streaming 24h summary semua pair
+- **Private WebSocket** — notifikasi order FILL/DONE real-time
+- **Balance Poller** — update tiap 30 detik
+- **Deadman Switch** — 15 menit. Auto cancel orders kalo bot mati
+- **Order Cleanup** — cancel orphan TP limit orders dari deploy sebelumnya
+- **fmt_qty** — format quantity sesuai `trade_min_traded_currency` (integer utk PIPPIN, 8 desimal utk BTC)
+
+### 📱 Notifikasi (Event-Based)
+
+Tidak ada spam tiap 5 menit. Telegram cuma dikirim pas:
+
+- **Trade execution** (BUY/SELL)
+- **SL/TP/Trailing triggered**
+- **Regime change** (BULL↔BEAR)
+- **Equity move >5%**
+- **Signal muncul** (BUY score ≥+3)
+- **Summary** tiap 60 cycle (~5 jam)
+- **Error** serius
 
 ## Struktur File
 
 ```
 trading-agent/
-├── main.py            # Orchestrator — startup → loop → shutdown
-├── config.py          # Semua parameter
-├── data_layer.py      # Fetch Indodax API (ticker, OHLCV, orderbook)
-├── indicators.py      # Teknikal indikator + multi-factor scoring + advanced features
-├── hmm_regime.py      # Hidden Markov Model regime detection (probabilistic)
-├── cointegration.py   # Johansen/ADF cointegration engine + half-life mean reversion
-├── ml_signal.py       # XGBoost ensemble trainer + real-time inference
-├── features.py        # Microstructure features (entropy, skew, vpin, order flow)
-├── llm_filter.py      # DeepSeek API prompt builder + response parser
-├── executor.py        # HMAC-SHA512 signing, TAPI v1
-├── risk_manager.py    # SL/TP, ATR, Kelly Criterion, portfolio drawdown
-├── pairs.py           # Legacy pairs trading (z-score)
-├── db.py              # SQLite (trades, meta, positions, decisions)
-├── deadman.py         # Deadman Switch (countdown cancel)
-├── market_ws.py       # Market data WebSocket client
-├── private_ws.py      # Private WebSocket client (order status)
+├── main.py            # 1.022 baris — Orchestrator
+├── config.py          # 105 parameter
+├── indicators.py      # TA + scoring + advanced features (16 indikator)
+├── hmm_regime.py      # Hidden Markov Model 4-state
+├── cointegration.py   # Johansen/ADF + half-life + Hurst
+├── ml_signal.py       # XGBoost ensemble
+├── features.py        # Microstructure (entropy, VPIN, order flow)
+├── llm_filter.py      # DeepSeek prompt builder + CIO context
+├── executor.py        # HMAC-SHA512 TAPI v1
+├── risk_manager.py    # SL/TP, trailing, Kelly, ATR
+├── data_layer.py      # Indodax public REST API
+├── pairs.py           # Legacy z-score (cointegration engine yg dipake)
+├── db.py              # SQLite (trades, meta, positions)
+├── deadman.py         # Deadman switch
+├── market_ws.py       # Market data WebSocket
+├── private_ws.py      # Private WebSocket
 ├── notifier.py        # Telegram sender
-├── backtest.py        # Walk-forward + Monte Carlo backtest engine
-├── Procfile           # Railway: worker → python main.py
+├── backtest.py        # Walk-forward + Monte Carlo
+├── Procfile           # Railway worker
 ├── runtime.txt        # Python 3.12
-├── requirements.txt   # Dependencies (hmmlearn, statsmodels, xgboost, etc)
+├── requirements.txt   # hmmlearn, statsmodels, xgboost, scikit-learn
 └── .env               # API keys (gitignored)
 ```
+
+Total: **~3.300 baris Python**
 
 ## Setup
 
@@ -109,10 +137,11 @@ trading-agent/
 ```bash
 pip install -r requirements.txt
 ```
+
 ### 2. Buat API Key
 - **Indodax**: https://indodax.com/trade_api → permission **trade-only**
 - **DeepSeek**: https://platform.deepseek.com/api_keys
-- **Telegram**: chat @BotFather → `/newbot` → dapatkan token
+- **Telegram**: chat @BotFather → `/newbot` → token
 
 ### 3. Konfigurasi `.env`
 ```env
@@ -121,8 +150,10 @@ INDODAX_SECRET_KEY=...
 DEEPSEEK_API_KEY=...
 TELEGRAM_BOT_TOKEN=...
 TELEGRAM_CHAT_ID=...
-PAPER_TRADING=true            # true = simulasi, false = LIVE
-ALPHA_MODE=false              # true = SL10% TP20%
+PAPER_TRADING=false
+ALPHA_MODE=true
+PLAY_CAPITAL_IDR=200000
+MAX_OPEN_POSITIONS=4
 ```
 
 ### 4. Jalankan
@@ -132,71 +163,69 @@ python main.py
 
 ## Deployment (Railway)
 
-### 1. Build & Deploy
 ```bash
 railway up --service trading-agent
 ```
 
-### 2. Set Environment Variables
-```bash
-railway variables set KEY=VALUE --service trading-agent
-```
-
-### 3. Auto-deploy dari GitHub
-Service sudah terhubung ke `FMATheNomad/trading-agent`. Push ke `main` → auto-deploy.
-
-## Mode
-
-| Mode | SL | TP | Min Buy Score | Play Capital | Cocok Untuk |
-|------|----|----|---------------|-------------|-------------|
-| **Alpha** 🔴 **(AKTIF)** | 8% | **25%** | ≥+2 | **70-95%** | **Target 200k→500k dalam hari** |
-| Standard | 5% | 5% | ≥+3 | 30-60% | Konservatif |
-
-Alpha Mode aktif secara default. Untuk nonaktifkan: `railway variables set ALPHA_MODE=false --service trading-agent`
+Auto-deploy dari GitHub: push ke `main` → Railway deploy otomatis.
 
 ## Cara Kerja (1 Cycle = 5 menit)
 
 ```
-1. FETCH 40 viable IDR pairs (volume >100jt/24h)
-2. FETCH OHLCV 1h + 4h untuk setiap pair
-3. COMPUTE indicators: RSI, EMA, MACD, BB, momentum, volume ratio
-4. COMPUTE pairs trading z-score
-5. CLASSIFY regime (BULL/BEAR/SIDEWAYS/HIGH_VOL)
-6. DETECT external positions dari balance Indodax
-7. CALL DeepSeek CIO → decision + play capital + trades
-8. CHECK SL/TP untuk semua posisi
-9. VALIDATE allocation + risk
-10. EXECUTE orders via Indodax TAPI
-11. SEND Telegram notification
-12. REFRESH deadman switch (jika ada posisi)
-13. SLEEP 5 menit → ulang
+1. FETCH 40 viable IDR pairs (volume > 100jt/24h)
+2. FETCH OHLCV 1h + 4h (concurrent, max 10)
+3. COMPUTE signals:
+   a. 16 technical indicators (RSI, MACD, BB, ADX, MFI, Hurst, dll)
+   b. XGBoost ML prediction
+   c. Multi-factor scoring → BUY/SELL/HOLD
+4. COINTEGRATION scan (3 correlated pairs)
+5. HMM regime detection (4-state probabilistic)
+6. DETECT external positions via Indodax balance
+7. MICROSTRUCTURE features (orderbook, VPIN, entropy)
+8. CALL DeepSeek CIO → decision (BUY only — no sell)
+9. CHECK SL/TP/trailing untuk semua posisi
+10. COOLDOWN + BLACKLIST filter untuk BUY baru
+11. VALIDATE allocation (Kelly + correlation)
+12. EXECUTE market orders
+13. PLACE TP limit order di harga target
+14. CANCEL orphan orders
+15. EVENT-BASED Telegram notification
+16. REFRESH deadman switch
+17. SLEEP 5 menit → ulang
 ```
 
-## AI Prompt Structure
+## Mode
 
-`llm_filter.py` berisi:
-- **BASE_PROMPT**: instruksi dasar untuk DeepSeek sebagai crypto quant trader
-- **ALPHA_PROMPT**: tambahan instruksi agresif (aktif jika ALPHA_MODE=true)
-- **SYSTEM_PROMPT**: BASE_PROMPT + ALPHA_PROMPT (dikombinasikan saat startup)
+| Mode | SL | TP | Min Buy Score | Play Capital |
+|---|---|---|---|---|
+| **Alpha** 🔴 **(Default)** | min 8% (ATR×1.5) | **ATR×3 dinamis** | ≥+2 | 70-95% |
+| Standard | 5% | 5% | ≥+3 | 30-60% |
 
-DeepSeek return JSON:
-```json
-{
-  "decision": "HOLD | REBALANCE",
-  "play_capital_pct": 50,
-  "reasoning": "...",
-  "trades": [
-    {"pair": "btc_idr", "action": "BUY", "allocation_pct": 80, "reason": "..."}
-  ]
-}
-```
+## Configuration (config.py)
+
+| Parameter | Default | Deskripsi |
+|---|---|---|
+| PLAY_CAPITAL_IDR | 200000 | Modal bot |
+| MIN_ORDER_IDR | 20000 | Minimum order |
+| MAX_OPEN_POSITIONS | 4 | Maksimal posisi |
+| LOOP_INTERVAL_SECONDS | 300 | Siklus (5 menit) |
+| STOP_LOSS_PCT | -0.08 | SL 8% (floor) |
+| TAKE_PROFIT_PCT | 0.25 | TP fallback |
+| ATR_TP_MULTIPLIER | 3.0 | TP = ATR × 3 |
+| ATR_SL_MULTIPLIER | 1.5 | SL = ATR × 1.5 (min 8%) |
+| KELLY_FRACTION | 0.25 | Kelly Criterion baseline |
+| AUTO_COMPOUND | True | Reinvest 50% profit |
+| COINT_Z_ENTRY | 2.0 | Z-score threshold entry |
+| COINT_Z_EXIT | 0.5 | Z-score threshold exit |
+| HMM_N_STATES | 4 | Jumlah state HMM |
+| ML_FORECAST_HORIZON | 5 | XGBoost prediction horizon |
+| DAILY_LOSS_FLOOR_IDR | 60000 | Stop trading jika equity < 60k |
 
 ## Catatan Penting
 
-- **Target: Rp200.000 → Rp500.000** dalam hitungan hari 🔥
-- **Posisi saat ini:** INJ (0.324), HUMANITY (55.28), ETH (0.00028) — STIK & ZEREBRO sudah dijual (cut loss)
-- **API key hanya perlu permission "trade"** — jangan pernah beri permission "withdraw"
-- **Telegram bot** — jika ganti nama/token, update env Railway
-- **Database SQLite** — file `trades.db` di direktori project
-- **Logging** — Railway logs via `railway service logs`
-- Untuk AI agent lain: baca `config.py` dulu untuk semua parameter yang bisa di-tuning
+- **CIO hanya bisa BUY** — exit cuma via SL/TP/trailing. Gak ada panic selling.
+- **Cooldown 12 jam** — pair yang baru closed gak dibeli lagi.
+- **Coin blacklist** — otomatis skip pair yang kena SL.
+- **Database SQLite** — file `trades.db` di direktori project. Hilang saat Railway restart.
+- **API key hanya perlu permission "trade"** — jangan pernah beri permission "withdraw".
+- Untuk AI agent lain: baca `config.py` dulu untuk semua parameter.
