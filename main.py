@@ -208,7 +208,19 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     }, content=market_body)
                     mj = mr.json()
                     if mj.get("success") == 1:
-                        print(f"  MARKET BUY {pid} filled", flush=True)
+                        ret = mj["return"]
+                        receive_key = f"receive_{pid.split('_')[0]}"
+                        filled_qty = float(ret.get(receive_key, 0))
+                        if filled_qty <= 0:
+                            filled_qty = amount / max(price, 1)
+                        if not any(p["pair"] == pid for p in positions):
+                            positions.append({
+                                "pair": pid, "side": "BUY",
+                                "entry_price": price, "qty": filled_qty,
+                                "amount_idr": amount, "atr_pct": None,
+                            })
+                            save_positions(positions)
+                            print(f"  MARKET BUY {pid}: {filled_qty:.4f} @ {price}", flush=True)
                     else:
                         print(f"  MARKET BUY {pid} failed: {mj.get('error', 'unknown')}", flush=True)
                     del _pending_orders[pid]
