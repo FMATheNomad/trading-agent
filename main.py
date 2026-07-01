@@ -609,7 +609,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 sell_pair = t["pair"]
                 match = next((p for p in positions if p["pair"] == sell_pair), None)
                 if match:
-                    price_now = ticker_map.get(sell_pair, {}).get("last", 0)
+                    price_now = LIVE_TICKERS.get(sell_pair, {}).get("last") or ticker_map.get(sell_pair, {}).get("last", 0)
                     entry = match.get("entry_price", 0)
                     pnl = (price_now - entry) / entry * 100 if entry else 0
                     if pnl >= 2:
