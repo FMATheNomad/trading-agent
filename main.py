@@ -342,6 +342,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                             pair_min = _pair_meta.get(pair, {}).get("min_base", config.MIN_ORDER_IDR)
                             if coin_value < pair_min and pair_min > 0:
                                 print(f"  {pair}: dust Rp{coin_value:,.0f} < min Rp{pair_min:,} — hapus", flush=True)
+                                await send_message(f"🧹 Dust {pair} Rp{int(coin_value):,} dihapus (di bawah min order)")
                                 positions.remove(old)
                                 persist.save_positions(positions)
                                 continue
