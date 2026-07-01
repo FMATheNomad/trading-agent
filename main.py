@@ -513,11 +513,6 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 sl_hits.append(f"{p['pair']} {result}: {pnl:+.0f} IDR")
                 _cooldown[p["pair"]] = time.time()
                 print(f"COOLDOWN: {p['pair']} set for 12h", flush=True)
-                if dust_value < pair_min:
-                    print(f"  {p['pair']}: tiny (Rp{dust_value:,.0f} < min Rp{pair_min:,}) — skip API, hapus tracking", flush=True)
-                    positions.remove(p)
-                    persist.save_positions(positions)
-                    continue
                 if not config.PAPER_TRADING and config.INDODAX_API_KEY:
                     try:
                         coin_name = p["pair"].split("_")[0]
