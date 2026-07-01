@@ -43,6 +43,12 @@ async def place_order(client: httpx.AsyncClient, side: str, price: float, amount
         else:
             coin_qty = round(amount_idr / price, 8)
             params[coin] = fmt_coin_qty(coin_qty, pair)
+    elif order_type == "maker_first":
+        maker_price = int(price * (1 - config.MAKER_SLIPPAGE)) if side == "buy" else int(price * (1 + config.MAKER_SLIPPAGE))
+        params["price"] = str(maker_price)
+        coin_qty = round(amount_idr / maker_price, 8)
+        params[coin] = fmt_coin_qty(coin_qty, pair)
+        params["order_type"] = "limit"
     elif order_type == "maker":
         buy_price = int(price * 0.998)
         sell_price = int(price * 1.002)
@@ -65,7 +71,10 @@ async def place_order(client: httpx.AsyncClient, side: str, price: float, amount
     r = await client.post(config.INDODAX_TAPI_URL, headers=_headers(body), content=body)
     data = r.json()
     if data.get("success") != 1:
-        raise RuntimeError(f"Order failed {pair}: {data.get('error', 'unknown')}")
+        err = data.get("error", "unknown")
+        if order_type == "maker_first" and "not maker" in err.lower():
+            return await place_order(client, side, price, amount_idr, pair=pair, order_type="market")
+        raise RuntimeError(f"Order failed {pair}: {err}")
     return data["return"]
 
 async def cancel_order(client: httpx.AsyncClient, order_id: int, pair: str | None = None, side: str = "buy") -> dict:

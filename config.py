@@ -109,6 +109,13 @@ PARTIAL_TP_FIRST_PCT = 0.5
 PARTIAL_TP_FIRST_MULTIPLIER = 2.5
 PARTIAL_TP_RUNNER_TRAIL_MULTIPLIER = 0.5
 
+# --- Maker-First (save fees: limit → market fallback) ---
+MAKER_FIRST = os.getenv("MAKER_FIRST", "true").strip().lower() == "true"
+MAKER_SLIPPAGE = 0.001
+
+# --- Daily trade limit ---
+MAX_DAILY_TRADES = int(os.getenv("MAX_DAILY_TRADES", "10"))
+
 # --- Auto Compound ---
 AUTO_COMPOUND = True
 CAPITAL_GROWTH_MULTIPLIER = 1.0

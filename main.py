@@ -163,13 +163,47 @@ async def portfolio_cycle(client: httpx.AsyncClient):
 
     for pid in list(_pending_orders.keys()):
         try:
-            oid = _pending_orders[pid]["order_id"]
+            po = _pending_orders[pid]
+            oid = po["order_id"]
             order_info = await get_order(client, oid, pair=pid)
-            if order_info:
-                status = order_info.get("status", "").lower()
-                remain = float(order_info.get("remain_rp", order_info.get("remain_idr", 0)) or 0)
-                if status in ("cancelled", "rejected", "filled") or remain == 0:
-                    del _pending_orders[pid]
+            if not order_info:
+                del _pending_orders[pid]
+                continue
+            status = order_info.get("status", "").lower()
+            remain = float(order_info.get("remain_rp", order_info.get("remain_idr", 0)) or 0)
+            is_filled = status in ("filled",) or remain == 0
+            if is_filled and po.get("is_maker"):
+                positions.append({
+                    "pair": pid, "side": po.get("side", "BUY"),
+                    "entry_price": po["price"], "qty": po["qty"],
+                    "amount_idr": po["amount_idr"],
+                    "atr_pct": po.get("atr_pct"), "entry_time": time.time(),
+                })
+                persist.save_positions(positions)
+                print(f"  MAKER FILLED: {pid} → position opened", flush=True)
+                del _pending_orders[pid]
+                continue
+            if status in ("cancelled", "rejected") or remain == 0:
+                del _pending_orders[pid]
+                continue
+            if po.get("is_maker"):
+                po["cycles"] = po.get("cycles", 0) + 1
+            if po.get("cycles", 0) >= 2 and po.get("is_maker"):
+                print(f"  MAKER TIMEOUT: {pid} → cancelling and retrying market", flush=True)
+                try:
+                    cancel_body = urlencode({
+                        "method": "cancelOrder", "timestamp": int(time.time() * 1000),
+                        "recvWindow": "5000", "pair": pid,
+                        "order_id": str(oid), "type": po.get("side", "buy").lower(),
+                    })
+                    cancel_sig = hmac.new(config.INDODAX_SECRET_KEY.encode(), cancel_body.encode(), hashlib.sha512).hexdigest()
+                    await client.post(config.INDODAX_TAPI_URL, headers={
+                        "Key": config.INDODAX_API_KEY, "Sign": cancel_sig,
+                        "Content-Type": "application/x-www-form-urlencoded",
+                    }, content=cancel_body)
+                except Exception:
+                    pass
+                del _pending_orders[pid]
         except Exception:
             del _pending_orders[pid]
 
@@ -570,6 +604,11 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                         except Exception:
                             pass
 
+        trades_today = get_trade_count_today()
+        if trades_today >= config.MAX_DAILY_TRADES:
+            print(f"MAX TRADES/DAY ({config.MAX_DAILY_TRADES}) reached. Skipping new buys.", flush=True)
+            decision["trades"] = [t for t in decision.get("trades", []) if t.get("action") != "BUY"]
+
         trades = decision.get("trades", [])
         all_held = {p["pair"] for p in positions} | {p["pair"] for p in external_positions}
         bot_pair_set = {p["pair"] for p in positions}
@@ -759,9 +798,10 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 tp_limit_price = int(tp)
                 print(f"  ATR: {atr_pct}% | SL: {sl} | TP: {tp}", flush=True)
 
+            ot = "maker_first" if (config.MAKER_FIRST and action == "BUY") else "market"
             try:
                 order = await place_order(client, action.lower(), price, amount,
-                                           pair=pid, order_type="market")
+                                           pair=pid, order_type=ot)
             except Exception as e:
                 err_str = str(e)
                 print(f"  Order failed {pid}: {err_str}", flush=True)
@@ -772,8 +812,20 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     _tp_limit_orders.pop(pid, None)
                     print(f"  REMOVED {pid} from tracking (sell failed)", flush=True)
                 continue
+
+            is_pending_maker = action == "BUY" and ot == "maker_first" and order.get("order_id") and float(order.get("remain_rp", order.get("remain_idr", 0)) or 0) > 0
+            if is_pending_maker:
+                _pending_orders[pid] = {
+                    "order_id": order["order_id"], "is_maker": True,
+                    "side": "BUY", "price": price, "qty": qty,
+                    "amount_idr": amount, "atr_pct": atr_pct if ohlcv else None,
+                    "cycles": 0,
+                }
+                print(f"  MAKER ORDER PLACED: {pid} (order_id={order['order_id']})", flush=True)
+                continue
+
             log_trade(action.lower(), price, qty, amount,
-                      order_type="limit" if config.PAPER_TRADING else "market",
+                      order_type="limit" if config.PAPER_TRADING else ("maker" if ot == "maker_first" else "market"),
                       status="simulated" if config.PAPER_TRADING else "placed",
                        reason=t.get("reason", ""))
             executed_trades.append(t)

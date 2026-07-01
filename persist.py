@@ -1,7 +1,7 @@
 import json
 import os
 
-DATA_DIR = "/data" if os.path.isdir("/data") else os.path.dirname(__file__)
+DATA_DIR = os.getenv("STATE_DIR") or os.getenv("DATA_DIR") or ("/data" if os.path.isdir("/data") else os.path.dirname(__file__))
 STATE_FILE = os.path.join(DATA_DIR, "state.json")
 
 def _load() -> dict:
