@@ -469,8 +469,11 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                             "Key":config.INDODAX_API_KEY,"Sign":ss,
                             "Content-Type":"application/x-www-form-urlencoded",
                         }, content=sb)
-                        if sr.json().get("success") == 1:
+                        sj = sr.json()
+                        if sj.get("success") == 1:
                             print(f"  SOLD {p['pair']} at market", flush=True)
+                        else:
+                            print(f"  Sell {p['pair']} failed: {sj.get('error', 'unknown')}", flush=True)
                     except Exception as e:
                         print(f"  Auto-sell failed {p['pair']}: {e}", flush=True)
                 positions.remove(p)
