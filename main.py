@@ -44,6 +44,8 @@ _coin_blacklist: set[str] = set()
 _cio_stats: dict = {"total_decisions": 0, "buys": 0, "sells": 0, "wins": 0, "losses": 0}
 _tp_limit_orders: dict[str, int] = {}
 _pending_orders: dict[str, dict] = {}
+_cooldown: dict[str, float] = {}
+INITIAL_SCORE = 0
 
 def classify_regime(all_signals: dict, ohlcv_map_1h: dict | None = None) -> dict:
     signals = [s.get("raw_signal") for s in all_signals.values() if s.get("raw_signal")]
@@ -436,6 +438,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 if p["side"] == "SELL":
                     pnl = (p["entry_price"] - last) * p["qty"]
                 sl_hits.append(f"{p['pair']} {result}: {pnl:+.0f} IDR")
+                _cooldown[p["pair"]] = time.time()
+                print(f"COOLDOWN: {p['pair']} set for 12h", flush=True)
                 if not config.PAPER_TRADING and config.INDODAX_API_KEY:
                     try:
                         coin_name = p["pair"].split("_")[0]
@@ -485,6 +489,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                         log_trade("sell", last, p["qty"], last * p["qty"],
                                   status="closed", pnl=pnl, reason=result)
                         sl_hits.append(f"{p['pair']} {result} (ext): {pnl:+.0f} IDR")
+                        _cooldown[p["pair"]] = time.time()
+                        print(f"COOLDOWN: {p['pair']} set for 12h (SL ext)", flush=True)
                         print(f"  SOLD {p['pair']} at market", flush=True)
                     else:
                         err = sell_res.get('error', 'unknown')
@@ -521,14 +527,25 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                         except Exception:
                             pass
 
+        now = time.time()
+        for pid in list(_cooldown.keys()):
+            if now - _cooldown[pid] > 43200:
+                del _cooldown[pid]
+
         trades = decision.get("trades", [])
         all_held = {p["pair"] for p in positions} | {p["pair"] for p in external_positions}
+        bot_pair_set = {p["pair"] for p in positions}
         trades = [t for t in trades if t.get("action") != "SELL" or t["pair"] in all_held]
+        trades = [t for t in trades if not (t.get("action") == "SELL" and t["pair"] in bot_pair_set)]
         trades = [t for t in trades if t.get("action") != "BUY" or t["pair"] not in _coin_blacklist]
+        trades = [t for t in trades if t.get("action") != "BUY" or t["pair"] not in _cooldown]
         if _coin_blacklist:
             blocked = [t for t in decision.get("trades", []) if t.get("action") == "BUY" and t["pair"] in _coin_blacklist]
             if blocked:
                 print(f"BLACKLIST: Skipped BUY for {', '.join(t['pair'] for t in blocked)}", flush=True)
+        cooled = [t for t in decision.get("trades", []) if t.get("action") == "BUY" and t["pair"] in _cooldown]
+        if cooled:
+            print(f"COOLDOWN: Skipped BUY for {', '.join(t['pair'] for t in cooled)}", flush=True)
         selling_pairs = {t["pair"] for t in trades if t.get("action") == "SELL"}
         extra_buys = [t for t in trades if t.get("action") == "BUY" and t["pair"] in all_held]
         new_buys = [t for t in trades if t.get("action") == "BUY" and t["pair"] not in all_held]
@@ -633,6 +650,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                         t["entry_price"] = entry_price_ext
                         t["exec_price"] = price
                         executed_trades.append(t)
+                        _cooldown[pid] = time.time()
+                        print(f"COOLDOWN: {pid} set for 12h after CIO sell", flush=True)
                         await send_message(f"CIO EKSEKUSI: JUAL {pid}\n"
                                            f"Qty: {qty} | Diterima: Rp{received:,}")
                         if pid in _tp_limit_orders and not config.PAPER_TRADING and config.INDODAX_API_KEY:
@@ -713,6 +732,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     "qty": qty,
                     "amount_idr": amount,
                     "atr_pct": atr_pct if ohlcv else None,
+                    "entry_time": time.time(),
                 })
                 save_positions(positions)
                 if not config.PAPER_TRADING and config.INDODAX_API_KEY:
