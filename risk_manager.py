@@ -42,8 +42,14 @@ class RiskManager:
         return gross > fee_roundtrip
 
     def get_sl_tp(self, entry_price: float, side: str, atr_pct: float | None = None) -> tuple[float, float]:
-        sl_mult = atr_pct if atr_pct else abs(config.STOP_LOSS_PCT) * 100
-        tp_mult = sl_mult * 1.5
+        cfg_sl = abs(config.STOP_LOSS_PCT) * 100
+        cfg_tp = abs(config.TAKE_PROFIT_PCT) * 100
+        if atr_pct:
+            sl_mult = max(atr_pct * config.ATR_SL_MULTIPLIER, cfg_sl)
+            tp_mult = atr_pct * config.ATR_TP_MULTIPLIER
+        else:
+            sl_mult = cfg_sl
+            tp_mult = cfg_tp
         if side.upper() == "BUY":
             sl = entry_price * (1 - sl_mult / 100)
             tp = entry_price * (1 + tp_mult / 100)
