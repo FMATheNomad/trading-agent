@@ -170,6 +170,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
     global positions, cycle_counter, _prev_regime, _prev_equity, _prev_signal_count, _report_sent_count
     cycle_counter += 1
     _t0 = time.time()
+    risk.daily_loss_stopped = False
 
     for pid in list(_pending_orders.keys()):
         try:
@@ -423,8 +424,9 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             for p in positions
         )
         total_equity = actual_idr_balance + paper_equity
-        if positions and paper_equity == 0 and total_equity < config.MIN_ORDER_IDR:
-            total_equity = max(total_equity, _prev_equity)
+        if _prev_equity > 0 and total_equity < _prev_equity * 0.5:
+            print(f"  Equity suspicious: Rp{total_equity:,.0f} vs prev Rp{_prev_equity:,.0f} — keep prev", flush=True)
+            total_equity = _prev_equity
         max_positions = config.max_positions_for_equity(total_equity)
         saved_peak = persist.load_peak_capital()
         if saved_peak and saved_peak > portfolio_risk.peak_capital:
