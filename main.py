@@ -40,7 +40,6 @@ _pair_meta: dict[str, dict] = {}
 _hmm_trained_cycle = 0
 _prev_regime: str = ""
 _prev_equity: float = 0
-_prev_signal_count: int = 0
 _report_sent_count: int = 0
 _coin_blacklist: set[str] = set()
 _cio_stats: dict = {"total_decisions": 0, "buys": 0, "sells": 0, "wins": 0, "losses": 0}
@@ -978,7 +977,7 @@ async def _momentum_scanner():
                 if vol_idr < 1_000_000_000:
                     print(f"    Vol Rp{vol_idr:,.0f} < 1T — skip", flush=True)
                     continue
-                alloc = 0.6
+                alloc = 0.75
                 amount = int(cash_avail * alloc)
                 if amount < config.MIN_ORDER_IDR:
                     continue
@@ -1084,10 +1083,10 @@ async def main():
     print("  FMA ALPHA QUANT LABS — INDODAX", flush=True)
     print(f"  Target: Rp{config.PLAY_CAPITAL_IDR:,} → Rp500.000 🔥", flush=True)
     print(f"  Mode: {'PAPER' if config.PAPER_TRADING else 'LIVE'}", flush=True)
-    print(f"  CIO manages play capital dynamically", flush=True)
+    print(f"  Rules Engine manages play capital dynamically", flush=True)
     print(f"  Model: {config.DEEPSEEK_MODEL}", flush=True)
     print(f"  Max positions: {config.MAX_OPEN_POSITIONS} (dynamic: {config.max_positions_for_equity(config.PLAY_CAPITAL_IDR)}-6)", flush=True)
-    print(f"  CIO selects coins from top {config.MAX_SCAN_PAIRS} by volume", flush=True)
+    print(f"  Rules Engine scans top {config.MAX_SCAN_PAIRS} by volume", flush=True)
     mode_label = "ALPHA" if config.ALPHA_MODE else ("INSANE" if config.INSANE_MODE else "STANDARD")
     print(f"  Mode: {'🔴' if config.ALPHA_MODE or config.INSANE_MODE else ''} {mode_label} | SL ATR×{config.ATR_SL_MULTIPLIER:.0f} | TP ATR×{config.ATR_TP_MULTIPLIER:.0f}", flush=True)
     print("=" * 50, flush=True)
@@ -1148,9 +1147,9 @@ async def main():
 
     mode_n = "INSANE 🚀" if config.INSANE_MODE else ("ALPHA 🔴" if config.ALPHA_MODE else "STANDARD")
     ok = await send_message(
-        f"🤖 FMA ALPHA QUANT LABS started\n"
-        f"CIO aktif — target Rp200k → Rp500k 🔥\n"
-        f"CIO scans top {config.MAX_SCAN_PAIRS} pairs by volume\n"
+        f"🤖 FMA ALPHA QUANT LABS started (Engineering Mode)\n"
+        f"Target: Rp410k → Rp1jt 🚀\n"
+        f"Rules Engine — top {config.MAX_SCAN_PAIRS} pairs by volume\n"
         f"Mode: {'PAPER' if config.PAPER_TRADING else 'LIVE'} | {mode_n}\n"
         f"SL ATR×{config.ATR_SL_MULTIPLIER:.0f} | TP ATR×{config.ATR_TP_MULTIPLIER:.0f}\n"
         f"Notifikasi hanya event-based (no spam tiap 5 menit)"

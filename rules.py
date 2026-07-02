@@ -7,9 +7,8 @@ def decide(all_signals, ticker_map, live_tickers, positions, actual_idr_balance,
     trades = []
     held_pairs = {p["pair"] for p in positions}
 
-    base_eq = max(config.PLAY_CAPITAL_IDR, total_equity)
-    pnl_pct_total = (total_equity - base_eq) / base_eq * 100
     regime = regime_info.get("regime", "SIDEWAYS")
+    is_bear = regime in ("BEAR",)
 
     for pos in positions:
         pair = pos["pair"]
@@ -22,15 +21,16 @@ def decide(all_signals, ticker_map, live_tickers, positions, actual_idr_balance,
         hold = time.time() - pos.get("entry_time", time.time())
         sell_reason = None
 
-        if pnl < -10:
+        cut_thresh = -6 if is_bear else -8
+        if pnl < cut_thresh:
             sell_reason = f"Cut {pnl:.1f}%"
         elif r["signal"] == "SELL" and pnl < 0:
             sell_reason = f"Signal SELL"
-        elif r["rank"] > len(ranked) * 0.6 and pnl < -3:
-            sell_reason = f"Rank {r['rank']}/{len(ranked)} rugi"
+        elif r["rank"] > len(ranked) * 0.5 and pnl < -2:
+            sell_reason = f"Rank {r['rank']}/{len(ranked)} turun"
         elif config.PROFIT_SELL_THRESHOLD > 0 and pnl >= config.PROFIT_SELL_THRESHOLD:
             sell_reason = f"Profit {pnl:.1f}%"
-        elif hold > 3600 and pnl < 0.5 and config.PROFIT_SELL_THRESHOLD > 0:
+        elif hold > 900 and pnl < 0.3 and config.PROFIT_SELL_THRESHOLD > 0:
             sell_reason = f"Stagnan {int(hold/60)}m"
 
         if sell_reason:
@@ -42,6 +42,7 @@ def decide(all_signals, ticker_map, live_tickers, positions, actual_idr_balance,
     slots = max_pos - remaining
 
     if slots > 0 and actual_idr_balance >= config.MIN_ORDER_IDR:
+        min_score = 3 if is_bear else 5
         candidates = [
             r for r in ranked
             if r["pair"] not in held_pairs
@@ -49,13 +50,13 @@ def decide(all_signals, ticker_map, live_tickers, positions, actual_idr_balance,
             and r["pair"] not in config.SKIP_COINS
             and r["pair"] not in coin_blacklist
             and r["signal"] == "BUY"
-            and r["score"] >= 8
+            and r["score"] >= min_score
             and r["vol_idr"] >= 1_000_000_000
             and r["price"] > 0
             and (r["atr"] or 0) <= 55.0
         ]
         for c in candidates[:slots]:
-            alloc = min(max(int(c["score"] * 4), 60), 90)
+            alloc = min(max(int(c["score"] * 5), 70), 95)
             trades.append({
                 "pair": c["pair"], "action": "BUY", "allocation_pct": alloc,
                 "reason": f"Rank {c['rank']} s{c['score']:.0f}"
@@ -63,12 +64,11 @@ def decide(all_signals, ticker_map, live_tickers, positions, actual_idr_balance,
 
     decision = "REBALANCE" if trades else "HOLD"
     reason = f"Rules: {len(trades)} trade(s)" if trades else \
-             f"Menunggu — no quality signal (top score: {ranked[0]['score']:.0f})" if ranked else \
-             "Menunggu — no data"
+             f"Wait — top score {ranked[0]['score']:.0f}" if ranked else \
+             "Wait — no data"
 
-    is_bear = regime in ("BEAR",)
     cash_low = actual_idr_balance < 200_000
-    play_pct = 50 if is_bear else (90 if cash_low else 80)
+    play_pct = 70 if is_bear else (95 if cash_low else 85)
 
     return {
         "decision": decision,
