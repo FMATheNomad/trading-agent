@@ -189,4 +189,45 @@ railway volume add -m /data           # persistent state
 railway up --service trading-agent
 ```
 
+## 🗺️ Roadmap — CIO ANALYST (Meta-Agent)
+
+Rencana besar: menjadikan bot fully autonomous tidak hanya dalam trading, tapi juga dalam **self-optimization, self-diagnosis, dan self-healing.**
+
+### Phase 1: Stabilisasi (Sekarang ✅)
+- Target: Equity stabil di Rp300k+
+- Fokus: Compounding dengan setting terbukti work
+- Filter ATR 55% + Volume min 5T untuk hindari koin gila
+
+### Phase 2: CIO ANALYST (🔜 Setelah equity tembus Rp400k)
+Satu background task `_cio_analyst()` yang jalan tiap ~60 detik:
+
+```
+CIO ANALYST:
+├── Baca log Railway terkini
+├── Deteksi pola: error berulang, equity drop, performa turun
+├── Kirim ke DeepSeek dengan prompt khusus
+├── Rekomendasi optimasi:
+│   ├── "Turunkan position size karena ATR naik"
+│   ├── "Ganti filter karena volume menurun"
+│   └── "Rotasi dari sektor X ke Y"
+└── Auto-execute dalam batas safety
+```
+
+**Biaya:** ~5-10x lipat call DeepSeek API
+**Target:** Deteksi dini masalah + optimasi setting otomatis
+
+### Phase 3: Cross-Exchange (Masa Depan)
+- Ganti `data_layer.py` untuk Binance / Bybit
+- Multi-exchange arbitrage
+- Scale ke modal lebih besar
+
+### Phase 4: SaaS Product
+- Multi-user dengan database
+- Whitelabel bots
+- Subscription billing
+
+---
+
+> *"Bukan AI yang bikin bahasa sendiri. Tapi AI yang bikin duit sendiri."*
+
 
