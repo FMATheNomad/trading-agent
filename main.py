@@ -53,6 +53,8 @@ _latest_ohlcv_map_1h: dict = {}
 _order_error_cooldown: dict[str, float] = {}
 _realtime_sltp_last: dict[str, float] = {}
 _realtime_sold: set[str] = set()
+_cycle_last_end: float = 0
+_cycle_last_info: dict = {}
 
 def classify_regime(all_signals: dict, ohlcv_map_1h: dict | None = None) -> dict:
     signals = [s.get("raw_signal") for s in all_signals.values() if s.get("raw_signal")]
@@ -924,6 +926,15 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         except Exception:
             pass
     finally:
+        global _cycle_last_end, _cycle_last_info
+        _cycle_last_end = time.time()
+        _cycle_last_info = {
+            "cycle": cycle_counter,
+            "regime": _latest_regime.get("regime", "?"),
+            "cash": actual_idr_balance,
+            "positions": len(positions),
+            "duration": int(time.time() - _t0),
+        }
         print(f"⏱ Cycle #{cycle_counter} finished in {int(time.time() - _t0)}s", flush=True)
 
 _latest_balance: float = 0
@@ -1193,15 +1204,41 @@ async def main():
                                 async with httpx.AsyncClient() as cc:
                                     await cc.post(
                                         f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
-                                        json={"chat_id": cid, "text": (
-                                            "📋 DAFTAR PERINTAH\n\n"
-                                            "/status — Portfolio & posisi\n"
-                                            "/ask SUI — Detail sinyal & ATR koin\n"
-                                            "/atr — ATR, SL, TP semua posisi\n"
-                                            "/atr SOL — ATR spesifik koin\n"
-                                            "/why — Alasan bot gak trading\n"
-                                            "/commands — Daftar ini"
-                                        )},
+                                         json={"chat_id": cid, "text": (
+                                             "📋 DAFTAR PERINTAH\n\n"
+                                             "/status — Portfolio & posisi\n"
+                                             "/cycle — Status siklus (waktu, regime, cash)\n"
+                                             "/ask SUI — Detail sinyal & ATR koin\n"
+                                             "/atr — ATR, SL, TP semua posisi\n"
+                                             "/atr SOL — ATR spesifik koin\n"
+                                             "/why — Alasan bot gak trading\n"
+                                             "/commands — Daftar ini"
+                                         )},
+                                    )
+                                continue
+
+                            if txt == "/cycle":
+                                if _cycle_last_end == 0:
+                                    text = "Cycle belum dimulai. Tunggu ~5 menit."
+                                else:
+                                    sec_since = int(time.time() - _cycle_last_end)
+                                    next_in = max(0, config.LOOP_INTERVAL_SECONDS - sec_since)
+                                    cinfo = _cycle_last_info
+                                    text = (
+                                        f"📊 SIKLUS TERAKHIR\n"
+                                        f"Cycle #{cinfo.get('cycle', '?')}\n"
+                                        f"{sec_since // 60}m {sec_since % 60}s lalu\n"
+                                        f"⏳ Siklus berikutnya ~{next_in // 60}m {next_in % 60}s\n"
+                                        f"──────────────\n"
+                                        f"Regime: {cinfo.get('regime', '?')}\n"
+                                        f"Cash: Rp{cinfo.get('cash', 0):,.0f}\n"
+                                        f"Posisi: {cinfo.get('positions', 0)}\n"
+                                        f"Durasi: {cinfo.get('duration', 0)}s"
+                                    )
+                                async with httpx.AsyncClient() as cc:
+                                    await cc.post(
+                                        f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
+                                        json={"chat_id": cid, "text": text},
                                     )
                                 continue
                                 pos_lines = []
