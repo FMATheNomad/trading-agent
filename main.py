@@ -684,8 +684,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     strategic_rotate = hold_cycles > 3 and pnl < -atr_here and config.PROFIT_SELL_THRESHOLD > 0
                     if strategic_rotate or (abs(pnl) >= min_move and pnl >= config.PROFIT_SELL_THRESHOLD):
                         profit_sells.append(t)
-                        reason = f"{{'STRATEGIC' if strategic_rotate else 'PROFIT'}} ROTATE: sell {sell_pair} ({pnl:+.1f}%)"
-                        print(reason, flush=True)
+                        label = "STRATEGIC" if strategic_rotate else "PROFIT"
+                        print(f"{label} ROTATE: sell {sell_pair} ({pnl:+.1f}%)", flush=True)
         trades = [t for t in trades if not (t.get("action") == "SELL" and t not in profit_sells)]
         if cycle_counter <= 1:
             if any(t.get("action") == "SELL" for t in decision.get("trades", [])):
