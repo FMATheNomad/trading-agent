@@ -50,7 +50,6 @@ _latest_regime: dict = {}
 _latest_ticker_map: dict = {}
 _latest_all_signals: dict = {}
 _latest_ohlcv_map_1h: dict = {}
-_last_actual_balance: float = 0
 _order_error_cooldown: dict[str, float] = {}
 _realtime_sltp_last: dict[str, float] = {}
 _realtime_sold: set[str] = set()
@@ -895,12 +894,12 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             pair_str = ",".join(p["pair"] for p in positions[:5])
             await refresh_deadman(client, pair_str)
 
-        global _latest_regime, _latest_ticker_map, _latest_all_signals, _latest_ohlcv_map_1h, _last_actual_balance
+        global _latest_regime, _latest_ticker_map, _latest_all_signals, _latest_ohlcv_map_1h, _latest_balance
         _latest_regime = regime_info
         _latest_ticker_map = ticker_map
         _latest_all_signals = all_signals
         _latest_ohlcv_map_1h = ohlcv_map_1h
-        _last_actual_balance = actual_idr_balance
+        _latest_balance = actual_idr_balance
 
     except Exception as e:
         print(f"Portfolio cycle error: {e}", flush=True)
@@ -989,6 +988,14 @@ async def _realtime_sltp_check(pair: str, price: float):
 
 async def main():
     global _latest_balance, shutdown_flag
+
+    if config.INDODAX_API_KEY:
+        try:
+            async with httpx.AsyncClient() as _bc:
+                info = await get_balance(_bc)
+                _latest_balance = float(info.get("balance", {}).get("idr", 0))
+        except Exception:
+            pass
 
     print("=" * 50, flush=True)
     print("  FMA ALPHA QUANT LABS — INDODAX", flush=True)
@@ -1160,7 +1167,7 @@ async def main():
                                 text = (
                                     f"FMA ALPHA QUANT LABS 🤖\n"
                                     f"Mode: {'PAPER' if config.PAPER_TRADING else 'LIVE'} | {_latest_regime.get('regime','?')}\n"
-                                    f"Cash: Rp{_last_actual_balance:,.0f} | Posisi: {len(positions)}\n" +
+                                    f"Cash: Rp{_latest_balance:,.0f} | Posisi: {len(positions)}\n" +
                                     ("\n".join(pos_lines) if pos_lines else "Tidak ada posisi")
                                 )
                                 async with httpx.AsyncClient() as cc:
@@ -1194,7 +1201,7 @@ async def main():
                                 text = (
                                     f"FMA ALPHA QUANT LABS 🤖\n"
                                     f"Mode: {'PAPER' if config.PAPER_TRADING else 'LIVE'} | {_latest_regime.get('regime','?')}\n"
-                                    f"Cash: Rp{_last_actual_balance:,.0f} | Posisi: {len(positions)}\n" +
+                                    f"Cash: Rp{_latest_balance:,.0f} | Posisi: {len(positions)}\n" +
                                     ("\n".join(pos_lines) if pos_lines else "Tidak ada posisi")
                                 )
                                 async with httpx.AsyncClient() as cc:
@@ -1218,8 +1225,8 @@ async def main():
 
                             if txt == "/why":
                                 reason = "Tidak ada trade karena:"
-                                if _last_actual_balance < config.MIN_ORDER_IDR:
-                                    reason += f"\n- Cash Rp{_last_actual_balance:,.0f} < minimum Rp{config.MIN_ORDER_IDR:,}"
+                                if _latest_balance < config.MIN_ORDER_IDR:
+                                    reason += f"\n- Cash Rp{_latest_balance:,.0f} < minimum Rp{config.MIN_ORDER_IDR:,}"
                                 if not positions:
                                     reason += "\n- Tidak ada posisi"
                                 else:
