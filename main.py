@@ -1171,6 +1171,40 @@ async def main():
                                 save_chat("assistant", text)
                                 continue
 
+                            if txt == "/commands":
+                                async with httpx.AsyncClient() as cc:
+                                    await cc.post(
+                                        f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
+                                        json={"chat_id": cid, "text": (
+                                            "📋 DAFTAR PERINTAH\n\n"
+                                            "/status — Portfolio & posisi\n"
+                                            "/ask SUI — Detail sinyal & ATR koin\n"
+                                            "/atr — ATR, SL, TP semua posisi\n"
+                                            "/atr SOL — ATR spesifik koin\n"
+                                            "/why — Alasan bot gak trading\n"
+                                            "/commands — Daftar ini"
+                                        )},
+                                    )
+                                continue
+                                pos_lines = []
+                                for p in positions[:10]:
+                                    lp = LIVE_TICKERS.get(p["pair"], {}).get("last") or _latest_ticker_map.get(p["pair"], {}).get("last") or p.get("entry_price", 0)
+                                    pnl = pnl_pct(p.get("entry_price") or 0, lp, p["side"])
+                                    pos_lines.append(f"{p['pair']} {p['side']} @ {p['entry_price']:,.0f} ({pnl:+.2f}%)")
+                                text = (
+                                    f"FMA ALPHA QUANT LABS 🤖\n"
+                                    f"Mode: {'PAPER' if config.PAPER_TRADING else 'LIVE'} | {_latest_regime.get('regime','?')}\n"
+                                    f"Cash: Rp{_last_actual_balance:,.0f} | Posisi: {len(positions)}\n" +
+                                    ("\n".join(pos_lines) if pos_lines else "Tidak ada posisi")
+                                )
+                                async with httpx.AsyncClient() as cc:
+                                    await cc.post(
+                                        f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
+                                        json={"chat_id": cid, "text": text},
+                                    )
+                                save_chat("assistant", text)
+                                continue
+
                             if txt.startswith("/ask "):
                                 coin = txt.split("/ask ", 1)[1].strip().upper()
                                 detail = await _build_coin_detail(coin)
