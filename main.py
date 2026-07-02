@@ -58,6 +58,7 @@ _realtime_sold: set[str] = set()
 _cycle_last_end: float = 0
 _cycle_last_info: dict = {}
 _recent_actions: list[dict] = []
+_strategic_rotate_enabled: bool = True
 
 def classify_regime(all_signals: dict, ohlcv_map_1h: dict | None = None) -> dict:
     signals = [s.get("raw_signal") for s in all_signals.values() if s.get("raw_signal")]
@@ -690,7 +691,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     atr_here = risk.compute_atr(_latest_ohlcv_map_1h.get(sell_pair, []))
                     min_move = atr_here * config.ATR_MIN_MOVE_MULTIPLIER if config.ATR_MIN_MOVE_MULTIPLIER > 0 else 0
                     hold_time = time.time() - match.get("entry_time", time.time())
-                    stagnant = hold_time > 1800 and abs(pnl) < atr_here * 0.5 and config.PROFIT_SELL_THRESHOLD > 0
+                    stagnant = _strategic_rotate_enabled and hold_time > 1800 and abs(pnl) < atr_here * 0.5 and config.PROFIT_SELL_THRESHOLD > 0
                     if stagnant or (abs(pnl) >= min_move and pnl >= config.PROFIT_SELL_THRESHOLD):
                         profit_sells.append(t)
                         label = "STAGNANT" if stagnant else "PROFIT"
@@ -1313,7 +1314,8 @@ async def main():
                                               "/cycle — Status siklus & waktu\n"
                                               "/perf — Performa & win rate\n"
                                               "/log — Aktivitas terakhir CIO\n"
-                                              "/risk — Status risiko & proteksi"
+                                              "/risk — Status risiko & proteksi\n"
+                                              "/rotate — Status & toggle strategic rotate"
                                          )},
                                     )
                                 continue
@@ -1452,6 +1454,21 @@ async def main():
                                         json={"chat_id": cid, "text": detail},
                                     )
                                 save_chat("assistant", detail)
+                                continue
+
+                            if txt.startswith("/rotate"):
+                                args = txt.split()[1] if len(txt.split()) > 1 else ""
+                                if args == "on":
+                                    _strategic_rotate_enabled = True
+                                    reply = "🔄 Strategic rotate: ON"
+                                elif args == "off":
+                                    _strategic_rotate_enabled = False
+                                    reply = "🔄 Strategic rotate: OFF"
+                                else:
+                                    reply = f"🔄 Strategic rotate: {'ON' if _strategic_rotate_enabled else 'OFF'}\nGunakan: /rotate on / /rotate off"
+                                async with httpx.AsyncClient() as cc:
+                                    await cc.post(f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
+                                        json={"chat_id": cid, "text": reply})
                                 continue
 
                             if txt == "/why":
