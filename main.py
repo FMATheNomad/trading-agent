@@ -672,7 +672,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     entry = match.get("entry_price", 0)
                     pnl = (price_now - entry) / entry * 100 if entry else 0
                     atr_here = risk.compute_atr(_latest_ohlcv_map_1h.get(sell_pair, []))
-                    min_move = max(atr_here * config.ATR_MIN_MOVE_MULTIPLIER, 0.3)
+                    min_move = atr_here * config.ATR_MIN_MOVE_MULTIPLIER if config.ATR_MIN_MOVE_MULTIPLIER > 0 else 0
                     if abs(pnl) >= min_move and pnl >= config.PROFIT_SELL_THRESHOLD:
                         profit_sells.append(t)
                         print(f"PROFIT ROTATE: sell {sell_pair} ({pnl:+.1f}%, min_move={min_move:.1f}%)", flush=True)
@@ -1013,8 +1013,8 @@ async def main():
     print(f"  Model: {config.DEEPSEEK_MODEL}", flush=True)
     print(f"  Max positions: {config.MAX_OPEN_POSITIONS} (dynamic: {config.max_positions_for_equity(config.PLAY_CAPITAL_IDR)}-6)", flush=True)
     print(f"  CIO selects coins from top {config.MAX_SCAN_PAIRS} by volume", flush=True)
-    mode_label = "🔴 INSANE" if config.INSANE_MODE else ("🔴 ALPHA" if config.ALPHA_MODE else " STANDARD")
-    print(f"  Mode: {mode_label} | SL ATR×{config.ATR_SL_MULTIPLIER:.0f} | TP ATR×{config.ATR_TP_MULTIPLIER:.0f}", flush=True)
+    mode_label = "ALPHA" if config.ALPHA_MODE else ("INSANE" if config.INSANE_MODE else "STANDARD")
+    print(f"  Mode: {'🔴' if config.ALPHA_MODE or config.INSANE_MODE else ''} {mode_label} | SL ATR×{config.ATR_SL_MULTIPLIER:.0f} | TP ATR×{config.ATR_TP_MULTIPLIER:.0f}", flush=True)
     print("=" * 50, flush=True)
 
     signal.signal(signal.SIGTERM, handle_sig)
