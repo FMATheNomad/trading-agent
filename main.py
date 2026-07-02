@@ -273,8 +273,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                                 h = float(bar.get("high", 0))
                                 l = float(bar.get("low", 0))
                                 o = float(bar.get("open", 0))
-                                v = float(bar.get("volume", bar.get("vol", 0)))
-                                if any(math.isnan(x) or math.isinf(x) or x <= 0 for x in (c,h,l,o,v)):
+                                vol_val = float(bar.get("volume", bar.get("vol", 0)))
+                                if any(math.isnan(x) or math.isinf(x) or x <= 0 for x in (c,h,l,o,vol_val)):
                                     continue
                             except Exception:
                                 continue
