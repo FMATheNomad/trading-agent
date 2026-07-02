@@ -425,12 +425,15 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             for p in positions
         )
         total_equity = actual_idr_balance + paper_equity
-        if _prev_equity > 0 and total_equity < _prev_equity * 0.5:
+        if positions and paper_equity == 0:
+            print(f"  Equity Rp{total_equity:,.0f} — paper_equity 0, semua harga ilang", flush=True)
+            total_equity = max(total_equity, config.PLAY_CAPITAL_IDR)
+        elif _prev_equity > 0 and total_equity < _prev_equity * 0.5:
             print(f"  Equity suspicious: Rp{total_equity:,.0f} vs prev Rp{_prev_equity:,.0f} — keep prev", flush=True)
             total_equity = _prev_equity
         elif _prev_equity == 0 and total_equity < config.MIN_ORDER_IDR and positions:
-            total_equity = config.PLAY_CAPITAL_IDR + paper_equity
-            print(f"  First cycle equity: Rp{total_equity:,.0f}", flush=True)
+            total_equity = config.PLAY_CAPITAL_IDR + sum(p.get("entry_price", 0) * p["qty"] for p in positions)
+            print(f"  First cycle equity (fallback): Rp{total_equity:,.0f}", flush=True)
         max_positions = config.max_positions_for_equity(total_equity)
         saved_peak = persist.load_peak_capital()
         if saved_peak and saved_peak > portfolio_risk.peak_capital:
