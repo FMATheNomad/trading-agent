@@ -34,6 +34,15 @@ def save_peak_capital(value: float):
     state["peak_capital"] = value
     _save(state)
 
+def load_initial_equity() -> float | None:
+    return _load().get("initial_equity")
+
+def save_initial_equity(value: float):
+    state = _load()
+    if "initial_equity" not in state:
+        state["initial_equity"] = value
+        _save(state)
+
 def load_positions() -> list[dict]:
     return _load().get("positions", [])
 

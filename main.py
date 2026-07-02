@@ -714,7 +714,9 @@ async def portfolio_cycle(client: httpx.AsyncClient):
 
         if not trades:
             print(f"Cycle done in {int(time.time() - _t0)}s. Sleeping.", flush=True)
-            eq_pct = (total_equity - config.PLAY_CAPITAL_IDR) / config.PLAY_CAPITAL_IDR * 100
+            persist.save_initial_equity(total_equity)
+            base_eq = persist.load_initial_equity() or total_equity
+            eq_pct = (total_equity - base_eq) / base_eq * 100
             await send_message(
                 f"💳 Rp{total_equity:,.0f} ({eq_pct:+.1f}%)\n"
                 f"Cycle #{cycle_counter} | {regime_info['regime']} | {len(positions)} pos | Cash: Rp{actual_idr_balance:,.0f}"
@@ -1345,10 +1347,10 @@ async def main():
                                         return tm["last"]
                                     return 0
                                 eq = _latest_balance + sum(p["qty"] * _proj_price(p["pair"]) for p in positions)
-                                eq = max(eq, 300000)
-                                eq_start = config.PLAY_CAPITAL_IDR
-                                pnl_total = eq - eq_start
-                                pnl_pct_total = (pnl_total / eq_start) * 100
+                                eq = max(eq, 100000)
+                                base_eq = persist.load_initial_equity() or eq
+                                pnl_total = eq - base_eq
+                                pnl_pct_total = (pnl_total / base_eq) * 100
                                 sells = [a for a in _recent_actions if a.get("action") == "SELL"]
                                 total_pnl = sum(a.get("pnl", 0) for a in sells)
                                 avg_pnl = total_pnl / len(sells) if sells else max(pnl_pct_total, 0.1) / max(len(_recent_actions), 1)
