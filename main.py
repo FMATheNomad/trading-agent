@@ -427,6 +427,9 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         if _prev_equity > 0 and total_equity < _prev_equity * 0.5:
             print(f"  Equity suspicious: Rp{total_equity:,.0f} vs prev Rp{_prev_equity:,.0f} — keep prev", flush=True)
             total_equity = _prev_equity
+        elif _prev_equity == 0 and total_equity < config.MIN_ORDER_IDR and positions:
+            total_equity = config.PLAY_CAPITAL_IDR + paper_equity
+            print(f"  First cycle equity: Rp{total_equity:,.0f}", flush=True)
         max_positions = config.max_positions_for_equity(total_equity)
         saved_peak = persist.load_peak_capital()
         if saved_peak and saved_peak > portfolio_risk.peak_capital:
