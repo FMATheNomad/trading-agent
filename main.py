@@ -680,12 +680,9 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     pnl = (price_now - entry) / entry * 100 if entry else 0
                     atr_here = risk.compute_atr(_latest_ohlcv_map_1h.get(sell_pair, []))
                     min_move = atr_here * config.ATR_MIN_MOVE_MULTIPLIER if config.ATR_MIN_MOVE_MULTIPLIER > 0 else 0
-                    hold_time = time.time() - match.get("entry_time", time.time())
-                    strategic_rotate = hold_time > 900 and pnl < -atr_here and config.PROFIT_SELL_THRESHOLD > 0
-                    if strategic_rotate or (abs(pnl) >= min_move and pnl >= config.PROFIT_SELL_THRESHOLD):
+                    if abs(pnl) >= min_move and pnl >= config.PROFIT_SELL_THRESHOLD:
                         profit_sells.append(t)
-                        label = "STRATEGIC" if strategic_rotate else "PROFIT"
-                        print(f"{label} ROTATE: sell {sell_pair} ({pnl:+.1f}%)", flush=True)
+                        print(f"PROFIT ROTATE: sell {sell_pair} ({pnl:+.1f}%)", flush=True)
         trades = [t for t in trades if not (t.get("action") == "SELL" and t not in profit_sells)]
         if cycle_counter <= 1:
             if any(t.get("action") == "SELL" for t in decision.get("trades", [])):
