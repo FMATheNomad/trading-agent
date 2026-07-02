@@ -265,6 +265,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     for ohlcv in (o1, o4):
                         cleaned = []
                         for bar in ohlcv:
+                            if not isinstance(bar, dict):
+                                continue
                             try:
                                 c = float(bar.get("close", 0))
                                 h = float(bar.get("high", 0))

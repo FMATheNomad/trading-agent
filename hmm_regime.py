@@ -26,7 +26,9 @@ class HMMRegimeDetector:
             all_rows.append([log_ret[-1] * 100 if len(log_ret) > 0 else 0, vol_20, atr, rng, skew])
         if not all_rows:
             return np.zeros((1, 5))
-        return np.array(all_rows)
+        arr = np.array(all_rows)
+        arr = np.nan_to_num(arr, nan=0.0, posinf=1.0, neginf=-1.0)
+        return arr
 
     def fit(self, ohlcv_map: dict):
         X = self._build_feature_matrix(ohlcv_map)
