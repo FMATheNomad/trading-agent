@@ -23,6 +23,7 @@ from db import init_db, log_trade, log_decision, get_recent_trades, get_trade_co
 import persist
 from market_ws import market_ws_loop, LIVE_TICKERS, stop as mws_stop, set_on_tick
 from private_ws import private_ws_loop, stop as pws_stop
+from momentum import MomentumEngine
 
 risk = RiskManager()
 portfolio_risk = PortfolioRiskManager()
@@ -31,6 +32,7 @@ coint_engine = CointegrationEngine(z_entry=config.COINT_Z_ENTRY, z_exit=config.C
 xgboost_signal = XGBoostSignal()
 positions: list[dict] = []
 shutdown_flag = False
+momentum_engine = MomentumEngine()
 
 regime_history: list[str] = []
 known_pairs: set[str] = set()
@@ -962,6 +964,72 @@ async def _balance_poller(client: httpx.AsyncClient):
             print(f"Balance poller error: {e}", flush=True)
         await asyncio.sleep(30)
 
+async def _momentum_scanner():
+    _last_scan_pairs: dict[str, float] = {}
+    while not shutdown_flag:
+        try:
+            await asyncio.sleep(config.MOMENTUM_SCAN_INTERVAL)
+            if not _latest_ohlcv_map_1h:
+                continue
+            cash_avail = _latest_balance
+            if cash_avail < config.MIN_ORDER_IDR:
+                continue
+            max_pos = config.max_positions_for_equity(cash_avail + sum(p["qty"] * 1000 for p in positions))
+            if len(positions) >= max_pos:
+                continue
+            for pid, ohlcv in list(_latest_ohlcv_map_1h.items()):
+                if any(p["pair"] == pid for p in positions):
+                    continue
+                if pid in config.STABLECOINS or pid in config.SKIP_COINS:
+                    continue
+                if pid in _coin_blacklist:
+                    continue
+                if time.time() - _last_scan_pairs.get(pid, 0) < 30:
+                    continue
+                price = LIVE_TICKERS.get(pid, {}).get("last") or _latest_ticker_map.get(pid, {}).get("last", 0)
+                if not price:
+                    continue
+                signal = momentum_engine.evaluate(pid, ohlcv, price)
+                if not signal:
+                    continue
+                _last_scan_pairs[pid] = time.time()
+                print(f"  MOMENTUM: {pid} {signal}", flush=True)
+                atr_chk = risk.compute_atr(ohlcv, clamped=False)
+                if atr_chk > 55.0:
+                    print(f"    ATR {atr_chk:.1f}% > 55 — skip", flush=True)
+                    continue
+                vol_idr = float(_latest_ticker_map.get(pid, {}).get("vol_idr", 0) or 0)
+                if vol_idr < 5_000_000_000:
+                    print(f"    Vol Rp{vol_idr:,.0f} < 5T — skip", flush=True)
+                    continue
+                alloc = 0.85
+                amount = int(cash_avail * alloc)
+                if amount < config.MIN_ORDER_IDR:
+                    continue
+                qty = amount / price
+                if not risk.is_profit_viable(price, qty, "BUY", atr_pct=atr_chk):
+                    print(f"    Fee makan profit — skip", flush=True)
+                    continue
+                try:
+                    async with httpx.AsyncClient() as _mc:
+                        order = await place_order(_mc, "buy", price, amount, pair=pid, order_type="market")
+                    if order.get("order_id") or order.get("receive_rp"):
+                        coin_name = pid.split("_")[0]
+                        actual_qty = float(order.get(f"receive_{coin_name}", 0)) or qty
+                        actual_spend = float(order.get("spend_rp", 0)) or amount
+                        positions.append({
+                            "pair": pid, "side": "BUY", "entry_price": actual_spend / actual_qty if actual_qty else price,
+                            "qty": actual_qty, "amount_idr": actual_spend, "atr_pct": None, "entry_time": time.time(),
+                        })
+                        persist.save_positions(positions)
+                        cash_avail -= actual_spend
+                        await send_message(f"⚡ MOMENTUM {signal}: BUY {pid}\nRp{actual_spend:,.0f} @ {price:,.0f}")
+                        print(f"    EXECUTED: BUY {pid}", flush=True)
+                except Exception as ex:
+                    print(f"    Order failed: {ex}", flush=True)
+        except Exception as e:
+            print(f"Momentum scanner error: {e}", flush=True)
+
 async def _realtime_sltp_check(pair: str, price: float):
     now_t = time.time()
     if now_t - _realtime_sltp_last.get(pair, 0) < 10:
@@ -1456,6 +1524,7 @@ async def main():
     set_on_tick(_realtime_sltp_check)
     ws_task = asyncio.create_task(market_ws_loop())
     pws_task = asyncio.create_task(private_ws_loop())
+    momentum_task = asyncio.create_task(_momentum_scanner())
     for _ in range(6):
         await asyncio.sleep(0.5)
 
