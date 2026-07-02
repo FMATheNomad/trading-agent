@@ -1085,7 +1085,7 @@ async def main():
 
     print("=" * 50, flush=True)
     print("  FMA ALPHA QUANT LABS — INDODAX", flush=True)
-    print(f"  Target: Rp{config.PLAY_CAPITAL_IDR:,} → Rp500.000 🔥", flush=True)
+    print(f"  Target: Rp237k → Rp1.000.000 🚀", flush=True)
     print(f"  Mode: {'PAPER' if config.PAPER_TRADING else 'LIVE'}", flush=True)
     print(f"  Rules Engine manages play capital dynamically", flush=True)
     print(f"  Model: {config.DEEPSEEK_MODEL}", flush=True)

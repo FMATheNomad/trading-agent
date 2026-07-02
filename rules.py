@@ -78,7 +78,7 @@ def decide(all_signals, ticker_map, live_tickers, positions, actual_idr_balance,
              "Wait — no data"
 
     cash_low = actual_idr_balance < 200_000
-    play_pct = 70 if is_bear else (95 if cash_low else 85)
+    play_pct = 95 if config.INSANE_MODE else (70 if is_bear else (95 if cash_low else 85))
 
     return {
         "decision": decision,
