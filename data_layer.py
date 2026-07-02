@@ -56,7 +56,14 @@ async def fetch_ohlcv(client: httpx.AsyncClient, pair: str | None = None,
     )
     r.raise_for_status()
     raw = r.json()
-    return [{k.lower(): v for k, v in bar.items()} for bar in raw]
+    if not isinstance(raw, list):
+        return []
+    result = []
+    for bar in raw:
+        if not isinstance(bar, dict):
+            continue
+        result.append({k.lower(): v for k, v in bar.items()})
+    return result
 
 async def fetch_all_pairs(client: httpx.AsyncClient) -> list[dict]:
     r = await client.get(f"{PUBLIC_URL}/api/pairs")
