@@ -58,7 +58,7 @@ class RiskManager:
             tp = entry_price * (1 - tp_mult / 100)
         return round(sl, 2), round(tp, 2)
 
-    def compute_atr(self, ohlcv: list[dict], period: int = 14) -> float:
+    def compute_atr(self, ohlcv: list[dict], period: int = 14, clamped: bool = True) -> float:
         if len(ohlcv) < period + 1:
             return config.ATR_SL_MULTIPLIER
         df = pd.DataFrame(ohlcv[-period - 1:])
@@ -74,7 +74,9 @@ class RiskManager:
         ], axis=1).max(axis=1)
         atr = tr.mean()
         atr_pct = round(atr / close.iloc[-1] * 100, 2) if close.iloc[-1] else 1
-        return min(max(atr_pct, 0.5), 10)
+        if clamped:
+            atr_pct = min(max(atr_pct, 0.5), 10)
+        return atr_pct
 
     def check_sl_tp(self, entry_price: float, current_price: float, side: str, pair: str = "", atr_pct: float | None = None) -> str | None:
         if entry_price <= 0:
