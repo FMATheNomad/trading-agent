@@ -55,6 +55,7 @@ _realtime_sltp_last: dict[str, float] = {}
 _realtime_sold: set[str] = set()
 _cycle_last_end: float = 0
 _cycle_last_info: dict = {}
+_recent_actions: list[dict] = []
 
 def classify_regime(all_signals: dict, ohlcv_map_1h: dict | None = None) -> dict:
     signals = [s.get("raw_signal") for s in all_signals.values() if s.get("raw_signal")]
@@ -844,6 +845,14 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 _latest_balance = actual_idr_balance
                 positions = [p for p in positions if p["pair"] != pid]
                 persist.save_positions(positions)
+            pnl_trade = (t.get("exec_price", 0) - t.get("entry_price", 0)) / t.get("entry_price", 1) * 100 if t.get("entry_price") else 0
+            _recent_actions.append({
+                "time": time.time(), "action": action, "pair": pid,
+                "price": t.get("exec_price", price), "pnl": round(pnl_trade, 2),
+                "qty": actual_qty if action == "SELL" else (actual_qty if action == "BUY" else qty),
+            })
+            if len(_recent_actions) > 50:
+                _recent_actions.pop(0)
             executed_trades.append(t)
 
             if action == "SELL":
@@ -1215,7 +1224,11 @@ async def main():
                                              "/atr — ATR, SL, TP semua posisi\n"
                                              "/atr SOL — ATR spesifik koin\n"
                                              "/why — Alasan bot gak trading\n"
-                                             "/commands — Daftar ini"
+                                             "/commands — Daftar ini\n"
+                                             "/cycle — Status siklus & waktu\n"
+                                             "/perf — Performa & win rate\n"
+                                             "/log — Aktivitas terakhir CIO\n"
+                                             "/risk — Status risiko & proteksi"
                                          )},
                                     )
                                 continue
@@ -1244,23 +1257,62 @@ async def main():
                                         json={"chat_id": cid, "text": text},
                                     )
                                 continue
-                                pos_lines = []
-                                for p in positions[:10]:
-                                    lp = LIVE_TICKERS.get(p["pair"], {}).get("last") or _latest_ticker_map.get(p["pair"], {}).get("last") or p.get("entry_price", 0)
-                                    pnl = pnl_pct(p.get("entry_price") or 0, lp, p["side"])
-                                    pos_lines.append(f"{p['pair']} {p['side']} @ {p['entry_price']:,.0f} ({pnl:+.2f}%)")
-                                text = (
-                                    f"FMA ALPHA QUANT LABS 🤖\n"
-                                    f"Mode: {'PAPER' if config.PAPER_TRADING else 'LIVE'} | {_latest_regime.get('regime','?')}\n"
-                                    f"Cash: Rp{_latest_balance:,.0f} | Posisi: {len(positions)}\n" +
-                                    ("\n".join(pos_lines) if pos_lines else "Tidak ada posisi")
-                                )
+
+                            if txt == "/perf":
+                                buf = "📊 PERFORMANCE\n"
+                                total_t = _cio_stats.get("total_decisions", 0)
+                                buys = _cio_stats.get("buys", 0)
+                                sells = _cio_stats.get("sells", 0)
+                                wins = _cio_stats.get("wins", 0)
+                                losses = _cio_stats.get("losses", 0)
+                                trades_total = wins + losses
+                                wr = (wins / trades_total * 100) if trades_total > 0 else 0
+                                buf += f"Trade: {trades_total}x ({wins}W/{losses}L)\n"
+                                buf += f"Win rate: {wr:.0f}%\n"
+                                if _recent_actions:
+                                    last5 = _recent_actions[-5:]
+                                    total_pnl = sum(a.get("pnl", 0) for a in _recent_actions if a.get("action") == "SELL")
+                                    best = max((a for a in _recent_actions if a.get("action") == "SELL"), key=lambda x: x.get("pnl", 0), default={})
+                                    worst = min((a for a in _recent_actions if a.get("action") == "SELL"), key=lambda x: x.get("pnl", 0), default={})
+                                    buf += f"Best: {best.get('pair','?')} {best.get('pnl',0):+.1f}%\n" if best else ""
+                                    buf += f"Worst: {worst.get('pair','?')} {worst.get('pnl',0):+.1f}%\n" if worst else ""
+                                    buf += f"Last 5:\n"
+                                    for a in reversed(last5):
+                                        emoji = "🟢" if a.get("pnl", 0) > 0 else "🔴" if a.get("pnl", 0) < 0 else "⚪"
+                                        buf += f"{emoji} {a['pair']} {a['action']} ({a['pnl']:+.1f}%)\n"
                                 async with httpx.AsyncClient() as cc:
-                                    await cc.post(
-                                        f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
-                                        json={"chat_id": cid, "text": text},
-                                    )
-                                save_chat("assistant", text)
+                                    await cc.post(f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
+                                        json={"chat_id": cid, "text": buf})
+                                continue
+
+                            if txt == "/log":
+                                buf = "📋 LOG AKTIVITAS CIO\n"
+                                if not _recent_actions:
+                                    buf += "Belum ada aktivitas."
+                                else:
+                                    for a in reversed(_recent_actions[-10:]):
+                                        t_str = f"{int((time.time()-a['time'])/60)}m" if a['time'] else "?"
+                                        buf += f"[{t_str}] {a['action']} {a['pair']} ({a['pnl']:+.1f}%)\n"
+                                async with httpx.AsyncClient() as cc:
+                                    await cc.post(f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
+                                        json={"chat_id": cid, "text": buf})
+                                continue
+
+                            if txt == "/risk":
+                                buf = "⚠️ RISK STATUS\n"
+                                buf += f"Portfolio drawdown: {config.PORTFOLIO_STOP_LOSS_PCT*100:.0f}%\n"
+                                buf += f"Daily loss floor: Rp{config.DAILY_LOSS_FLOOR_IDR:,}\n"
+                                buf += f"ATR SL: {config.ATR_SL_MULTIPLIER:.0f}x | TP: {config.ATR_TP_MULTIPLIER:.0f}x\n"
+                                buf += f"Max trade/day: {config.MAX_DAILY_TRADES}\n"
+                                buf += f"Max positions: {config.MAX_OPEN_POSITIONS}\n"
+                                for p in positions[:5]:
+                                    last_p = LIVE_TICKERS.get(p["pair"], {}).get("last") or _latest_ticker_map.get(p["pair"], {}).get("last") or p.get("entry_price", 0)
+                                    pnl_r = pnl_pct(p.get("entry_price") or 0, last_p, p["side"])
+                                    flag = "⚠️" if pnl_r < -5 else "✅"
+                                    buf += f"{flag} {p['pair']} ({pnl_r:+.1f}%)\n"
+                                async with httpx.AsyncClient() as cc:
+                                    await cc.post(f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
+                                        json={"chat_id": cid, "text": buf})
                                 continue
 
                             if txt.startswith("/ask "):
