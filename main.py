@@ -1339,21 +1339,32 @@ async def main():
                                 continue
 
                             if txt == "/project":
-                                sells = [a for a in _recent_actions if a.get("action") == "SELL"]
-                                total_pnl = sum(a.get("pnl", 0) for a in sells)
-                                avg_pnl = total_pnl / len(sells) if sells else 0
-                                wins = [a for a in sells if a.get("pnl", 0) > 0]
-                                losses = [a for a in sells if a.get("pnl", 0) <= 0]
-                                wr = len(wins) / len(sells) * 100 if sells else 0
-                                est_daily = config.MAX_DAILY_TRADES * avg_pnl * (wr / 100)
-                                eq = max(_latest_balance + sum(p["qty"] * 1000 for p in positions), 300000)
+                                def _proj_price(pair: str) -> float:
+                                    lt = LIVE_TICKERS.get(pair, {})
+                                    if lt.get("last"):
+                                        return lt["last"]
+                                    tm = _latest_ticker_map.get(pair, {})
+                                    if tm.get("last"):
+                                        return tm["last"]
+                                    return 0
+                                eq = _latest_balance + sum(p["qty"] * _proj_price(p["pair"]) for p in positions)
+                                eq = max(eq, 300000)
                                 eq_start = config.PLAY_CAPITAL_IDR
                                 pnl_total = eq - eq_start
                                 pnl_pct_total = (pnl_total / eq_start) * 100
+                                sells = [a for a in _recent_actions if a.get("action") == "SELL"]
+                                total_pnl = sum(a.get("pnl", 0) for a in sells)
+                                avg_pnl = total_pnl / len(sells) if sells else max(pnl_pct_total, 0.1) / max(len(_recent_actions), 1)
+                                wins = [a for a in sells if a.get("pnl", 0) > 0]
+                                wr = len(wins) / max(len(sells), 1) * 100
+                                if not sells:
+                                    avg_pnl = pnl_pct_total / max(len(_recent_actions), 1)
+                                    wr = 50 if pnl_pct_total > 0 else 49
+                                est_daily = max(5, config.MAX_DAILY_TRADES if config.MAX_DAILY_TRADES < 99999 else 10) * max(avg_pnl, 0.1) * (wr / 100)
                                 days_running = max((time.time() - _cycle_last_end) / 86400 if _cycle_last_end > 0 else 0, 0.1)
                                 pct_per_day = pnl_pct_total / days_running if days_running > 0 else 0
-                                proj_month = eq * (1 + pct_per_day / 100) ** 30 - eq
-                                proj_year = eq * (1 + pct_per_day / 100) ** 365 - eq
+                                proj_month = eq * (1 + max(pct_per_day, 0.05) / 100) ** 30 - eq if pct_per_day >= 0 else eq * (1 - abs(pct_per_day) / 100) ** 30 - eq
+                                proj_year = eq * (1 + max(pct_per_day, 0.05) / 100) ** 365 - eq if pct_per_day >= 0 else eq * (1 - abs(pct_per_day) / 100) ** 365 - eq
                                 text = (
                                     f"📈 PROYEKSI\n"
                                     f"Equity: Rp{eq:,.0f}\n"
