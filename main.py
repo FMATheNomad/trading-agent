@@ -768,7 +768,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             atr_pct = risk.compute_atr(ohlcv) if ohlcv else None
             if action == "BUY" and atr_pct:
                 raw_atr = risk.compute_atr(ohlcv, clamped=False)
-                if raw_atr > 15.0:
+                if raw_atr > 55.0:
                     print(f"  {pid}: raw ATR {raw_atr:.1f}% > 15% — skip (terlalu volatil)", flush=True)
                     continue
             if not risk.is_profit_viable(price, qty, action, atr_pct=atr_pct):
