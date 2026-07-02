@@ -714,10 +714,11 @@ async def portfolio_cycle(client: httpx.AsyncClient):
 
         if not trades:
             print(f"Cycle done in {int(time.time() - _t0)}s. Sleeping.", flush=True)
-            if cycle_counter % 1 == 0:
-                await send_message(
-                    f"[{cycle_counter}] {regime_info['regime']} | {len(positions)} pos | Cash: Rp{actual_idr_balance:,.0f} | SL/TP aktif ✅"
-                )
+            eq_pct = (total_equity - 410000) / 410000 * 100
+            await send_message(
+                f"💳 Rp{total_equity:,.0f} ({eq_pct:+.1f}%)\n"
+                f"Cycle #{cycle_counter} | {regime_info['regime']} | {len(positions)} pos | Cash: Rp{actual_idr_balance:,.0f}"
+            )
             if positions and config.INDODAX_API_KEY:
                 pair_str = ",".join(p["pair"] for p in positions[:5])
                 await refresh_deadman(client, pair_str)
