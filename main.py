@@ -8,13 +8,11 @@ import time
 from urllib.parse import urlencode
 import httpx
 import config
-from data_layer import fetch_viable_pairs, fetch_ticker, fetch_ohlcv, fetch_ohlcv_both, fetch_all_tickers, fetch_orderbook
+from data_layer import fetch_viable_pairs, fetch_ticker, fetch_ohlcv, fetch_ohlcv_both, fetch_all_tickers
 from indicators import compute_signals, compute_batch_signals, apply_ml_boost
-from llm_filter import evaluate_portfolio
 from cointegration import CointegrationEngine
 from hmm_regime import HMMRegimeDetector
 from ml_signal import XGBoostSignal
-from features import MicrostructureFeatures
 from risk_manager import RiskManager, PortfolioRiskManager
 from executor import place_order, get_balance, get_order
 from deadman import refresh_deadman, cancel_deadman
@@ -24,6 +22,7 @@ import persist
 from market_ws import market_ws_loop, LIVE_TICKERS, stop as mws_stop, set_on_tick
 from private_ws import private_ws_loop, stop as pws_stop
 from momentum import MomentumEngine
+import rules
 
 risk = RiskManager()
 portfolio_risk = PortfolioRiskManager()
@@ -173,7 +172,7 @@ def pnl_pct(entry: float, current: float, side: str) -> float:
 cycle_counter = 0
 
 async def portfolio_cycle(client: httpx.AsyncClient):
-    global positions, cycle_counter, _prev_regime, _prev_equity, _prev_signal_count, _report_sent_count, _latest_regime, _latest_ticker_map, _latest_all_signals, _latest_ohlcv_map_1h, _latest_balance
+    global positions, cycle_counter, _prev_regime, _prev_equity, _report_sent_count, _latest_regime, _latest_ticker_map, _latest_all_signals, _latest_ohlcv_map_1h, _latest_balance
     cycle_counter += 1
     _t0 = time.time()
     risk.daily_loss_stopped = False
@@ -493,58 +492,15 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             except Exception as e:
                 print(f"HMM train error: {e}", flush=True)
 
-        orderbooks = {}
-        top_pairs = list(ohlcv_map_1h.keys())[:5]
-        for pid in top_pairs:
-            try:
-                ob = await fetch_orderbook(client, pair=pid, depth=10)
-                if ob:
-                    orderbooks[pid] = ob
-            except Exception:
-                pass
-
-        can_trade = actual_idr_balance >= config.MIN_ORDER_IDR
-        has_active_signal = any(
-            s.get("raw_signal") in ("BUY", "SELL") and s.get("score", 0) >= 3 for s in all_signals.values()
-        )
-        has_positions = len(positions) > 0
-        nothing_interesting = not has_active_signal and not has_positions
-        equity_changed = abs(total_equity - _prev_equity) / max(_prev_equity, 1) > 0.05 if _prev_equity > 0 else False
-        regime_changed = regime_info["regime"] != _prev_regime if _prev_regime else False
-        signal_count = sum(1 for s in all_signals.values() if s.get("raw_signal") in ("BUY", "SELL"))
-        new_signals = signal_count > _prev_signal_count + 1 if _prev_signal_count > 0 else False
-
-        needs_deepseek = (can_trade or has_positions) and (has_active_signal or regime_changed or equity_changed or new_signals)
-        skip_llm = not needs_deepseek
-
         _prev_equity = total_equity
         _prev_regime = regime_info["regime"]
-        _prev_signal_count = signal_count
 
-        if skip_llm:
-            if cycle_counter % 30 == 0:
-                print(f"LLM SKIPPED — engineering mode active (cycle {cycle_counter})", flush=True)
-            decision = {"decision": "HOLD", "reasoning": "Engineering mode — momentum engine + ATR SL/TP aktif", "trades": []}
-        else:
-            print("Calling DeepSeek portfolio manager...", flush=True)
-            portfolio_pnl = ((total_equity - config.PLAY_CAPITAL_IDR) / config.PLAY_CAPITAL_IDR * 100
-                             if config.PLAY_CAPITAL_IDR else 0)
-            micro_features = {}
-            for pid in list(ohlcv_map_1h.keys())[:5]:
-                ob = orderbooks.get(pid)
-                mf = MicrostructureFeatures.compute_all(ohlcv_map_1h.get(pid, []), ob)
-                if mf:
-                    micro_features[pid] = mf
-
-            decision = evaluate_portfolio(all_signals, ticker_map, current_positions_info,
-                                           actual_idr_balance, portfolio_pnl,
-                                           regime_info, pair_suggestions, regime_history, orderbooks,
-                                           LIVE_TICKERS, new_coins, pair_signals,
-                                           micro_features=micro_features)
-            if decision.get("deepseek_error") and _order_error_cooldown.get("deepseek", 0) == 0:
-                _order_error_cooldown["deepseek"] = time.time()
-                await send_message(f"⚠️ DeepSeek API habis — bot jalan pake momentum engine + ATR SL/TP")
-            print(f"PM decision: {decision.get('decision')} | {decision.get('reasoning', '')[:100]}", flush=True)
+        decision = rules.decide(
+            all_signals, ticker_map, LIVE_TICKERS, positions,
+            actual_idr_balance, total_equity, regime_info, ohlcv_map_1h,
+            _coin_blacklist, _pair_meta,
+        )
+        print(f"Decision: {decision['decision']} | {decision['reasoning'][:80]}", flush=True)
 
         play_capital_pct = decision.get("play_capital_pct", pending_play_capital_pct * 100)
         if actual_idr_balance < config.MIN_ORDER_IDR:
@@ -556,7 +512,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 play_capital_pct = max(play_capital_pct, 80)
             balance_idr = int(actual_idr_balance * play_capital_pct / 100)
             balance_idr = max(balance_idr, config.MIN_ORDER_IDR)
-        print(f"CIO play capital: {play_capital_pct}% of Rp{actual_idr_balance:,.0f} = Rp{balance_idr:,}", flush=True)
+        print(f"Play capital: {play_capital_pct}% of Rp{actual_idr_balance:,.0f} = Rp{balance_idr:,}", flush=True)
 
         log_decision("PORTFOLIO", decision.get("decision", "HOLD"),
                      decision.get("reasoning", ""),
