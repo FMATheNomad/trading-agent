@@ -45,6 +45,7 @@ INSANE_PROMPT = f"""
 Target: ATR×3 TP, ATR×2 SL. Risk-reward ~1.5:1 (ATR-based).
 - 🔥 BUY score ≥+1 is tradeable — lebih agresif, frekuensi tinggi
 - 🔥 Hot Now + signal APAPUN = eksekusi tanpa ragu
+- 🔥 Prioritaskan koin dengan **volume 24h TERBESAR** — likuiditas tinggi, spread tipis
 - 🔥 TF alignment DISARANKAN tapi gak wajib
 - 🔥 Play capital 80-100% — maksimalkan setiap peluang
 - 🔥 Boleh jual rugi asal ada sinyal kuat buat rotate ke setup lebih baik
@@ -188,13 +189,15 @@ def _build_portfolio_context(
             continue
         lt = live_tickers.get(pair) if live_tickers else None
         chg24 = _chg24(t, lt)
-        combined_score = abs(sig.get("score", 0)) + abs(chg24 / 5)
-        scored.append((combined_score, pair, sig, t, chg24))
+        vol_idr = float(t.get("vol_idr", 0))
+        vol_boost = min(vol_idr / 300_000_000_000, 1.5)
+        combined_score = (abs(sig.get("score", 0)) + abs(chg24 / 5)) * (1 + vol_boost)
+        scored.append((combined_score, pair, sig, t, chg24, vol_idr))
 
     scored.sort(key=lambda x: x[0], reverse=True)
 
-    lines.append(f"-- Market Scan ({len(all_signals)} pairs, ranked by momentum+24h) --")
-    for rank, (_, pair, sig, t, chg24) in enumerate(scored, 1):
+    lines.append(f"-- Market Scan ({len(all_signals)} pairs, ranked by momentum+volume) --")
+    for rank, (_, pair, sig, t, chg24, vol_idr) in enumerate(scored, 1):
         vol_spike = "🚀" if sig.get("volume_ratio", 0) > 2 else " "
         lines.append(
             f"#{rank} {vol_spike}[{pair}] Price: {t.get('last')} | "
