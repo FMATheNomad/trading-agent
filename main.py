@@ -551,7 +551,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             if p["pair"] in _realtime_sold:
                 continue
             last = ticker_map.get(p["pair"], {}).get("last", p["entry_price"])
-            atr_val = p.get("atr_pct") or (risk.compute_atr(ohlcv_map_1h.get(p["pair"], [])) if p.get("pair") in ohlcv_map_1h else None)
+            atr_val = p.get("atr_pct") or risk.compute_atr(ohlcv_map_1h.get(p["pair"], []))
             result = risk.check_sl_tp(p["entry_price"], last, p["side"], pair=p["pair"], atr_pct=atr_val)
             if not result and atr_val:
                 atr_sl = atr_val * config.ATR_SL_MULTIPLIER
