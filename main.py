@@ -1227,13 +1227,14 @@ async def main():
                                              "/cycle — Status siklus (waktu, regime, cash)\n"
                                              "/ask SUI — Detail sinyal & ATR koin\n"
                                              "/atr — ATR, SL, TP semua posisi\n"
-                                             "/atr SOL — ATR spesifik koin\n"
-                                             "/why — Alasan bot gak trading\n"
-                                             "/commands — Daftar ini\n"
-                                             "/cycle — Status siklus & waktu\n"
-                                             "/perf — Performa & win rate\n"
-                                             "/log — Aktivitas terakhir CIO\n"
-                                             "/risk — Status risiko & proteksi"
+                                              "/atr SOL — ATR spesifik koin\n"
+                                              "/why — Alasan bot gak trading\n"
+                                              "/project — Proyeksi harian, bulanan, tahunan\n"
+                                              "/commands — Daftar ini\n"
+                                              "/cycle — Status siklus & waktu\n"
+                                              "/perf — Performa & win rate\n"
+                                              "/log — Aktivitas terakhir CIO\n"
+                                              "/risk — Status risiko & proteksi"
                                          )},
                                     )
                                 continue
@@ -1261,6 +1262,38 @@ async def main():
                                         f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
                                         json={"chat_id": cid, "text": text},
                                     )
+                                continue
+
+                            if txt == "/project":
+                                sells = [a for a in _recent_actions if a.get("action") == "SELL"]
+                                total_pnl = sum(a.get("pnl", 0) for a in sells)
+                                avg_pnl = total_pnl / len(sells) if sells else 0
+                                wins = [a for a in sells if a.get("pnl", 0) > 0]
+                                losses = [a for a in sells if a.get("pnl", 0) <= 0]
+                                wr = len(wins) / len(sells) * 100 if sells else 0
+                                est_daily = config.MAX_DAILY_TRADES * avg_pnl * (wr / 100)
+                                eq = max(_latest_balance + sum(p["qty"] * 1000 for p in positions), 300000)
+                                eq_start = config.PLAY_CAPITAL_IDR
+                                pnl_total = eq - eq_start
+                                pnl_pct_total = (pnl_total / eq_start) * 100
+                                days_running = max((time.time() - _cycle_last_end) / 86400 if _cycle_last_end > 0 else 0, 0.1)
+                                pct_per_day = pnl_pct_total / days_running if days_running > 0 else 0
+                                proj_month = eq * (1 + pct_per_day / 100) ** 30 - eq
+                                proj_year = eq * (1 + pct_per_day / 100) ** 365 - eq
+                                text = (
+                                    f"📈 PROYEKSI\n"
+                                    f"Equity: Rp{eq:,.0f}\n"
+                                    f"Total PnL: {pnl_pct_total:+.1f}%\n"
+                                    f"Rata-rata/trade: {avg_pnl:+.2f}%\n"
+                                    f"Win rate: {wr:.0f}%\n"
+                                    f"──────────────\n"
+                                    f"📅 Harian: Rp{est_daily*eq/100:,.0f}\n"
+                                    f"📅 Bulanan: Rp{proj_month:,.0f}\n"
+                                    f"📅 Tahunan: Rp{proj_year:,.0f}"
+                                )
+                                async with httpx.AsyncClient() as cc:
+                                    await cc.post(f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
+                                        json={"chat_id": cid, "text": text})
                                 continue
 
                             if txt == "/perf":
