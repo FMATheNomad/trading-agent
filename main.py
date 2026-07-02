@@ -9,10 +9,8 @@ from urllib.parse import urlencode
 import httpx
 import config
 from data_layer import fetch_viable_pairs, fetch_ticker, fetch_ohlcv, fetch_ohlcv_both, fetch_all_tickers
-from indicators import compute_signals, compute_batch_signals, apply_ml_boost
-from cointegration import CointegrationEngine
+from indicators import compute_signals, compute_batch_signals
 from hmm_regime import HMMRegimeDetector
-from ml_signal import XGBoostSignal
 from risk_manager import RiskManager, PortfolioRiskManager
 from executor import place_order, get_balance, get_order
 from deadman import refresh_deadman, cancel_deadman
@@ -27,8 +25,6 @@ import rules
 risk = RiskManager()
 portfolio_risk = PortfolioRiskManager()
 hmm_detector = HMMRegimeDetector(n_states=config.HMM_N_STATES)
-coint_engine = CointegrationEngine(z_entry=config.COINT_Z_ENTRY, z_exit=config.COINT_Z_EXIT)
-xgboost_signal = XGBoostSignal()
 positions: list[dict] = []
 shutdown_flag = False
 momentum_engine = MomentumEngine()
@@ -103,20 +99,6 @@ def classify_regime(all_signals: dict, ohlcv_map_1h: dict | None = None) -> dict
         "high_conviction_count": high_conviction,
         "total_signals": total,
     }
-
-def compute_pairs_suggestions(all_signals: dict, ticker_map: dict) -> list[dict]:
-    suggestions = []
-    for a, b in config.CORRELATION_PAIRS:
-        ta = ticker_map.get(a, {}).get("last", 0)
-        tb = ticker_map.get(b, {}).get("last", 0)
-        if not ta or not tb:
-            continue
-        ratio = ta / tb
-        suggestions.append({
-            "pair": f"{a}/{b}", "ratio": round(ratio, 4),
-            "a_price": ta, "b_price": tb,
-        })
-    return suggestions
 
 def correlation_risk(positions: list[dict], ticker_map: dict, threshold: float = 0.85) -> list[str]:
     if len(positions) < 2:
@@ -310,20 +292,6 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         print(f"Computing signals: {len(ohlcv_map_1h)} pairs (1h) + {len(ohlcv_map_4h)} (4h)...", flush=True)
         all_signals = compute_batch_signals(ohlcv_map_1h, ohlcv_map_4h)
 
-        for pid, ohlcv_1h in ohlcv_map_1h.items():
-            if xgboost_signal.trained and pid in all_signals:
-                ml_pred = xgboost_signal.predict(ohlcv_1h)
-                all_signals[pid] = apply_ml_boost(all_signals[pid], ml_pred)
-
-        pair_signals = coint_engine.scan(ohlcv_map_1h, config.CORRELATION_PAIRS) if ohlcv_map_1h else []
-        active = [p for p in pair_signals if p["signal"] in ("SHORT_SPREAD", "LONG_SPREAD")]
-        if active:
-            for ps in active:
-                print(f"COINT SIGNAL: {ps['pair']} → {ps['signal']} (z={ps['z_score']}, hl={ps.get('half_life_hours', '?')}h, H={ps.get('hurst', '?')})", flush=True)
-        elif pair_signals:
-            for ps in pair_signals[:3]:
-                print(f"Coint: {ps['pair']} z={ps['z_score']} coint={ps.get('cointegrated', False)} hl={ps.get('half_life_hours', '?')}h", flush=True)
-
         regime_info = classify_regime(all_signals, ohlcv_map_1h)
         regime_history.append(regime_info["regime"])
         if len(regime_history) > 12:
@@ -333,19 +301,6 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             await send_message(f"🔄 Regime: {_prev_regime} → {regime_info['regime']}{hmm_tag}")
         print(f"Regime: {regime_info['regime']}{hmm_tag} | B:{regime_info['buy_ratio']} S:{regime_info['sell_ratio']} "
               f"Score:{regime_info['avg_score']} HC:{regime_info['high_conviction_count']}", flush=True)
-
-        if (not xgboost_signal.trained or cycle_counter % 50 == 0) and len(ohlcv_map_1h) >= config.ML_TRAIN_MIN_SAMPLES:
-            try:
-                xgboost_signal.train(ohlcv_map_1h)
-                if xgboost_signal.trained:
-                    print("XGBoost signal model trained on historical data", flush=True)
-            except Exception as e:
-                print(f"XGBoost train error: {e}", flush=True)
-
-        pair_suggestions = compute_pairs_suggestions(all_signals, ticker_map)
-        if pair_suggestions:
-            pair_str = " ".join(f"{p['pair']}={p['ratio']}" for p in pair_suggestions)
-            print(f"Pairs: {pair_str}", flush=True)
 
         actual_idr_balance = config.PLAY_CAPITAL_IDR
 

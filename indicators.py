@@ -1,8 +1,7 @@
 import numpy as np
 import pandas as pd
 import ta
-from scipy.stats import skew, kurtosis, entropy
-from features import MicrostructureFeatures
+from scipy.stats import skew, kurtosis
 
 def _hurst_exponent(series: np.ndarray, max_lag: int = 20) -> float:
     lags = range(2, min(max_lag, len(series) // 2))
@@ -89,9 +88,6 @@ def _compute_single_tf(ohlcv: list[dict]) -> dict:
     mfi_val = mfi.money_flow_index().iloc[-1] if mfi is not None else None
     obv_val = obv.on_balance_volume().iloc[-1] if obv is not None else None
 
-    features = MicrostructureFeatures.compute_all(ohlcv)
-    vpin = features.get("vpin", 0.5)
-
     return {
         "rsi": round(rsi_val, 2) if pd.notna(rsi_val) else None,
         "stoch_k": round(stoch_k, 2) if pd.notna(stoch_k) else None,
@@ -118,8 +114,8 @@ def _compute_single_tf(ohlcv: list[dict]) -> dict:
         "hurst": round(hurst, 3),
         "skew": round(skew_val, 3),
         "kurtosis": round(kurt_val, 3),
-        "vpin": vpin,
-        "shannon_entropy": features.get("shannon_entropy", 0),
+        "vpin": 0.5,
+        "shannon_entropy": 0,
     }
 
 
@@ -247,32 +243,6 @@ def compute_single(ohlcv: list[dict]) -> dict:
         raw["signal_reason"] = reason
         raw["score"] = score
     return raw or {"raw_signal": "HOLD", "score": 0, "reason": "insufficient_data"}
-
-def apply_ml_boost(signals: dict, ml_signal: dict) -> dict:
-    ml_dir = ml_signal.get("ml_direction", "NEUTRAL")
-    ml_buy = ml_signal.get("ml_buy_prob", 0.5)
-    ml_sell = ml_signal.get("ml_sell_prob", 0.5)
-    current_sig = signals.get("raw_signal", "HOLD")
-    current_score = signals.get("score", 0)
-    if ml_dir == "BUY" and ml_buy > 0.65:
-        if current_sig == "HOLD" and current_score >= 1:
-            signals["raw_signal"] = "BUY"
-            signals["score"] = max(current_score, 3)
-            signals["signal_reason"] = signals.get("signal_reason", "") + f"; ml_boost({ml_buy:.2f})"
-        elif current_sig == "BUY":
-            signals["score"] = current_score + 1
-            signals["signal_reason"] = signals.get("signal_reason", "") + f"; ml_conf({ml_buy:.2f})"
-        signals["ml_buy_prob"] = ml_buy
-    elif ml_dir == "SELL" and ml_sell > 0.65:
-        if current_sig == "HOLD" and current_score <= -1:
-            signals["raw_signal"] = "SELL"
-            signals["score"] = min(current_score, -3)
-            signals["signal_reason"] = signals.get("signal_reason", "") + f"; ml_boost({ml_sell:.2f})"
-        elif current_sig == "SELL":
-            signals["score"] = current_score - 1
-            signals["signal_reason"] = signals.get("signal_reason", "") + f"; ml_conf({ml_sell:.2f})"
-        signals["ml_sell_prob"] = ml_sell
-    return signals
 
 def compute_batch_signals(ohlcv_map_1h: dict[str, list[dict]],
                            ohlcv_map_4h: dict[str, list[dict]] | None = None) -> dict[str, dict]:
