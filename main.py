@@ -539,8 +539,9 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                                            regime_info, pair_suggestions, regime_history, orderbooks,
                                            LIVE_TICKERS, new_coins, pair_signals,
                                            micro_features=micro_features)
-            if decision.get("deepseek_error"):
-                await send_message(f"⚠️ DeepSeek API error: {decision.get('reasoning', '')[:200]}")
+            if decision.get("deepseek_error") and _order_error_cooldown.get("deepseek", 0) == 0:
+                _order_error_cooldown["deepseek"] = time.time()
+                await send_message(f"⚠️ DeepSeek API habis — bot jalan pake momentum engine + ATR SL/TP")
             print(f"PM decision: {decision.get('decision')} | {decision.get('reasoning', '')[:100]}", flush=True)
 
         play_capital_pct = decision.get("play_capital_pct", pending_play_capital_pct * 100)
