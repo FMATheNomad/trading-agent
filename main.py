@@ -1272,8 +1272,10 @@ async def main():
                                         side = p["side"] if p else "BUY"
                                         sl, tp = risk.get_sl_tp(entry, side, atr_val)
                                         pnl = pnl_pct(entry, price, side) if p else 0
+                                        sl_pct = (sl - entry) / entry * 100
+                                        tp_pct = (tp - entry) / entry * 100
                                         tag = f" ({pnl:+.1f}%)" if p else ""
-                                        atr_lines.append(f"{pid:15} Rp{price:>8,.0f} | ATR {atr_val:.1f}% | SL Rp{sl:,.0f} | TP Rp{tp:,.0f}{tag}")
+                                        atr_lines.append(f"{pid:15} Rp{price:>8,.0f} | ATR {atr_val:.1f}% | SL Rp{sl:,.0f} ({sl_pct:+.1f}%) | TP Rp{tp:,.0f} ({tp_pct:+.1f}%){tag}")
                                     except Exception as e:
                                         atr_lines.append(f"{pid}: error ({str(e)[:30]})")
                                 msg = "-- ATR Levels --\n" + "\n".join(atr_lines)
