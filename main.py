@@ -328,6 +328,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         if len(regime_history) > 12:
             regime_history.pop(0)
         hmm_tag = f" HMM:{regime_info.get('hmm_regime', '?')}({regime_info.get('hmm_confidence', 0):.2f})" if regime_info.get('hmm_confidence', 0) > 0 else ""
+        if regime_info["regime"] != _prev_regime and _prev_regime:
+            await send_message(f"🔄 Regime: {_prev_regime} → {regime_info['regime']}{hmm_tag}")
         print(f"Regime: {regime_info['regime']}{hmm_tag} | B:{regime_info['buy_ratio']} S:{regime_info['sell_ratio']} "
               f"Score:{regime_info['avg_score']} HC:{regime_info['high_conviction_count']}", flush=True)
 
@@ -484,6 +486,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 hmm_detector.fit(ohlcv_map_1h)
                 if hmm_detector.trained:
                     print(f"HMM regime detector trained ({config.HMM_N_STATES} states)", flush=True)
+                    if cycle_counter <= 2:
+                        await send_message(f"🧠 HMM: {regime_info.get('regime','?')} (confidence {regime_info.get('hmm_confidence',0):.0%})")
             except Exception as e:
                 print(f"HMM train error: {e}", flush=True)
 
@@ -581,6 +585,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 sl_hits.append(f"{p['pair']} {result}: {pnl:+.0f} IDR")
                 _cooldown[p["pair"]] = time.time()
                 print(f"COOLDOWN: {p['pair']} set for 12h", flush=True)
+                await send_message(f"⏳ {p['pair']} cooldown 12 jam")
                 if not config.PAPER_TRADING and config.INDODAX_API_KEY:
                     try:
                         coin_name = p["pair"].split("_")[0]
@@ -644,6 +649,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 pair = sl_hit.split(" ")[0].replace(":", "")
                 _coin_blacklist.add(pair)
                 print(f"BLACKLIST: {pair} added (hit stop loss)", flush=True)
+                await send_message(f"⛔ {pair} blacklist (kena SL)")
         if len(_coin_blacklist) > 20:
             _coin_blacklist.clear()
 
@@ -685,6 +691,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     if abs(pnl) >= min_move and pnl >= config.PROFIT_SELL_THRESHOLD:
                         profit_sells.append(t)
                         print(f"PROFIT ROTATE: sell {sell_pair} ({pnl:+.1f}%)", flush=True)
+                        await send_message(f"🔄 JUAL {sell_pair} ({pnl:+.1f}%)")
         trades = [t for t in trades if not (t.get("action") == "SELL" and t not in profit_sells)]
         if cycle_counter <= 1:
             if any(t.get("action") == "SELL" for t in decision.get("trades", [])):
@@ -708,9 +715,12 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         if not trades:
             print(f"Cycle done in {int(time.time() - _t0)}s. Sleeping.", flush=True)
             if cycle_counter % 6 == 0 or cycle_counter == 1:
+                eq_pct = (total_equity - config.PLAY_CAPITAL_IDR) / config.PLAY_CAPITAL_IDR * 100 if config.PLAY_CAPITAL_IDR else 0
                 await send_message(
-                    f"🤖 FMA ALPHA — Cycle #{cycle_counter}\n"
-                    f"Regime: {regime_info['regime']} | {len(positions)} pos | Cash: Rp{actual_idr_balance:,.0f}"
+                    f"📊 FMA ALPHA — Cycle #{cycle_counter}\n"
+                    f"Regime: {regime_info['regime']} | Equity: Rp{total_equity:,.0f} ({eq_pct:+.1f}%)\n"
+                    f"HMM: {regime_info.get('hmm_regime', '?')} ({regime_info.get('hmm_confidence', 0):.0%})\n"
+                    f"Posisi: {len(positions)} | Cash: Rp{actual_idr_balance:,.0f}"
                 )
             if positions and config.INDODAX_API_KEY:
                 pair_str = ",".join(p["pair"] for p in positions[:5])
