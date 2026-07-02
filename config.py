@@ -4,7 +4,7 @@ import os
 load_dotenv()
 
 # --- Dana bot — Rp200rb target -> Rp500rb dalam beberapa hari ---
-PLAY_CAPITAL_IDR = 410_000
+PLAY_CAPITAL_IDR = int(os.getenv("PLAY_CAPITAL_IDR", "300000"))
 MIN_ORDER_IDR = 10_000
 DEFAULT_PLAY_CAPITAL_PCT = 0.8
 
