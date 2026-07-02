@@ -150,6 +150,9 @@ if _MAX_DAILY_TRADES_ENV is not None:
 # --- Auto Compound ---
 AUTO_COMPOUND = True
 CAPITAL_GROWTH_MULTIPLIER = 1.0
+if INSANE_MODE:
+    CAPITAL_GROWTH_MULTIPLIER = 1.0
+COMPOUND_CAP_IDR = 5_000_000
 
 # --- WebSocket ---
 WS_MARKET_URL = "wss://ws3.indodax.com/ws/"

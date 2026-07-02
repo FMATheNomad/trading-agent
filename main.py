@@ -58,6 +58,7 @@ _cycle_last_end: float = 0
 _cycle_last_info: dict = {}
 _recent_actions: list[dict] = []
 _strategic_rotate_enabled: bool = True
+_realized_pnl_idr: float = 0.0
 
 def classify_regime(all_signals: dict, ohlcv_map_1h: dict | None = None) -> dict:
     signals = [s.get("raw_signal") for s in all_signals.values() if s.get("raw_signal")]
@@ -171,7 +172,7 @@ def pnl_pct(entry: float, current: float, side: str) -> float:
 cycle_counter = 0
 
 async def portfolio_cycle(client: httpx.AsyncClient):
-    global positions, cycle_counter, _prev_regime, _prev_equity, _report_sent_count, _latest_regime, _latest_ticker_map, _latest_all_signals, _latest_ohlcv_map_1h, _latest_balance
+    global positions, cycle_counter, _prev_regime, _prev_equity, _report_sent_count, _latest_regime, _latest_ticker_map, _latest_all_signals, _latest_ohlcv_map_1h, _latest_balance, _realized_pnl_idr
     cycle_counter += 1
     _t0 = time.time()
     risk.daily_loss_stopped = False
@@ -582,6 +583,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                             sell_value = last * p["qty"]
                             log_trade("sell", last, p["qty"], sell_value,
                                       status="closed", pnl=pnl, reason=result)
+                            if config.AUTO_COMPOUND and pnl > 0:
+                                _realized_pnl_idr += pnl
                         else:
                             err_msg = sj.get('error', 'unknown')
                             print(f"  Sell {p['pair']} failed: {err_msg} — CIO will decide", flush=True)
@@ -616,18 +619,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
 
         if sl_hits:
             await send_message("SL/TP triggered:\n" + "\n".join(sl_hits))
-            if config.AUTO_COMPOUND:
-                for sl_hit in sl_hits:
-                    if "+" in sl_hit.split(":")[-1]:
-                        try:
-                            pnl_str = sl_hit.split(":")[-1].strip().split(" ")[0]
-                            pnl_val = float(pnl_str.replace("+", "").replace(",", ""))
-                            if pnl_val > 0:
-                                new_capital = min(config.PLAY_CAPITAL_IDR + pnl_val * 0.5, 500_000)
-                                config.PLAY_CAPITAL_IDR = new_capital
-                                print(f"COMPOUND: Capital grown to Rp{new_capital:,.0f}", flush=True)
-                        except Exception:
-                            pass
+
+        trades_today = get_trade_count_today()
 
         trades_today = get_trade_count_today()
         if trades_today >= config.MAX_DAILY_TRADES:
@@ -824,6 +817,11 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 _latest_balance = actual_idr_balance
                 positions = [p for p in positions if p["pair"] != pid]
                 persist.save_positions(positions)
+                sell_entry = t.get("entry_price", 0) or 0
+                sell_cost = sell_entry * actual_qty
+                sell_pnl_idr = actual_received - sell_cost
+                if config.AUTO_COMPOUND and sell_pnl_idr > 0:
+                    _realized_pnl_idr += sell_pnl_idr
             pnl_trade = (t.get("exec_price", 0) - t.get("entry_price", 0)) / t.get("entry_price", 1) * 100 if t.get("entry_price") else 0
             _recent_actions.append({
                 "time": time.time(), "action": action, "pair": pid,
@@ -904,6 +902,15 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         _latest_all_signals = all_signals
         _latest_ohlcv_map_1h = ohlcv_map_1h
         _latest_balance = actual_idr_balance
+
+        if config.AUTO_COMPOUND and _realized_pnl_idr > 0:
+            old_cap = config.PLAY_CAPITAL_IDR
+            config.PLAY_CAPITAL_IDR = min(
+                config.PLAY_CAPITAL_IDR + _realized_pnl_idr,
+                config.COMPOUND_CAP_IDR
+            )
+            print(f"COMPOUND: +Rp{_realized_pnl_idr:,.0f} (Rp{old_cap:,.0f} → Rp{config.PLAY_CAPITAL_IDR:,.0f})", flush=True)
+            _realized_pnl_idr = 0.0
 
     except Exception as e:
         print(f"Portfolio cycle error: {e}", flush=True)
@@ -1011,6 +1018,7 @@ async def _momentum_scanner():
             print(f"Momentum scanner error: {e}", flush=True)
 
 async def _realtime_sltp_check(pair: str, price: float):
+    global _realized_pnl_idr
     now_t = time.time()
     if now_t - _realtime_sltp_last.get(pair, 0) < 10:
         return
@@ -1062,6 +1070,8 @@ async def _realtime_sltp_check(pair: str, price: float):
                     return
                 positions.remove(p)
                 log_trade("sell", price, p["qty"], price * p["qty"], status="closed", pnl=pnl, reason=f"realtime_{result}")
+                if config.AUTO_COMPOUND and pnl > 0:
+                    _realized_pnl_idr += pnl
                 await send_message(f"⚡ REALTIME {result}: SELL {pair}\n{pnl:+.0f} IDR ({pnl/(p['entry_price']*p['qty'])*100:+.2f}%)")
                 _cooldown[pair] = time.time()
                 _realtime_sold.add(pair)
