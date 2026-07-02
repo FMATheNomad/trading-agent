@@ -452,8 +452,9 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             return
 
         if portfolio_risk.check_portfolio_stop(total_equity):
-            msg = (f"⚠️ PORTFOLIO DRAWDOWN {config.PORTFOLIO_STOP_LOSS_PCT*100}% — "
-                   f"Reducing play capital. Equity: Rp{total_equity:,.0f}")
+            actual_dd = (portfolio_risk.peak_capital - total_equity) / portfolio_risk.peak_capital * 100
+            msg = (f"⚠️ DRAWDOWN {actual_dd:.0f}% (limit {abs(config.PORTFOLIO_STOP_LOSS_PCT)*100:.0f}%) — "
+                   f"Equity: Rp{total_equity:,.0f}")
             await send_message(msg)
             print(msg, flush=True)
 
