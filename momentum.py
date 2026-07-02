@@ -5,6 +5,7 @@ import config
 class MomentumEngine:
     def __init__(self):
         self.last_signal: dict[str, str] = {}
+        self._confirmed: dict[str, str] = {}
 
     def _compute_atr(self, ohlcv: list[dict], period: int = 14) -> float:
         d = [c for c in ohlcv if isinstance(c, dict)][-(period+1):]
@@ -66,13 +67,17 @@ class MomentumEngine:
         oversold_threshold = 30 + atr * 1.5
         return rsi < oversold_threshold
 
-    def price_breakout(self, closes: list[float], current_price: float, atr: float) -> bool:
+    def price_breakout(self, closes: list[float], current_price: float, atr: float, rsi: float = 50) -> bool:
         if len(closes) < 6:
             return False
         high_1h = max(closes[-6:])
         prev_high = max(closes[-7:-1])
         min_break = high_1h * atr * 0.3 / 100
-        return current_price > high_1h + min_break and high_1h >= prev_high
+        if not (current_price > high_1h + min_break and high_1h >= prev_high):
+            return False
+        if rsi > 65:
+            return False
+        return True
 
     def evaluate(self, pair: str, ohlcv_1h: list[dict], price: float) -> str | None:
         closes = [float(c["close"]) for c in ohlcv_1h[-60:]] if len(ohlcv_1h) >= 30 else []
@@ -83,6 +88,14 @@ class MomentumEngine:
         atr_pctile = self._atr_percentile(ohlcv_1h)
         atr_avg = np.mean([self._compute_atr(ohlcv_1h[i-14:i]) for i in range(20, min(len(ohlcv_1h), 50))]) if len(ohlcv_1h) > 30 else atr
 
+        deltas = np.diff(closes)
+        gains = np.where(deltas > 0, deltas, 0)
+        losses = np.where(deltas < 0, -deltas, 0)
+        avg_g = np.mean(gains[-14:]) if len(gains) >= 14 else 0
+        avg_l = np.mean(losses[-14:]) if len(losses) >= 14 else 1
+        rs = avg_g / max(avg_l, 1e-10)
+        rsi = 100 - (100 / (1 + rs))
+
         reasons = []
         if self.ema_crossover(closes, atr, atr_avg):
             reasons.append("EMA9/21")
@@ -90,10 +103,15 @@ class MomentumEngine:
             reasons.append(f"VOL{atr_pctile:.0f}")
         if self.rsi_oversold(closes, atr):
             reasons.append(f"RSI{atr:.0f}")
-        if self.price_breakout(closes, price, atr):
+        if self.price_breakout(closes, price, atr, rsi):
             reasons.append(f"BRK{atr:.1f}")
 
-        min_signals = 1 if atr > 5 else 2
-        if len(reasons) >= min_signals:
-            return f"MOM:+{'+'.join(reasons)}"
+        signal_key = "+".join(sorted(reasons)) if reasons else None
+        if signal_key and len(reasons) >= 2:
+            if self._confirmed.get(pair) == signal_key:
+                self._confirmed.pop(pair, None)
+                return f"MOM:+{signal_key}"
+            self._confirmed[pair] = signal_key
+        else:
+            self._confirmed.pop(pair, None)
         return None

@@ -55,6 +55,7 @@ _latest_ohlcv_map_1h: dict = {}
 _order_error_cooldown: dict[str, float] = {}
 _realtime_sltp_last: dict[str, float] = {}
 _realtime_sold: set[str] = set()
+_momentum_entry_time: dict[str, float] = {}
 _cycle_last_end: float = 0
 _cycle_last_info: dict = {}
 _recent_actions: list[dict] = []
@@ -565,6 +566,9 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         for p in list(positions):
             if p["pair"] in _realtime_sold:
                 continue
+            mentry = _momentum_entry_time.get(p["pair"], 0)
+            if mentry > 0 and time.time() - mentry < 120:
+                continue
             last = ticker_map.get(p["pair"], {}).get("last", p["entry_price"])
             atr_val = p.get("atr_pct") or risk.compute_atr(ohlcv_map_1h.get(p["pair"], []))
             result = risk.check_sl_tp(p["entry_price"], last, p["side"], pair=p["pair"], atr_pct=atr_val)
@@ -1016,9 +1020,9 @@ async def _momentum_scanner():
                     continue
                 vol_idr = float(_latest_ticker_map.get(pid, {}).get("vol_idr", 0) or 0)
                 if vol_idr < 1_000_000_000:
-                    print(f"    Vol Rp{vol_idr:,.0f} < 5T — skip", flush=True)
+                    print(f"    Vol Rp{vol_idr:,.0f} < 1T — skip", flush=True)
                     continue
-                alloc = 0.85
+                alloc = 0.6
                 amount = int(cash_avail * alloc)
                 if amount < config.MIN_ORDER_IDR:
                     continue
@@ -1040,6 +1044,7 @@ async def _momentum_scanner():
                         persist.save_positions(positions)
                         cash_avail -= actual_spend
                         await send_message(f"⚡ MOMENTUM {signal}: BUY {pid}\nRp{actual_spend:,.0f} @ {price:,.0f}")
+                        _momentum_entry_time[pid] = time.time()
                         print(f"    EXECUTED: BUY {pid}", flush=True)
                 except Exception as ex:
                     print(f"    Order failed: {ex}", flush=True)
@@ -1055,6 +1060,9 @@ async def _realtime_sltp_check(pair: str, price: float):
         return
     p = next((x for x in positions if x["pair"] == pair), None)
     if not p:
+        return
+    mentry = _momentum_entry_time.get(pair, 0)
+    if mentry > 0 and now_t - mentry < 120:
         return
     atr_val = p.get("atr_pct") or risk.compute_atr(_latest_ohlcv_map_1h.get(pair, []))
     result = risk.check_sl_tp(p["entry_price"], price, p["side"], pair=pair, atr_pct=atr_val)
