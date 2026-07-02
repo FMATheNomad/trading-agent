@@ -287,6 +287,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                         ohlcv_map_4h[pid] = o4
                 except Exception as e:
                     print(f"  {pid}: {e}", flush=True)
+                    import traceback
+                    traceback.print_exc()
 
         await asyncio.gather(*[fetch_one(v) for v in viable])
 

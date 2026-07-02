@@ -62,7 +62,10 @@ async def fetch_ohlcv(client: httpx.AsyncClient, pair: str | None = None,
     for bar in raw:
         if not isinstance(bar, dict):
             continue
-        result.append({k.lower(): v for k, v in bar.items()})
+        try:
+            result.append({k.lower(): v for k, v in bar.items()})
+        except Exception:
+            continue
     return result
 
 async def fetch_all_pairs(client: httpx.AsyncClient) -> list[dict]:
