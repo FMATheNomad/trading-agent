@@ -672,7 +672,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     entry = match.get("entry_price", 0)
                     pnl = (price_now - entry) / entry * 100 if entry else 0
                     atr_here = risk.compute_atr(_latest_ohlcv_map_1h.get(sell_pair, []))
-                    min_move = max(atr_here * 0.5, 0.3)
+                    min_move = max(atr_here * config.ATR_MIN_MOVE_MULTIPLIER, 0.3)
                     if abs(pnl) >= min_move and pnl >= config.PROFIT_SELL_THRESHOLD:
                         profit_sells.append(t)
                         print(f"PROFIT ROTATE: sell {sell_pair} ({pnl:+.1f}%, min_move={min_move:.1f}%)", flush=True)
@@ -761,6 +761,9 @@ async def portfolio_cycle(client: httpx.AsyncClient):
 
             ohlcv = ohlcv_map_1h.get(pid)
             atr_pct = risk.compute_atr(ohlcv) if ohlcv else None
+            if action == "BUY" and atr_pct and atr_pct > config.MAX_ATR_PCT:
+                print(f"  {pid}: ATR {atr_pct:.1f}% > max {config.MAX_ATR_PCT}% — skip (terlalu volatil)", flush=True)
+                continue
             if not risk.is_profit_viable(price, qty, action, atr_pct=atr_pct):
                 print(f"  {pid}: skipped - fees eat profit", flush=True)
                 continue
