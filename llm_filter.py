@@ -84,6 +84,67 @@ def _build_portfolio_context(
              f"Open positions: {len(current_positions)}",
              ""]
 
+    def _chg24(t: dict, live: dict | None) -> float:
+        if live and live.get("change_24h") is not None:
+            return live["change_24h"]
+        hi = t.get("high_24h", 0) or t.get("high", 0)
+        lo = t.get("low_24h", 0) or t.get("low", 0)
+        last = t.get("last", 0)
+        if hi and last:
+            return round((last / ((hi + lo) / 2) - 1) * 100, 2)
+        return 0
+
+    # --- 🔥 HOT NOW (trending) ---
+    trending = []
+    for pair, sig in all_signals.items():
+        vr = sig.get("volume_ratio", 1)
+        chg1 = abs(sig.get("price_change_pct", 0) or 0)
+        if vr > 1.3 and chg1 > 0.5:
+            trending.append((vr * chg1, pair, vr, chg1, sig.get("raw_signal", "")))
+    trending.sort(key=lambda x: x[0], reverse=True)
+    if trending:
+        lines.append("-- 🔥 Hot Now (volume spike + momentum) --")
+        for _, pair, vr, chg, sig_raw in trending[:7]:
+            lines.append(f"  {pair}: Vol(x{vr:.1f}) | 1h:{chg:+.2f}% | Sig:{sig_raw}")
+        lines.append("")
+
+    # --- 📈 TOP GAINER / 📉 TOP LOSER ---
+    if live_tickers:
+        gainers = sorted(live_tickers.items(), key=lambda x: x[1].get("change_24h", 0), reverse=True)[:7]
+        losers = sorted(live_tickers.items(), key=lambda x: x[1].get("change_24h", 0))[:5]
+        lines.append("-- 📈 Top Gainer 24h --")
+        for p, t in gainers:
+            sig = all_signals.get(p, {})
+            vr = sig.get("volume_ratio", 1)
+            spike = "🚀" if vr > 2 else " "
+            lines.append(f"  {spike}{p}: {t.get('change_24h', 0):+.2f}% | Vol:1h({vr:.1f}x) | Sig:{sig.get('raw_signal','?')}")
+        lines.append("")
+        lines.append("-- 📉 Top Loser 24h --")
+        for p, t in losers:
+            sig = all_signals.get(p, {})
+            vr = sig.get("volume_ratio", 1)
+            lines.append(f"  {p}: {t.get('change_24h', 0):+.2f}% | Vol:({vr:.1f}x) | Sig:{sig.get('raw_signal','?')}")
+        lines.append("")
+
+    # --- 🆕 NEW LISTINGS ---
+    if new_coins:
+        lines.append("-- 🆕 New Listings --")
+        for pid in sorted(new_coins)[:5]:
+            lc = live_tickers.get(pid, {}).get("change_24h", 0) if live_tickers else 0
+            sig = all_signals.get(pid, {}).get("raw_signal", "?")
+            lines.append(f"  {pid}: 24h:{lc:+.2f}% | Sig:{sig}")
+        lines.append("")
+
+    # --- 📊 PORTFOLIO BREAKDOWN ---
+    if current_positions:
+        lines.append("-- Portfolio Breakdown --")
+        for p in current_positions:
+            lines.append(f"  {p['pair']} {p['side']} | Entry:{p['entry_price']} | "
+                        f"Qty:{p['qty']} | PnL:{p.get('pnl_pct', 0):+.2f}% | "
+                        f"Value:Rp{p.get('current_value', 0):,.0f}")
+        lines.append("")
+
+    # --- Market Context (regime + strategy) ---
     if regime_info:
         lines.append(f"-- Market Regime: {regime_info.get('regime', 'N/A')} --")
         hmm_r = regime_info.get('hmm_regime', '')
@@ -96,27 +157,11 @@ def _build_portfolio_context(
         if regime_history:
             lines.append(f"Regime history (last {len(regime_history)}): {' → '.join(regime_history[-8:])}")
         lines.append("")
-
-    if pair_signals:
-        lines.append("-- Cointegration Pairs (Renaissance-style) --")
-        for ps in pair_signals:
-            icon = "⚡" if "SHORT" in ps.get("signal", "") or "LONG" in ps.get("signal", "") else " "
-            coint_tag = "COINT" if ps.get("cointegrated") is True else ("WEAK" if ps.get("cointegrated") == "WEAK" else "NOT")
-            lines.append(f"  {icon}{ps['pair']}: z={ps['z_score']} hl={ps.get('half_life_hours', '?')}h H={ps.get('hurst', '?')} "
-                        f"[{coint_tag}] → {ps['signal']} {ps.get('reason', '')}")
-        lines.append("")
-
-    if pair_suggestions:
-        lines.append("-- Cross Pairs Monitor --")
-        for p in pair_suggestions:
-            lines.append(f"  {p['pair']} = {p['ratio']} (A: {p['a_price']}, B: {p['b_price']})")
-        lines.append("")
-
-    if regime_info:
         strat = _strategy_map.get(regime_info.get("regime", ""), "NEUTRAL")
         lines.append(f"-- Active Strategy: {strat} --")
         lines.append("")
 
+    # --- Order Book ---
     if orderbooks:
         lines.append("-- Order Book Pressure (top 5 pairs) --")
         for pair, ob in list(orderbooks.items())[:5]:
@@ -124,63 +169,22 @@ def _build_portfolio_context(
                         f"BidVol:{ob.get('bid_vol', 0):.2f} AskVol:{ob.get('ask_vol', 0):.2f}")
         lines.append("")
 
-    trending = []
-    for pair, sig in all_signals.items():
-        vr = sig.get("volume_ratio", 1)
-        chg1 = abs(sig.get("price_change_pct", 0) or 0)
-        if vr > 1.3 and chg1 > 0.5:
-            trending.append((vr * chg1, pair, vr, chg1, sig.get("raw_signal", "")))
-    trending.sort(key=lambda x: x[0], reverse=True)
-    if trending:
-        lines.append(f"-- 🔥 Hot Now (volume spike + momentum) --")
-        for _, pair, vr, chg, sig_raw in trending[:7]:
-            lines.append(f"  {pair}: Vol(x{vr:.1f}) | 1h:{chg:+.2f}% | Sig:{sig_raw}")
+    # --- Cointegration ---
+    if pair_signals:
+        lines.append("-- Cointegration --")
+        for ps in pair_signals:
+            icon = "⚡" if "SHORT" in ps.get("signal", "") or "LONG" in ps.get("signal", "") else " "
+            coint_tag = "COINT" if ps.get("cointegrated") is True else ("WEAK" if ps.get("cointegrated") == "WEAK" else "NOT")
+            lines.append(f"  {icon}{ps['pair']}: z={ps['z_score']} hl={ps.get('half_life_hours', '?')}h"
+                        f" [{coint_tag}] → {ps['signal']}")
+        lines.append("")
+    if pair_suggestions:
+        lines.append("-- Cross Pairs --")
+        for p in pair_suggestions:
+            lines.append(f"  {p['pair']} = {p['ratio']} (A: {p['a_price']}, B: {p['b_price']})")
         lines.append("")
 
-    if new_coins:
-        lines.append(f"-- 🆕 New Listings ({len(new_coins)}) --")
-        for pid in sorted(new_coins)[:5]:
-            lc = live_tickers.get(pid, {}).get("change_24h", 0) if live_tickers else 0
-            sig = all_signals.get(pid, {}).get("raw_signal", "?")
-            lines.append(f"  {pid}: 24h:{lc:+.2f}% | Sig:{sig}")
-        lines.append("")
-
-    if live_tickers:
-        gainers = sorted(live_tickers.items(), key=lambda x: x[1].get("change_24h", 0), reverse=True)[:7]
-        losers = sorted(live_tickers.items(), key=lambda x: x[1].get("change_24h", 0))[:5]
-        lines.append("-- Top 5 Gainer 24h --")
-        for p, t in gainers:
-            sig = all_signals.get(p, {})
-            vr = sig.get("volume_ratio", 1)
-            spike = "🚀" if vr > 2 else " "
-            lines.append(f"  {spike}{p}: {t.get('change_24h', 0):+.2f}% | Vol:1h({vr:.1f}x) | Sig:{sig.get('raw_signal','?')}")
-        lines.append("")
-        lines.append("-- Top 5 Loser 24h --")
-        for p, t in losers:
-            sig = all_signals.get(p, {})
-            vr = sig.get("volume_ratio", 1)
-            lines.append(f"  {p}: {t.get('change_24h', 0):+.2f}% | Vol:({vr:.1f}x) | Sig:{sig.get('raw_signal','?')}")
-        lines.append("")
-
-    if current_positions:
-        lines.append("-- Portfolio Breakdown --")
-        for p in current_positions:
-            is_ext = " [USER POSITION]" if p.get("real") else ""
-            lines.append(f"  {p['pair']} {p['side']} | Entry:{p['entry_price']} | "
-                        f"Qty:{p['qty']} | PnL:{p.get('pnl_pct', 0):+.2f}% | "
-                        f"Value:Rp{p.get('current_value', 0):,.0f}{is_ext}")
-        lines.append("")
-
-    def _chg24(t: dict, live: dict | None) -> float:
-        if live and live.get("change_24h") is not None:
-            return live["change_24h"]
-        hi = t.get("high_24h", 0) or t.get("high", 0)
-        lo = t.get("low_24h", 0) or t.get("low", 0)
-        last = t.get("last", 0)
-        if hi and last:
-            return round((last / ((hi + lo) / 2) - 1) * 100, 2)
-        return 0
-
+    # --- 🧠 MARKET SCAN ---
     scored = []
     for pair, sig in all_signals.items():
         t = all_tickers.get(pair, {})
@@ -194,10 +198,9 @@ def _build_portfolio_context(
         trend_boost = vr * 0.5 if vr > 1.3 else 0
         combined_score = (abs(sig.get("score", 0)) + abs(chg24 / 5)) * (1 + vol_boost + trend_boost)
         scored.append((combined_score, pair, sig, t, chg24, vol_idr))
-
     scored.sort(key=lambda x: x[0], reverse=True)
 
-    lines.append(f"-- Market Scan ({len(all_signals)} pairs, ranked by momentum+volume) --")
+    lines.append(f"-- Market Scan ({len(all_signals)} pairs) --")
     for rank, (_, pair, sig, t, chg24, vol_idr) in enumerate(scored, 1):
         vol_spike = "🚀" if sig.get("volume_ratio", 0) > 2 else " "
         lines.append(
@@ -208,10 +211,7 @@ def _build_portfolio_context(
             f"1h:{sig.get('raw_signal')}({sig.get('score', 0)}) | "
             f"4h:{sig.get('4h_signal', 'N/A')}({sig.get('4h_score', 0)}) | "
             f"TF:{'Y' if sig.get('timeframe_aligned') else 'N'} | "
-            f"CV:{sig.get('conviction', 'LOW')} | "
-            f"RSI:{sig.get('rsi')} | MACD:{sig.get('macd_line')}/{sig.get('macd_signal')} | "
-            f"BB:{sig.get('bb_lower')}-{sig.get('bb_upper')} | "
-            f"Vol:{sig.get('volatility')}% | R14:{sig.get('range_14_pct')}% | "
+            f"RSI:{sig.get('rsi')} | Vol:{sig.get('volatility')}% | "
             f"M:{sig.get('momentum_streak', 0)}{sig.get('momentum_dir', '')} | "
             f"R:{sig.get('signal_reason')}"
         )
