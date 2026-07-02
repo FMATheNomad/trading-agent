@@ -508,7 +508,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         signal_count = sum(1 for s in all_signals.values() if s.get("raw_signal") in ("BUY", "SELL"))
         new_signals = signal_count > _prev_signal_count + 1 if _prev_signal_count > 0 else False
 
-        needs_deepseek = (can_trade or has_positions) and (has_active_signal or regime_changed or equity_changed or new_signals or (cycle_counter % 10 == 0))
+        needs_deepseek = (can_trade or has_positions) and (has_active_signal or regime_changed or equity_changed or new_signals or (cycle_counter % 30 == 0))
         skip_llm = not needs_deepseek
 
         _prev_equity = total_equity
@@ -516,9 +516,9 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         _prev_signal_count = signal_count
 
         if skip_llm:
-            if cycle_counter % 12 == 0:
-                print(f"LLM SKIPPED — no cash to trade (cycle {cycle_counter})", flush=True)
-            decision = {"decision": "HOLD", "reasoning": "No cash to trade — ATR SL/TP aktif", "trades": []}
+            if cycle_counter % 30 == 0:
+                print(f"LLM SKIPPED — engineering mode active (cycle {cycle_counter})", flush=True)
+            decision = {"decision": "HOLD", "reasoning": "Engineering mode — momentum engine + ATR SL/TP aktif", "trades": []}
         else:
             print("Calling DeepSeek portfolio manager...", flush=True)
             portfolio_pnl = ((total_equity - config.PLAY_CAPITAL_IDR) / config.PLAY_CAPITAL_IDR * 100
