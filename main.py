@@ -1241,6 +1241,12 @@ async def main():
                                         pnl = pnl_pct(p.get("entry_price") or 0, lp, p["side"])
                                         if config.PROFIT_SELL_THRESHOLD > 0 and pnl < config.PROFIT_SELL_THRESHOLD:
                                             reason += f"\n- {p['pair']} ({pnl:+.2f}%) belum ≥{config.PROFIT_SELL_THRESHOLD:.0f}% profit"
+                                        atr_for = risk.compute_atr(_latest_ohlcv_map_1h.get(p["pair"], []))
+                                        min_move = atr_for * config.ATR_MIN_MOVE_MULTIPLIER
+                                        if abs(pnl) < min_move:
+                                            reason += f"\n- {p['pair']} ({pnl:+.2f}%) belum cukup bergerak (min {min_move:.1f}%)"
+                                if reason == "Tidak ada trade karena:":
+                                    reason += "\n- Semua posisi dalam batas normal, menunggu sinyal"
                                 async with httpx.AsyncClient() as cc:
                                     await cc.post(
                                         f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
