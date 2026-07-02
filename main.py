@@ -898,7 +898,10 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         import traceback
         traceback.print_exc()
         try:
-            await send_message(f"Portfolio cycle error: {e}")
+            now_e = time.time()
+            if now_e - _order_error_cooldown.get("cycle_error", 0) > 1800:
+                _order_error_cooldown["cycle_error"] = now_e
+                await send_message(f"Portfolio cycle error: {e}")
         except Exception:
             pass
     finally:
