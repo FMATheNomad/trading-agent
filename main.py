@@ -714,7 +714,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
 
         if not trades:
             print(f"Cycle done in {int(time.time() - _t0)}s. Sleeping.", flush=True)
-            eq_pct = (total_equity - 410000) / 410000 * 100
+            eq_pct = (total_equity - config.PLAY_CAPITAL_IDR) / config.PLAY_CAPITAL_IDR * 100
             await send_message(
                 f"💳 Rp{total_equity:,.0f} ({eq_pct:+.1f}%)\n"
                 f"Cycle #{cycle_counter} | {regime_info['regime']} | {len(positions)} pos | Cash: Rp{actual_idr_balance:,.0f}"
