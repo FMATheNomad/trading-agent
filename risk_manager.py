@@ -16,6 +16,9 @@ class RiskManager:
         if total_equity < config.DAILY_LOSS_FLOOR_IDR and not self.daily_loss_stopped:
             self.daily_loss_stopped = True
             return "DAILY_LOSS_LIMIT"
+        if total_equity > config.MIN_ORDER_IDR and self.daily_loss_stopped:
+            self.daily_loss_stopped = False
+            self.today_peak = total_equity
         return None
 
     def should_stop_trading(self, total_equity: float) -> bool:
