@@ -1279,7 +1279,7 @@ async def main():
                                 async with httpx.AsyncClient() as cc:
                                     await cc.post(
                                         f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
-                                        json={"chat_id": cid, "text": "Perintah: /status, /ask <coin>, /why"},
+                                        json={"chat_id": cid, "text": "Perintah: /status, /ask <coin>, /atr, /why, /commands"},
                                     )
                                 continue
 
