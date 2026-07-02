@@ -506,7 +506,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         signal_count = sum(1 for s in all_signals.values() if s.get("raw_signal") in ("BUY", "SELL"))
         new_signals = signal_count > _prev_signal_count + 1 if _prev_signal_count > 0 else False
 
-        needs_deepseek = (can_trade or has_positions) and (has_active_signal or regime_changed or equity_changed or new_signals or (cycle_counter % 6 == 0))
+        needs_deepseek = (can_trade or has_positions) and (has_active_signal or regime_changed or equity_changed or new_signals or (cycle_counter % 10 == 0))
         skip_llm = not needs_deepseek
 
         _prev_equity = total_equity
