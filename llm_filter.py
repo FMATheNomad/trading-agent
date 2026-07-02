@@ -127,10 +127,15 @@ def _build_portfolio_context(
     trending = []
     for pair, sig in all_signals.items():
         vr = sig.get("volume_ratio", 1)
-        chg = sig.get("price_change_pct", 0) or 0
-        if vr > 1.5 and chg > 1 and sig.get("raw_signal") != "SELL":
-            trending.append((pair, vr, chg, sig.get("raw_signal", "")))
-    trending.sort(key=lambda x: x[1] * x[2], reverse=True)
+        chg1 = abs(sig.get("price_change_pct", 0) or 0)
+        if vr > 1.3 and chg1 > 0.5:
+            trending.append((vr * chg1, pair, vr, chg1, sig.get("raw_signal", "")))
+    trending.sort(key=lambda x: x[0], reverse=True)
+    if trending:
+        lines.append(f"-- 🔥 Hot Now (volume spike + momentum) --")
+        for _, pair, vr, chg, sig_raw in trending[:7]:
+            lines.append(f"  {pair}: Vol(x{vr:.1f}) | 1h:{chg:+.2f}% | Sig:{sig_raw}")
+        lines.append("")
 
     if new_coins:
         lines.append(f"-- 🆕 New Listings ({len(new_coins)}) --")
@@ -138,12 +143,6 @@ def _build_portfolio_context(
             lc = live_tickers.get(pid, {}).get("change_24h", 0) if live_tickers else 0
             sig = all_signals.get(pid, {}).get("raw_signal", "?")
             lines.append(f"  {pid}: 24h:{lc:+.2f}% | Sig:{sig}")
-        lines.append("")
-
-    if trending:
-        lines.append("-- 🔥 Hot Now (volume spike + momentum) --")
-        for pair, vr, chg, sig in trending[:5]:
-            lines.append(f"  {pair}: Vol(x{vr:.1f}) | 1h:{chg:+.2f}% | Sig:{sig}")
         lines.append("")
 
     if live_tickers:
@@ -191,7 +190,9 @@ def _build_portfolio_context(
         chg24 = _chg24(t, lt)
         vol_idr = float(t.get("vol_idr", 0))
         vol_boost = min(vol_idr / 300_000_000_000, 1.5)
-        combined_score = (abs(sig.get("score", 0)) + abs(chg24 / 5)) * (1 + vol_boost)
+        vr = sig.get("volume_ratio", 1)
+        trend_boost = vr * 0.5 if vr > 1.3 else 0
+        combined_score = (abs(sig.get("score", 0)) + abs(chg24 / 5)) * (1 + vol_boost + trend_boost)
         scored.append((combined_score, pair, sig, t, chg24, vol_idr))
 
     scored.sort(key=lambda x: x[0], reverse=True)
