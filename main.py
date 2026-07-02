@@ -681,8 +681,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     atr_here = risk.compute_atr(_latest_ohlcv_map_1h.get(sell_pair, []))
                     min_move = atr_here * config.ATR_MIN_MOVE_MULTIPLIER if config.ATR_MIN_MOVE_MULTIPLIER > 0 else 0
                     hold_time = time.time() - match.get("entry_time", time.time())
-                    hold_cycles = hold_time / config.LOOP_INTERVAL_SECONDS
-                    strategic_rotate = hold_cycles > 3 and pnl < -atr_here and config.PROFIT_SELL_THRESHOLD > 0
+                    strategic_rotate = hold_time > 900 and pnl < -atr_here and config.PROFIT_SELL_THRESHOLD > 0
                     if strategic_rotate or (abs(pnl) >= min_move and pnl >= config.PROFIT_SELL_THRESHOLD):
                         profit_sells.append(t)
                         label = "STRATEGIC" if strategic_rotate else "PROFIT"
