@@ -819,6 +819,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 t["entry_price"] = actual_price
                 t["exec_price"] = actual_price
                 actual_idr_balance -= actual_spend
+                _latest_balance = actual_idr_balance
                 positions.append({
                     "pair": pid, "side": action,
                     "entry_price": actual_price, "qty": actual_qty,
@@ -832,6 +833,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 actual_sell_price = actual_received / actual_qty if actual_qty else price
                 t["exec_price"] = actual_sell_price
                 actual_idr_balance += actual_received
+                _latest_balance = actual_idr_balance
                 positions = [p for p in positions if p["pair"] != pid]
                 persist.save_positions(positions)
             executed_trades.append(t)
