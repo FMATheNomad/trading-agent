@@ -19,19 +19,26 @@ def decide(all_signals, ticker_map, live_tickers, positions, actual_idr_balance,
         price = r["price"]
         pnl = (price - entry) / entry * 100
         hold = time.time() - pos.get("entry_time", time.time())
+        atr = r["atr"] or 1.0
         sell_reason = None
 
-        cut_thresh = -6 if is_bear else -8
+        cut_thresh = -max(atr * config.ATR_CUT_MULT, 3)
+        if is_bear:
+            cut_thresh = -max(atr * config.ATR_CUT_MULT * 0.8, 2)
         if pnl < cut_thresh:
-            sell_reason = f"Cut {pnl:.1f}%"
+            sell_reason = f"Cut {pnl:.1f}% (ATR×{config.ATR_CUT_MULT})"
+
         elif r["signal"] == "SELL" and pnl < 0:
             sell_reason = f"Signal SELL"
-        elif r["rank"] > len(ranked) * 0.5 and pnl < -2:
+
+        elif r["rank"] > len(ranked) * 0.5 and pnl < -max(atr * 0.5, 1):
             sell_reason = f"Rank {r['rank']}/{len(ranked)} turun"
-        elif config.PROFIT_SELL_THRESHOLD > 0 and pnl >= config.PROFIT_SELL_THRESHOLD:
-            sell_reason = f"Profit {pnl:.1f}%"
-        elif hold > 900 and pnl < 0.3 and config.PROFIT_SELL_THRESHOLD > 0:
-            sell_reason = f"Stagnan {int(hold/60)}m"
+
+        elif pnl >= atr * config.ATR_PROFIT_SELL_MULT and config.ATR_PROFIT_SELL_MULT < 10:
+            sell_reason = f"Profit {pnl:.1f}% (ATR×{config.ATR_PROFIT_SELL_MULT})"
+
+        elif hold > 900 and pnl < max(atr * config.ATR_STAGNANT_MULT, 0.2) and config.ATR_STAGNANT_MULT < 10:
+            sell_reason = f"Stagnan {int(hold/60)}m (ATR×{config.ATR_STAGNANT_MULT})"
 
         if sell_reason:
             trades.append({"pair": pair, "action": "SELL", "allocation_pct": 100, "reason": sell_reason})

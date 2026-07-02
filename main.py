@@ -650,8 +650,9 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     atr_here = risk.compute_atr(_latest_ohlcv_map_1h.get(sell_pair, []))
                     min_move = atr_here * config.ATR_MIN_MOVE_MULTIPLIER if config.ATR_MIN_MOVE_MULTIPLIER > 0 else 0
                     hold_time = time.time() - match.get("entry_time", time.time())
-                    stagnant = _strategic_rotate_enabled and hold_time > 1800 and abs(pnl) < atr_here * 0.5 and config.PROFIT_SELL_THRESHOLD > 0
-                    if stagnant or (abs(pnl) >= min_move and pnl >= config.PROFIT_SELL_THRESHOLD):
+                    stagnant = _strategic_rotate_enabled and hold_time > 1800 and abs(pnl) < atr_here * config.ATR_STAGNANT_MULT and config.ATR_STAGNANT_MULT < 10
+                    pnl_target = atr_here * config.ATR_PROFIT_SELL_MULT
+                    if stagnant or (abs(pnl) >= min_move and pnl >= pnl_target):
                         profit_sells.append(t)
                         label = "STAGNANT" if stagnant else "PROFIT"
                         print(f"{label} ROTATE: sell {sell_pair} ({pnl:+.1f}%)", flush=True)
@@ -1444,9 +1445,10 @@ async def main():
                                     for p in positions[:5]:
                                         lp = LIVE_TICKERS.get(p["pair"], {}).get("last") or _latest_ticker_map.get(p["pair"], {}).get("last") or p.get("entry_price", 0)
                                         pnl = pnl_pct(p.get("entry_price") or 0, lp, p["side"])
-                                        if config.PROFIT_SELL_THRESHOLD > 0 and pnl < config.PROFIT_SELL_THRESHOLD:
-                                            reason += f"\n- {p['pair']} ({pnl:+.2f}%) belum ≥{config.PROFIT_SELL_THRESHOLD:.0f}% profit"
                                         atr_for = risk.compute_atr(_latest_ohlcv_map_1h.get(p["pair"], []))
+                                        pnl_target = atr_for * config.ATR_PROFIT_SELL_MULT
+                                        if pnl < pnl_target:
+                                            reason += f"\n- {p['pair']} ({pnl:+.2f}%) belum ≥{pnl_target:.1f}% (ATR-based)"
                                         min_move = atr_for * config.ATR_MIN_MOVE_MULTIPLIER
                                         if abs(pnl) < min_move:
                                             reason += f"\n- {p['pair']} ({pnl:+.2f}%) belum cukup bergerak (min {min_move:.1f}%)"
