@@ -978,7 +978,10 @@ async def _momentum_scanner():
                 if vol_idr < 1_000_000_000:
                     print(f"    Vol Rp{vol_idr:,.0f} < 1T — skip", flush=True)
                     continue
-                alloc = 0.75
+                if _latest_all_signals.get(pid, {}).get("timeframe_aligned") is not True:
+                    print(f"    TF not aligned — skip", flush=True)
+                    continue
+                alloc = 0.4
                 amount = int(cash_avail * alloc)
                 if amount < config.MIN_ORDER_IDR:
                     continue

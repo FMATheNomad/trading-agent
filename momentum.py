@@ -67,18 +67,6 @@ class MomentumEngine:
         oversold_threshold = 30 + atr * 1.5
         return rsi < oversold_threshold
 
-    def price_breakout(self, closes: list[float], current_price: float, atr: float, rsi: float = 50) -> bool:
-        if len(closes) < 6:
-            return False
-        high_1h = max(closes[-6:])
-        prev_high = max(closes[-7:-1])
-        min_break = high_1h * atr * 0.3 / 100
-        if not (current_price > high_1h + min_break and high_1h >= prev_high):
-            return False
-        if rsi > 65:
-            return False
-        return True
-
     def evaluate(self, pair: str, ohlcv_1h: list[dict], price: float) -> str | None:
         closes = [float(c["close"]) for c in ohlcv_1h[-60:]] if len(ohlcv_1h) >= 30 else []
         if len(closes) < 22:
@@ -103,8 +91,6 @@ class MomentumEngine:
             reasons.append(f"VOL{atr_pctile:.0f}")
         if self.rsi_oversold(closes, atr):
             reasons.append(f"RSI{atr:.0f}")
-        if self.price_breakout(closes, price, atr, rsi):
-            reasons.append(f"BRK{atr:.1f}")
 
         signal_key = "+".join(sorted(reasons)) if reasons else None
         if signal_key and len(reasons) >= 2:

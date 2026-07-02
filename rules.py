@@ -57,13 +57,16 @@ def decide(all_signals, ticker_map, live_tickers, positions, actual_idr_balance,
             and r["pair"] not in config.SKIP_COINS
             and r["pair"] not in coin_blacklist
             and r["signal"] == "BUY"
+            and r["tf_aligned"]
             and r["score"] >= min_score
             and r["vol_idr"] >= 1_000_000_000
             and r["price"] > 0
             and (r["atr"] or 0) <= 55.0
         ]
+        per_slot = max(config.MIN_ORDER_IDR, int(actual_idr_balance * 0.35 / max(slots, 1)))
         for c in candidates[:slots]:
-            alloc = min(max(int(c["score"] * 5), 70), 95)
+            alloc = int(per_slot / actual_idr_balance * 100) if actual_idr_balance > 0 else 0
+            alloc = min(max(alloc, 20), 50)
             trades.append({
                 "pair": c["pair"], "action": "BUY", "allocation_pct": alloc,
                 "reason": f"Rank {c['rank']} s{c['score']:.0f}"
