@@ -1233,8 +1233,8 @@ async def main():
                                     for p in positions[:5]:
                                         lp = LIVE_TICKERS.get(p["pair"], {}).get("last") or _latest_ticker_map.get(p["pair"], {}).get("last") or p.get("entry_price", 0)
                                         pnl = pnl_pct(p.get("entry_price") or 0, lp, p["side"])
-                                        if pnl < config.PROFIT_SELL_THRESHOLD:
-                                            reason += f"\n- {p['pair']} ({pnl:+.2f}%) belum ≥2% profit"
+                                        if config.PROFIT_SELL_THRESHOLD > 0 and pnl < config.PROFIT_SELL_THRESHOLD:
+                                            reason += f"\n- {p['pair']} ({pnl:+.2f}%) belum ≥{config.PROFIT_SELL_THRESHOLD:.0f}% profit"
                                 async with httpx.AsyncClient() as cc:
                                     await cc.post(
                                         f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
