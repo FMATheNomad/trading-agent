@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 import hmac
+import math
 import sys
 import signal
 import time
@@ -261,6 +262,21 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             async with sem:
                 try:
                     o1, o4 = await fetch_ohlcv_both(client, pair=pid)
+                    for ohlcv in (o1, o4):
+                        cleaned = []
+                        for bar in ohlcv:
+                            try:
+                                c = float(bar.get("close", 0))
+                                h = float(bar.get("high", 0))
+                                l = float(bar.get("low", 0))
+                                o = float(bar.get("open", 0))
+                                v = float(bar.get("volume", bar.get("vol", 0)))
+                                if any(math.isnan(x) or math.isinf(x) or x <= 0 for x in (c,h,l,o,v)):
+                                    continue
+                            except Exception:
+                                continue
+                            cleaned.append(bar)
+                        ohlcv[:] = cleaned
                     if len(o1) >= 30:
                         ohlcv_map_1h[pid] = o1
                         ticker_map[pid] = v["ticker"]
