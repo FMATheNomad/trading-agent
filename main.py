@@ -689,9 +689,14 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     pnl = (price_now - entry) / entry * 100 if entry else 0
                     atr_here = risk.compute_atr(_latest_ohlcv_map_1h.get(sell_pair, []))
                     min_move = atr_here * config.ATR_MIN_MOVE_MULTIPLIER if config.ATR_MIN_MOVE_MULTIPLIER > 0 else 0
-                    if abs(pnl) >= min_move and pnl >= config.PROFIT_SELL_THRESHOLD:
+                    hold_time = time.time() - match.get("entry_time", time.time())
+                    stagnant = hold_time > 1800 and abs(pnl) < atr_here * 0.5 and config.PROFIT_SELL_THRESHOLD > 0
+                    if stagnant or (abs(pnl) >= min_move and pnl >= config.PROFIT_SELL_THRESHOLD):
                         profit_sells.append(t)
-                        print(f"PROFIT ROTATE: sell {sell_pair} ({pnl:+.1f}%)", flush=True)
+                        label = "STAGNANT" if stagnant else "PROFIT"
+                        print(f"{label} ROTATE: sell {sell_pair} ({pnl:+.1f}%)", flush=True)
+                        if stagnant:
+                            await send_message(f"🔄 ROTASI: jual {sell_pair} ({pnl:+.1f}%) — stagnant >30m")
                         await send_message(f"🔄 JUAL {sell_pair} ({pnl:+.1f}%)")
         trades = [t for t in trades if not (t.get("action") == "SELL" and t not in profit_sells)]
         if cycle_counter <= 1:
