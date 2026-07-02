@@ -44,7 +44,14 @@ class RiskManager:
             target = entry_price * (1 - target_mult)
         gross = abs(target - entry_price) * qty
         fee_roundtrip = (entry_price * qty * config.TAKER_FEE_PCT) + (target * qty * config.TAKER_FEE_PCT)
-        return gross > fee_roundtrip
+        if gross <= fee_roundtrip:
+            return False
+        sl_mult = atr * config.ATR_SL_MULTIPLIER / 100
+        loss_if_sl = abs(entry_price * sl_mult) * qty + fee_roundtrip
+        rr_ratio = gross / max(loss_if_sl, 1)
+        if rr_ratio < 0.8:
+            return False
+        return True
 
     def get_sl_tp(self, entry_price: float, side: str, atr_pct: float | None = None) -> tuple[float, float]:
         atr = atr_pct or 1.0
