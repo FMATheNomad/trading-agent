@@ -1106,7 +1106,7 @@ async def main():
             return f"Error: {str(e)[:60]}"
 
     async def _build_coin_detail(pair: str) -> str:
-        pid = pair if pair.endswith("_idr") else f"{pair}_idr"
+        pid = (pair if pair.endswith("_idr") else f"{pair}_idr").lower()
         sig = _latest_all_signals.get(pid, {})
         t = _latest_ticker_map.get(pid, {})
         lt = LIVE_TICKERS.get(pid, {})
