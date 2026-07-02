@@ -24,6 +24,11 @@ OHLCV_FETCH_CONCURRENCY = 10
 MAX_POSITION_PCT_PER_ASSET = 0.5
 MAX_SECTOR_EXPOSURE_PCT = 0.7
 
+# --- Kelly Criterion ---
+KELLY_FRACTION = 0.25
+MAX_KELLY_ALLOC = 0.95
+MIN_KELLY_ALLOC = 0.3
+
 # --- Mode Profile ---
 ALPHA_MODE = os.getenv("ALPHA_MODE", "true").strip().lower() == "true"
 INSANE_MODE = os.getenv("INSANE_MODE", "false").strip().lower() == "true"
@@ -111,13 +116,6 @@ CORRELATION_PAIRS = [
 
 # --- ML Signal ---
 ML_TRAIN_MIN_SAMPLES = 100
-ML_FORECAST_HORIZON = 5
-ML_BUY_THRESHOLD = 0.65
-
-# --- Kelly Criterion ---
-KELLY_FRACTION = 0.25
-MAX_KELLY_ALLOC = 0.95
-MIN_KELLY_ALLOC = 0.3
 
 # --- ATR-Based TP ---
 ATR_TP_MULTIPLIER = 1.0
