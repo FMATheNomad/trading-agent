@@ -166,7 +166,7 @@ def pnl_pct(entry: float, current: float, side: str) -> float:
 cycle_counter = 0
 
 async def portfolio_cycle(client: httpx.AsyncClient):
-    global positions, cycle_counter, _prev_regime, _prev_equity, _prev_signal_count, _report_sent_count
+    global positions, cycle_counter, _prev_regime, _prev_equity, _prev_signal_count, _report_sent_count, _latest_regime, _latest_ticker_map, _latest_all_signals, _latest_ohlcv_map_1h, _latest_balance
     cycle_counter += 1
     _t0 = time.time()
     risk.daily_loss_stopped = False
@@ -671,9 +671,11 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     price_now = LIVE_TICKERS.get(sell_pair, {}).get("last") or ticker_map.get(sell_pair, {}).get("last", 0)
                     entry = match.get("entry_price", 0)
                     pnl = (price_now - entry) / entry * 100 if entry else 0
-                    if pnl >= config.PROFIT_SELL_THRESHOLD:
+                    atr_here = risk.compute_atr(_latest_ohlcv_map_1h.get(sell_pair, []))
+                    min_move = max(atr_here * 0.5, 0.3)
+                    if abs(pnl) >= min_move and pnl >= config.PROFIT_SELL_THRESHOLD:
                         profit_sells.append(t)
-                        print(f"PROFIT ROTATE: sell {sell_pair} (+{pnl:.1f}%)", flush=True)
+                        print(f"PROFIT ROTATE: sell {sell_pair} ({pnl:+.1f}%, min_move={min_move:.1f}%)", flush=True)
         trades = [t for t in trades if not (t.get("action") == "SELL" and t not in profit_sells)]
         if cycle_counter <= 1:
             if any(t.get("action") == "SELL" for t in decision.get("trades", [])):
@@ -896,7 +898,6 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             pair_str = ",".join(p["pair"] for p in positions[:5])
             await refresh_deadman(client, pair_str)
 
-        global _latest_regime, _latest_ticker_map, _latest_all_signals, _latest_ohlcv_map_1h, _latest_balance
         _latest_regime = regime_info
         _latest_ticker_map = ticker_map
         _latest_all_signals = all_signals
