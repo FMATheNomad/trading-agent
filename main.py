@@ -22,7 +22,7 @@ from risk_manager import RiskManager, PortfolioRiskManager
 from executor import place_order, get_balance, get_order
 from deadman import refresh_deadman, cancel_deadman
 from notifier import send_message
-from db import init_db, log_trade, log_decision, get_recent_trades, get_trade_count_today, save_chat, get_chat_history, init_chat_db
+from db import init_db, log_trade, log_decision, get_recent_trades, get_trade_count_today, get_trades_by_period, save_chat, get_chat_history, init_chat_db
 import persist
 from market_ws import market_ws_loop, LIVE_TICKERS, stop as mws_stop, set_on_tick
 from private_ws import private_ws_loop, stop as pws_stop
@@ -1364,6 +1364,9 @@ async def main():
                                               "/atr SOL — ATR spesifik koin\n"
                                               "/why — Alasan bot gak trading\n"
                                               "/project — Proyeksi harian, bulanan, tahunan\n"
+                                              "/today — Performa hari ini\n"
+                                              "/month — Performa bulan ini\n"
+                                              "/year — Performa tahun ini\n"
                                               "/commands — Daftar ini\n"
                                               "/cycle — Status siklus & waktu\n"
                                               "/perf — Performa & win rate\n"
@@ -1437,6 +1440,39 @@ async def main():
                                     f"📅 Bulanan: Rp{proj_month:,.0f}\n"
                                     f"📅 Tahunan: Rp{proj_year:,.0f}"
                                 )
+                                async with httpx.AsyncClient() as cc:
+                                    await cc.post(f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
+                                        json={"chat_id": cid, "text": text})
+                                continue
+
+                            if txt in ("/today", "/month", "/year"):
+                                period_map = {"/today": "day", "/month": "month", "/year": "year"}
+                                period = period_map[txt]
+                                label_map = {"day": "HARI INI", "month": "BULAN INI", "year": "TAHUN INI"}
+                                label = label_map[period]
+                                try:
+                                    trades_in = get_trades_by_period(period)
+                                    sells = [t for t in trades_in if t["side"] == "sell" and t["pnl"] is not None]
+                                    total_pnl = sum(t["pnl"] for t in sells)
+                                    wins = [t for t in sells if t["pnl"] > 0]
+                                    losses = [t for t in sells if t["pnl"] <= 0]
+                                    fee_est = sum(abs(t.get("amount_idr", 0) or 0) for t in trades_in) * config.TAKER_FEE_PCT
+                                    text = (
+                                        f"📊 {label}\n"
+                                        f"Trade: {len(sells)}x ({len(wins)}W/{len(losses)}L)\n"
+                                        f"Win rate: {len(wins)/max(len(sells),1)*100:.0f}%\n"
+                                        f"Total PnL: Rp{total_pnl:+,.0f}\n"
+                                        f"Est fee: Rp{fee_est:,.0f}\n"
+                                        f"Net: Rp{total_pnl - fee_est:+,.0f}"
+                                    )
+                                    if wins:
+                                        best = max(wins, key=lambda x: x["pnl"])
+                                        text += f"\nBest: {best.get('reason','?')} ({best['pnl']:+.0f})"
+                                    if losses:
+                                        worst = min(losses, key=lambda x: x["pnl"])
+                                        text += f"\nWorst: {worst.get('reason','?')} ({worst['pnl']:+.0f})"
+                                except Exception as e:
+                                    text = f"Error: {str(e)[:60]}"
                                 async with httpx.AsyncClient() as cc:
                                     await cc.post(f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
                                         json={"chat_id": cid, "text": text})

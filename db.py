@@ -136,6 +136,33 @@ def get_trade_count_today() -> int:
         ).fetchone()
     return row[0] if row else 0
 
+def get_trades_by_period(period: str = "day") -> list[dict]:
+    now = datetime.now(timezone.utc)
+    if period == "day":
+        prefix = now.strftime("%Y-%m-%d")
+        like = f"{prefix}%"
+    elif period == "month":
+        prefix = now.strftime("%Y-%m")
+        like = f"{prefix}%"
+    elif period == "year":
+        prefix = now.strftime("%Y")
+        like = f"{prefix}%"
+    else:
+        return []
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM trades WHERE timestamp LIKE ? ORDER BY timestamp DESC",
+            (like,),
+        ).fetchall()
+    result = []
+    for r in rows:
+        result.append({
+            "id": r[0], "timestamp": r[1], "side": r[2], "price": r[3],
+            "qty": r[4], "amount_idr": r[5], "order_type": r[6],
+            "status": r[7], "pnl": r[8], "reason": r[9], "paper_trade": r[10],
+        })
+    return result
+
 def init_chat_db():
     with _conn() as conn:
         conn.execute("""
