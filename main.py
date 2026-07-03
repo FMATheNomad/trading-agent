@@ -670,6 +670,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         trades = [t for t in trades if t.get("action") != "BUY" or t["pair"] not in _coin_blacklist]
         if config.FUNDAMENTAL_COINS:
             trades = [t for t in trades if t.get("action") != "BUY" or t["pair"] in config.FUNDAMENTAL_COINS]
+        if config.RECOVERY_TOP:
+            trades = [t for t in trades if t.get("action") != "BUY" or t["pair"] in config.RECOVERY_TOP]
         if config.SKIP_COINS:
             trades = [t for t in trades if t.get("action") != "BUY" or t["pair"] not in config.SKIP_COINS]
         if _coin_blacklist:
@@ -1660,7 +1662,11 @@ async def main():
     set_on_tick(_realtime_sltp_check)
     ws_task = asyncio.create_task(market_ws_loop())
     pws_task = asyncio.create_task(private_ws_loop())
-    momentum_task = asyncio.create_task(_momentum_scanner())
+    if not config.ALPHA_MODE:
+        momentum_task = asyncio.create_task(_momentum_scanner())
+    else:
+        print("RECOVERY MODE: momentum scanner disabled", flush=True)
+        momentum_task = None
     for _ in range(6):
         await asyncio.sleep(0.5)
 

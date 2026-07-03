@@ -17,10 +17,10 @@ DEFAULT_PLAY_CAPITAL_PCT = 0.5
 PORTFOLIO_MODE = True
 MAX_OPEN_POSITIONS = 3
 def max_positions_for_equity(equity: float) -> int:
-    if equity >= 10_000_000: return 4
-    if equity >= 5_000_000: return 3
-    if equity >= 1_000_000: return 3
-    return 2
+    if equity >= 10_000_000: return 3
+    if equity >= 5_000_000: return 2
+    if equity >= 1_000_000: return 2
+    return 1
 
 MIN_24H_VOLUME_IDR = 50_000_000
 MAX_SCAN_PAIRS = 60
@@ -45,13 +45,22 @@ if INSANE_MODE:
     MAX_DAILY_TRADES = 999999
     KELLY_FRACTION = 0.75
 elif ALPHA_MODE:
-    DAILY_LOSS_FLOOR_IDR = 30_000
-    PORTFOLIO_STOP_LOSS_PCT = -0.20
-    MAX_DAILY_TRADES = 15
+    DAILY_LOSS_FLOOR_IDR = 15_000
+    PORTFOLIO_STOP_LOSS_PCT = -0.10
+    MAX_DAILY_TRADES = 5
+    MAX_OPEN_POSITIONS = 1
+    MAX_POSITION_PCT_PER_ASSET = 0.25
+    KELLY_FRACTION = 0.10
+    ATR_TP_MULTIPLIER = 1.5
+    ATR_SL_MULTIPLIER = 2.0
+    ATR_PROFIT_SELL_MULT = 1.2
+    ATR_CUT_MULT = 2.0
+    ATR_STAGNANT_MULT = 1.2
 else:
-    DAILY_LOSS_FLOOR_IDR = 30_000
-    PORTFOLIO_STOP_LOSS_PCT = -0.15
-    MAX_DAILY_TRADES = 10
+    DAILY_LOSS_FLOOR_IDR = 15_000
+    PORTFOLIO_STOP_LOSS_PCT = -0.10
+    MAX_DAILY_TRADES = 3
+    MAX_OPEN_POSITIONS = 1
 TAKER_FEE_PCT = 0.0035
 MAKER_FEE_PCT = 0.0020
 FEE_CLEARANCE_RATIO = 2.5
@@ -63,12 +72,17 @@ FUNDAMENTAL_COINS: set[str] = {
     "xlm_idr", "sui_idr", "pepe_idr", "uni_idr", "aave_idr",
     "atom_idr", "algo_idr", "fil_idr", "icp_idr", "xtz_idr",
     "arb_idr", "op_idr", "inj_idr", "grt_idr", "sand_idr",
-    "mana_idr", "crv_idr", "fet_idr", "ethereum_idr", "etc_idr",
-    "hbar_idr", "vet_idr", "theta_idr", "eos_idr", "iota_idr",
-    "ksm_idr", "yfi_idr", "axs_idr", "cake_idr", "enj_idr",
-    "celo_idr", "imx_idr", "pendle_idr", "jup_idr", "ondo_idr",
-    "ldo_idr", "bonk_idr", "wif_idr", "mnt_idr", "trump_idr",
-    "hype_idr", "render_idr", "ionet_idr", "strk_idr", "tia_idr",
+    "mana_idr", "crv_idr", "fet_idr", "etc_idr", "hbar_idr",
+    "vet_idr", "theta_idr", "iota_idr", "ksm_idr", "yfi_idr",
+    "axs_idr", "cake_idr", "enj_idr", "celo_idr", "imx_idr",
+    "pendle_idr", "jup_idr", "ondo_idr", "ldo_idr", "bonk_idr",
+    "wif_idr", "mnt_idr", "trump_idr", "hype_idr", "render_idr",
+    "strk_idr", "tia_idr",
+}
+RECOVERY_TOP: set[str] = {
+    "btc_idr", "eth_idr", "sol_idr", "xrp_idr", "bnb_idr",
+    "ada_idr", "doge_idr", "avax_idr", "dot_idr", "link_idr",
+    "sui_idr", "near_idr", "trx_idr",
 }
 STABLECOINS = {"usdt_idr", "usdc_idr", "busd_idr", "dai_idr", "tusd_idr", "fdusd_idr"}
 SKIP_COINS: set[str] = set()

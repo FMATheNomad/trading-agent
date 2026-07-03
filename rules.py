@@ -58,28 +58,30 @@ def decide(all_signals, ticker_map, live_tickers, positions, actual_idr_balance,
     slots = max_pos - remaining
 
     if slots > 0 and actual_idr_balance >= config.MIN_ORDER_IDR * 3:
-        min_score = 3 if is_bear else 6
+        min_score = 5 if is_bear else 8
         candidates = [
             r for r in ranked
             if r["pair"] not in held_pairs
             and r["pair"] not in config.STABLECOINS
             and r["pair"] not in config.SKIP_COINS
             and (not config.FUNDAMENTAL_COINS or r["pair"] in config.FUNDAMENTAL_COINS)
+            and (not config.RECOVERY_TOP or r["pair"] in config.RECOVERY_TOP)
             and r["pair"] not in coin_blacklist
             and r["signal"] == "BUY"
             and r["tf_aligned"]
             and r["score"] >= min_score
             and r["vol_idr"] >= 500_000_000
             and r["price"] >= 50
-            and (r["atr"] or 0) <= 25.0
+            and (r["atr"] or 0) <= 15.0
+            and (r.get("ema50") is None or r["price"] > r["ema50"])
         ]
-        slots = min(slots, 2)
-        n_bins = max(1, int(actual_idr_balance / 50000))
-        n_bins = min(n_bins, slots, 3)
-        per_bin = max(config.MIN_ORDER_IDR, int(actual_idr_balance * 0.35 / max(n_bins, 1)))
+        slots = min(slots, 1)
+        n_bins = max(1, int(actual_idr_balance / 75000))
+        n_bins = min(n_bins, slots, 2)
+        per_bin = max(config.MIN_ORDER_IDR, int(actual_idr_balance * 0.25 / max(n_bins, 1)))
         for c in candidates[:n_bins]:
             alloc = int(per_bin / actual_idr_balance * 100) if actual_idr_balance > 0 else 0
-            alloc = min(max(alloc, 15), 35)
+            alloc = min(max(alloc, 10), 25)
             trades.append({
                 "pair": c["pair"], "action": "BUY", "allocation_pct": alloc,
                 "reason": f"Rank {c['rank']} s{c['score']:.0f}"
@@ -179,6 +181,7 @@ def _score_all_pairs(all_signals, ticker_map, live_tickers, book_pressure_map=No
             "signal": raw,
             "rsi": rsi,
             "atr": atr,
+            "ema50": sig.get("ema50"),
             "volume_ratio": vr,
             "tf_aligned": sig.get("timeframe_aligned", False),
             "price": price,
