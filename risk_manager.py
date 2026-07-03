@@ -44,7 +44,8 @@ class RiskManager:
     def estimate_fee(self, amount_idr: float) -> float:
         return amount_idr * config.TAKER_FEE_PCT
 
-    def is_profit_viable(self, entry_price: float, qty: float, side: str, atr_pct: float | None = None) -> bool:
+    def is_profit_viable(self, entry_price: float, qty: float, side: str, atr_pct: float | None = None,
+                         is_tp_maker: bool = True) -> bool:
         atr = max(atr_pct or 1.5, 1.5)
         if atr < 1.0:
             atr = 1.5
@@ -54,11 +55,15 @@ class RiskManager:
         else:
             target = entry_price * (1 - target_mult)
         gross = abs(target - entry_price) * qty
-        fee_roundtrip = (entry_price * qty * config.TAKER_FEE_PCT) + (target * qty * config.TAKER_FEE_PCT)
+        exit_fee = config.MAKER_FEE_PCT if is_tp_maker else config.TAKER_FEE_PCT
+        fee_roundtrip = (entry_price * qty * config.TAKER_FEE_PCT) + (target * qty * exit_fee)
         if gross <= fee_roundtrip:
             return False
+        clearance = gross / max(fee_roundtrip, 1e-10)
+        if clearance < config.FEE_CLEARANCE_RATIO:
+            return False
         sl_mult = atr * config.ATR_SL_MULTIPLIER / 100
-        loss_if_sl = abs(entry_price * sl_mult) * qty + fee_roundtrip
+        loss_if_sl = abs(entry_price * sl_mult) * qty + (entry_price * qty * config.TAKER_FEE_PCT) + (target * qty * config.TAKER_FEE_PCT)
         rr_ratio = gross / max(loss_if_sl, 1e-6)
         if rr_ratio < 0.6:
             return False
@@ -67,7 +72,7 @@ class RiskManager:
     def get_sl_tp(self, entry_price: float, side: str, atr_pct: float | None = None) -> tuple[float, float]:
         atr = atr_pct or 1.0
         sl_mult = max(atr * config.ATR_SL_MULTIPLIER, 0.5)
-        tp_mult = max(atr * config.ATR_TP_MULTIPLIER, 1.0)
+        tp_mult = max(atr * config.ATR_TP_MULTIPLIER, 0.8)
         if side.upper() == "BUY":
             sl = entry_price * (1 - sl_mult / 100)
             tp = entry_price * (1 + tp_mult / 100)

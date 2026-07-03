@@ -69,7 +69,7 @@ def decide(all_signals, ticker_map, live_tickers, positions, actual_idr_balance,
             and r["price"] > 0
             and (r["atr"] or 0) <= 55.0
         ]
-        n_bins = min(slots, max(1, int(actual_idr_balance / config.MIN_ORDER_IDR / 2)))
+        n_bins = min(slots, max(1, int(actual_idr_balance / (50000 if actual_idr_balance < 500000 else 100000))))
         per_bin = max(config.MIN_ORDER_IDR, int(actual_idr_balance / max(n_bins, 1)))
         for c in candidates[:n_bins]:
             alloc = int(per_bin / actual_idr_balance * 100) if actual_idr_balance > 0 else 0
