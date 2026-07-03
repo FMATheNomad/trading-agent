@@ -196,26 +196,27 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 continue
             if po.get("is_maker"):
                 po["cycles"] = po.get("cycles", 0) + 1
-            if po.get("cycles", 0) >= 2 and po.get("is_maker"):
-                print(f"  MAKER TIMEOUT: {pid} → cancelling and retrying market", flush=True)
-                try:
-                    cancel_body = urlencode({
-                        "method": "cancelOrder", "timestamp": int(time.time() * 1000),
-                        "recvWindow": "5000", "pair": pid,
-                        "order_id": str(oid), "type": po.get("side", "buy").lower(),
-                    })
-                    cancel_sig = hmac.new(config.INDODAX_SECRET_KEY.encode(), cancel_body.encode(), hashlib.sha512).hexdigest()
-                    await client.post(config.INDODAX_TAPI_URL, headers={
-                        "Key": config.INDODAX_API_KEY, "Sign": cancel_sig,
-                        "Content-Type": "application/x-www-form-urlencoded",
-                    }, content=cancel_body)
-                    market_order = await place_order(client, po.get("side", "buy").lower(), po["price"], po["amount_idr"], pair=pid, order_type="market")
-                    if market_order.get("order_id") or market_order.get("receive_rp"):
-                        print(f"  MAKER TIMEOUT → market order placed for {pid}", flush=True)
-                        await send_message(f"⚡ MAKER TIMEOUT → MARKET BUY {pid}\nRp{po['amount_idr']:,.0f}")
-                except Exception as e:
-                    print(f"  Maker retry failed {pid}: {e}", flush=True)
-                del _pending_orders[pid]
+                grace = max(1, int(config.ROTHSCHILD_LIMIT_GRACE_SEC / config.LOOP_INTERVAL_SECONDS))
+                if po["cycles"] >= grace:
+                    print(f"  MAKER TIMEOUT: {pid} → cancelling and retrying market", flush=True)
+                    try:
+                        cancel_body = urlencode({
+                            "method": "cancelOrder", "timestamp": int(time.time() * 1000),
+                            "recvWindow": "5000", "pair": pid,
+                            "order_id": str(oid), "type": po.get("side", "buy").lower(),
+                        })
+                        cancel_sig = hmac.new(config.INDODAX_SECRET_KEY.encode(), cancel_body.encode(), hashlib.sha512).hexdigest()
+                        await client.post(config.INDODAX_TAPI_URL, headers={
+                            "Key": config.INDODAX_API_KEY, "Sign": cancel_sig,
+                            "Content-Type": "application/x-www-form-urlencoded",
+                        }, content=cancel_body)
+                        market_order = await place_order(client, po.get("side", "buy").lower(), po["price"], po["amount_idr"], pair=pid, order_type="market")
+                        if market_order.get("order_id") or market_order.get("receive_rp"):
+                            print(f"  MAKER TIMEOUT → market order placed for {pid}", flush=True)
+                            await send_message(f"⚡ MAKER TIMEOUT → MARKET BUY {pid}\nRp{po['amount_idr']:,.0f}")
+                    except Exception as e:
+                        print(f"  Maker retry failed {pid}: {e}", flush=True)
+                    del _pending_orders[pid]
         except Exception:
             po = _pending_orders.get(pid)
             if po and po.get("order_id"):
