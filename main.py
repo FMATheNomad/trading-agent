@@ -636,7 +636,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         trades_today = get_trade_count_today()
 
         trades_today = get_trade_count_today()
-        _max_trade_reported = getattr(_portfolio_cycle, "_max_trade_reported", False)
+        _max_trade_reported = getattr(portfolio_cycle, "_max_trade_reported", False)
         if trades_today >= config.MAX_DAILY_TRADES:
             if not _max_trade_reported:
                 sells = [a for a in _recent_actions if a.get("action") == "SELL"]
@@ -648,7 +648,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     f"📊 HARIAN: {trades_today} trade | {wins}W/{losses}L ({wr:.0f}%)\n"
                     f"PnL: {pnl_total:+.1f}% | Equity: Rp{total_equity:,.0f} | Cash: Rp{actual_idr_balance:,.0f}"
                 )
-                _portfolio_cycle._max_trade_reported = True
+                portfolio_cycle._max_trade_reported = True
             print(f"MAX TRADES/DAY ({config.MAX_DAILY_TRADES}) reached. Skipping new buys.", flush=True)
             decision["trades"] = [t for t in decision.get("trades", []) if t.get("action") != "BUY"]
 
