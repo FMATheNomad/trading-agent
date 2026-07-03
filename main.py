@@ -499,6 +499,28 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 dyn_sl = p["entry_price"] * (1 - atr_sl / 100) if p["side"] == "BUY" else p["entry_price"] * (1 + atr_sl / 100)
                 if (p["side"] == "BUY" and last <= dyn_sl) or (p["side"] == "SELL" and last >= dyn_sl):
                     result = "ATR_SL"
+            if result == "PYRAMID_TRIGGER":
+                cash = actual_idr_balance
+                pyr_amount = int(cash * config.ROTHSCHILD_PYRAMID_MULT * 100 / max(positions, 1))
+                if pyr_amount >= config.MIN_ORDER_IDR:
+                    pyr_price = last
+                    pyr_qty = pyr_amount / pyr_price
+                    try:
+                        pyr_order = await place_order(client, "buy", pyr_price, pyr_amount, pair=p["pair"], order_type="market" if not config.ROTHSCHILD_ACTIVE else "maker_first")
+                        if pyr_order.get("order_id") or pyr_order.get("receive_rp"):
+                            coin_name = p["pair"].split("_")[0]
+                            pyr_fill = float(pyr_order.get(f"receive_{coin_name}", 0)) or pyr_qty
+                            pyr_spend = float(pyr_order.get("spend_rp", 0)) or pyr_amount
+                            p["qty"] += pyr_fill
+                            p["amount_idr"] += pyr_spend
+                            actual_idr_balance -= pyr_spend
+                            persist.save_positions(positions)
+                            print(f"  PYRAMID: added {pyr_fill:.6f} @ {pyr_price:,.0f} (Rp{pyr_spend:,.0f})", flush=True)
+                            await send_message(f"🔺 PYRAMID: BUY more {p['pair']}\n+{pyr_fill:.6f} @ Rp{pyr_price:,.0f}")
+                    except Exception as e:
+                        print(f"  Pyramid order failed {p['pair']}: {e}", flush=True)
+                continue
+
             if result:
                 pnl = (last - p["entry_price"]) * p["qty"]
                 if p["side"] == "SELL":
@@ -511,9 +533,10 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     persist.save_positions(positions)
                     continue
                 sl_hits.append(f"{p['pair']} {result}: {pnl:+.0f} IDR")
-                _cooldown[p["pair"]] = time.time()
-                print(f"COOLDOWN: {p['pair']} set for 12h", flush=True)
-                await send_message(f"⏳ {p['pair']} cooldown 12 jam")
+                if result != "INITIAL_SL":
+                    _cooldown[p["pair"]] = time.time()
+                    print(f"COOLDOWN: {p['pair']} set for 12h", flush=True)
+                    await send_message(f"⏳ {p['pair']} cooldown 12 jam")
                 if not config.PAPER_TRADING and config.INDODAX_API_KEY:
                     try:
                         coin_name = p["pair"].split("_")[0]
@@ -721,6 +744,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 print(f"  ATR: {atr_pct}% | SL: {sl} | TP: {tp}", flush=True)
 
             ot = "maker_first" if (config.MAKER_FIRST and action == "BUY") else "market"
+            if config.ROTHSCHILD_ACTIVE and action == "BUY":
+                ot = "maker_first"
             try:
                 order = await place_order(client, action.lower(), price, amount,
                                            pair=pid, order_type=ot)
@@ -1011,6 +1036,21 @@ async def _realtime_sltp_check(pair: str, price: float):
         return
     atr_val = p.get("atr_pct") or risk.compute_atr(_latest_ohlcv_map_1h.get(pair, []))
     result = risk.check_sl_tp(p["entry_price"], price, p["side"], pair=pair, atr_pct=atr_val)
+    if result == "PYRAMID_TRIGGER":
+        async with httpx.AsyncClient() as _pc:
+            pyr_amt = int(max(config.MIN_ORDER_IDR, _latest_balance * config.ROTHSCHILD_PYRAMID_MULT))
+            if pyr_amt >= config.MIN_ORDER_IDR:
+                try:
+                    pyr_order = await place_order(_pc, "buy", price, pyr_amt, pair=pair, order_type="maker_first" if config.ROTHSCHILD_ACTIVE else "market")
+                    if pyr_order.get("order_id") or pyr_order.get("receive_rp"):
+                        coin_n = pair.split("_")[0]
+                        pyr_f = float(pyr_order.get(f"receive_{coin_n}", 0)) or (pyr_amt / price)
+                        p["qty"] += pyr_f
+                        print(f"  PYRAMID: +{pyr_f:.6f} {pair} (realtime)", flush=True)
+                        await send_message(f"🔺 PYRAMID: +{pyr_f:.6f} {pair}")
+                except Exception as e:
+                    print(f"  Pyramid realtime error: {e}", flush=True)
+        return
     if not result and atr_val:
         atr_sl = atr_val * config.ATR_SL_MULTIPLIER
         dyn_sl = p["entry_price"] * (1 - atr_sl / 100) if p["side"] == "BUY" else p["entry_price"] * (1 + atr_sl / 100)

@@ -7,6 +7,8 @@ class RiskManager:
         self.daily_start_balance = config.PLAY_CAPITAL_IDR
         self.today_peak = config.PLAY_CAPITAL_IDR
         self.trailing_highs: dict[str, float] = {}
+        self._initial_sl_released: dict[str, bool] = {}
+        self._pyramid_done: dict[str, bool] = {}
         self.daily_target_hit = False
         self.daily_loss_stopped = False
 
@@ -91,28 +93,69 @@ class RiskManager:
         if entry_price <= 0:
             return None
         atr = atr_pct or config.ATR_SL_MULTIPLIER
-        trail_pct = atr * config.ATR_SL_MULTIPLIER * 0.5 / 100
-        tp_pct = atr * config.ATR_TP_MULTIPLIER / 100
         if side.upper() == "BUY":
             pnl_pct = (current_price - entry_price) / entry_price
-            if pair and current_price > self.trailing_highs.get(pair, entry_price):
-                self.trailing_highs[pair] = current_price
-            if pair and pnl_pct > 0:
-                trail_stop = self.trailing_highs[pair] * (1 - trail_pct)
-                if current_price <= trail_stop:
-                    return "TRAILING_SL"
-            if pnl_pct >= tp_pct:
-                return "TP_HIT"
         else:
             pnl_pct = (entry_price - current_price) / entry_price
-            if pair and current_price < self.trailing_highs.get(pair, entry_price):
+
+        if config.ROTHSCHILD_ACTIVE:
+            sl_mult = config.ROTHSCHILD_INITIAL_SL_ATR
+            trail_mult = config.ROTHSCHILD_TRAILING_SL_ATR
+            pyr_mult = config.ROTHSCHILD_PYRAMID_TRIGGER
+            released = self._initial_sl_released.get(pair, False)
+            pyr_ok = self._pyramid_done.get(pair, False)
+
+            if not released:
+                sl_pct = atr * sl_mult / 100
+                if (side.upper() == "BUY" and current_price <= entry_price * (1 - sl_pct)) or \
+                   (side.upper() == "SELL" and current_price >= entry_price * (1 + sl_pct)):
+                    return "INITIAL_SL"
+
+            pyr_pct = atr * pyr_mult / 100
+            if not pyr_ok and pnl_pct >= pyr_pct:
+                self._pyramid_done[pair] = True
+                return "PYRAMID_TRIGGER"
+
+            if not released and pnl_pct > 0:
+                self._initial_sl_released[pair] = True
+                released = True
                 self.trailing_highs[pair] = current_price
-            if pair and pnl_pct > 0:
-                trail_stop = self.trailing_highs[pair] * (1 + trail_pct)
-                if current_price >= trail_stop:
-                    return "TRAILING_SL"
-            if pnl_pct >= tp_pct:
-                return "TP_HIT"
+
+            if released:
+                if side.upper() == "BUY" and current_price > self.trailing_highs.get(pair, entry_price):
+                    self.trailing_highs[pair] = current_price
+                if side.upper() == "SELL" and current_price < self.trailing_highs.get(pair, entry_price):
+                    self.trailing_highs[pair] = current_price
+                trail_pct = atr * trail_mult / 100
+                if side.upper() == "BUY":
+                    trail_stop = self.trailing_highs[pair] * (1 - trail_pct)
+                    if current_price <= trail_stop:
+                        return "TRAILING_SL"
+                else:
+                    trail_stop = self.trailing_highs[pair] * (1 + trail_pct)
+                    if current_price >= trail_stop:
+                        return "TRAILING_SL"
+        else:
+            trail_pct = atr * config.ATR_SL_MULTIPLIER * 0.5 / 100
+            tp_pct = atr * config.ATR_TP_MULTIPLIER / 100
+            if side.upper() == "BUY":
+                if pair and current_price > self.trailing_highs.get(pair, entry_price):
+                    self.trailing_highs[pair] = current_price
+                if pair and pnl_pct > 0:
+                    trail_stop = self.trailing_highs[pair] * (1 - trail_pct)
+                    if current_price <= trail_stop:
+                        return "TRAILING_SL"
+                if pnl_pct >= tp_pct:
+                    return "TP_HIT"
+            else:
+                if pair and current_price < self.trailing_highs.get(pair, entry_price):
+                    self.trailing_highs[pair] = current_price
+                if pair and pnl_pct > 0:
+                    trail_stop = self.trailing_highs[pair] * (1 + trail_pct)
+                    if current_price >= trail_stop:
+                        return "TRAILING_SL"
+                if pnl_pct >= tp_pct:
+                    return "TP_HIT"
         return None
 
 
