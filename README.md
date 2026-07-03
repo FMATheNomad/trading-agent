@@ -166,3 +166,18 @@ Info yang gak bisa dilihat trader manual → kita exploit
 
 > *"The secret to playing fast is learning to relax while moving at maximum speed."* — George Kollias  
 > *"I don't need to be right. I just need to be right ONCE."* — N.M. Rothschild
+
+---
+
+## ⚖️ License & Legal
+
+**Copyright (C) 2026 FMA ALPHA QUANT LABS**
+
+This program is free software: you can redistribute it and/or modify it under the terms of the **GNU Affero General Public License** as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful, but **WITHOUT ANY WARRANTY**; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU AGPL-3.0 License for more details.
+
+- **License:** AGPL-3.0 (see `LICENSE`)
+- **Security:** see `SECURITY.md`
+- **Attribution:** Required for all derivative works
+- **Commercial use:** Permitted only under AGPL-3.0 terms (source must be disclosed)
