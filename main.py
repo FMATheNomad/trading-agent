@@ -423,10 +423,16 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             total_equity = config.PLAY_CAPITAL_IDR + sum(p.get("entry_price", 0) * p["qty"] for p in positions)
             print(f"  First cycle equity (fallback): Rp{total_equity:,.0f}", flush=True)
         max_positions = config.max_positions_for_equity(total_equity)
-        saved_peak = persist.load_peak_capital()
-        if saved_peak and saved_peak > portfolio_risk.peak_capital:
-            portfolio_risk.peak_capital = saved_peak
+        if cycle_counter == 1:
+            portfolio_risk.peak_capital = total_equity
+            persist.save_peak_capital(total_equity)
+            print(f"  Peak capital reset to Rp{total_equity:,.0f} (new session)", flush=True)
+        else:
+            saved_peak = persist.load_peak_capital()
+            if saved_peak and saved_peak > portfolio_risk.peak_capital:
+                portfolio_risk.peak_capital = saved_peak
         if total_equity > portfolio_risk.peak_capital:
+            portfolio_risk.peak_capital = total_equity
             persist.save_peak_capital(total_equity)
 
         daily_limit = risk.check_daily_limits(total_equity)
@@ -438,10 +444,11 @@ async def portfolio_cycle(client: httpx.AsyncClient):
 
         if portfolio_risk.check_portfolio_stop(total_equity):
             actual_dd = (portfolio_risk.peak_capital - total_equity) / portfolio_risk.peak_capital * 100
-            msg = (f"⚠️ DRAWDOWN {actual_dd:.0f}% (limit {abs(config.PORTFOLIO_STOP_LOSS_PCT)*100:.0f}%) — "
-                   f"Equity: Rp{total_equity:,.0f}")
+            msg = (f"🛑 DRAWDOWN {actual_dd:.0f}% > {abs(config.PORTFOLIO_STOP_LOSS_PCT)*100:.0f}% — "
+                   f"STOP TRADING. Equity: Rp{total_equity:,.0f}")
             await send_message(msg)
             print(msg, flush=True)
+            return
 
         if risk.should_stop_trading(total_equity):
             await send_message(f"⚠️ Daily loss warning — Equity: Rp{total_equity:,.0f}.")
