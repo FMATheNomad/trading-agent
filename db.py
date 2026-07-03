@@ -10,7 +10,8 @@ import sqlite3
 import os
 from datetime import datetime, timezone
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "trades.db")
+DATA_DIR = os.getenv("STATE_DIR") or os.getenv("DATA_DIR") or ("/data" if os.path.isdir("/data") else os.path.dirname(__file__))
+DB_PATH = os.path.join(DATA_DIR, "trades.db")
 
 def _conn():
     return sqlite3.connect(DB_PATH)
