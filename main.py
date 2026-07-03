@@ -322,7 +322,9 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         if len(regime_history) > 12:
             regime_history.pop(0)
         hmm_tag = f" HMM:{regime_info.get('hmm_regime', '?')}({regime_info.get('hmm_confidence', 0):.2f})" if regime_info.get('hmm_confidence', 0) > 0 else ""
-        if regime_info["regime"] != _prev_regime and _prev_regime:
+        _now_t = time.time()
+        if regime_info["regime"] != _prev_regime and _prev_regime and _now_t - getattr(portfolio_cycle, "_last_regime_notify", 0) > 1800:
+            portfolio_cycle._last_regime_notify = _now_t
             await send_message(f"🔄 Regime: {_prev_regime} → {regime_info['regime']}{hmm_tag}")
         print(f"Regime: {regime_info['regime']}{hmm_tag} | B:{regime_info['buy_ratio']} S:{regime_info['sell_ratio']} "
               f"Score:{regime_info['avg_score']} HC:{regime_info['high_conviction_count']}", flush=True)
@@ -436,9 +438,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
 
         daily_limit = risk.check_daily_limits(total_equity)
         if daily_limit == "DAILY_LOSS_LIMIT":
-            msg = f"🛑 DAILY LOSS LIMIT HIT! Equity: Rp{total_equity:,.0f}. Stop trading hari ini."
-            await send_message(msg)
-            print(msg, flush=True)
+            print(f"DAILY LOSS LIMIT HIT. Equity: Rp{total_equity:,.0f}", flush=True)
             return
 
         if portfolio_risk.check_portfolio_stop(total_equity):
