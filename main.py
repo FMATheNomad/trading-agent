@@ -475,25 +475,32 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         _prev_equity = total_equity
         _prev_regime = regime_info["regime"]
 
-        book_pressure_map = {}
-        top_sigs = sorted(all_signals.items(), key=lambda x: abs(x[1].get("score", 0)), reverse=True)[:5]
-        for pid, _ in top_sigs:
-            try:
-                ob = await fetch_orderbook(client, pair=pid, depth=5)
-                if ob:
-                    book_pressure_map[pid] = ob
-            except Exception:
-                pass
+        base_eq = persist.load_initial_equity() or config.PLAY_CAPITAL_IDR
+        dd_from_peak = (base_eq - total_equity) / base_eq * 100
+        if dd_from_peak > 40:
+            decision = {"decision": "HOLD", "reasoning": f"Circuit break — drawdown {dd_from_peak:.0f}% > 40%", "trades": [], "play_capital_pct": 0}
+            print(f"CIRCUIT BREAK: DD {dd_from_peak:.0f}% > 40% — no new trades", flush=True)
+            await send_message(f"🛑 CIRCUIT BREAK — DD {dd_from_peak:.0f}%")
+        else:
+            book_pressure_map = {}
+            top_sigs = sorted(all_signals.items(), key=lambda x: abs(x[1].get("score", 0)), reverse=True)[:5]
+            for pid, _ in top_sigs:
+                try:
+                    ob = await fetch_orderbook(client, pair=pid, depth=5)
+                    if ob:
+                        book_pressure_map[pid] = ob
+                except Exception:
+                    pass
 
-        decision = rules.decide(
-            all_signals, ticker_map, LIVE_TICKERS, positions,
-            actual_idr_balance, total_equity, regime_info, ohlcv_map_1h,
-            _coin_blacklist, _pair_meta, book_pressure_map=book_pressure_map,
-        )
+            decision = rules.decide(
+                all_signals, ticker_map, LIVE_TICKERS, positions,
+                actual_idr_balance, total_equity, regime_info, ohlcv_map_1h,
+                _coin_blacklist, _pair_meta, book_pressure_map=book_pressure_map,
+            )
         print(f"Decision: {decision['decision']} | {decision['reasoning'][:80]}", flush=True)
 
         play_capital_pct = decision.get("play_capital_pct", pending_play_capital_pct * 100)
-        if actual_idr_balance < config.MIN_ORDER_IDR:
+        if play_capital_pct == 0 or actual_idr_balance < config.MIN_ORDER_IDR:
             print(f"Cash Rp{actual_idr_balance:,.0f} < min Rp{config.MIN_ORDER_IDR:,}. Skipping buys.", flush=True)
             balance_idr = 0
         else:
