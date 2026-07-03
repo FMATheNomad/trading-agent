@@ -609,7 +609,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     atr_here = risk.compute_atr(_latest_ohlcv_map_1h.get(sell_pair, []))
                     min_move = atr_here * config.ATR_MIN_MOVE_MULTIPLIER if config.ATR_MIN_MOVE_MULTIPLIER > 0 else 0
                     hold_time = time.time() - match.get("entry_time", time.time())
-                    stagnant = _strategic_rotate_enabled and hold_time > 1800 and abs(pnl) < atr_here * config.ATR_STAGNANT_MULT and config.ATR_STAGNANT_MULT < 10
+                    stagnant = _strategic_rotate_enabled and hold_time > 900 and abs(pnl) < atr_here * config.ATR_STAGNANT_MULT and config.ATR_STAGNANT_MULT < 10
                     pnl_target = atr_here * config.ATR_PROFIT_SELL_MULT
                     if stagnant or (abs(pnl) >= min_move and pnl >= pnl_target):
                         profit_sells.append(t)
