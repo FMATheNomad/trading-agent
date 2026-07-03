@@ -76,7 +76,10 @@ def classify_regime(all_signals: dict, ohlcv_map_1h: dict | None = None) -> dict
     avg_vol = sum(vols) / len(vols) if vols else 0
     high_conviction = sum(1 for s in all_signals.values() if s.get("conviction") == "HIGH")
 
-    hmm_result = hmm_detector.predict(ohlcv_map_1h) if ohlcv_map_1h else {}
+    try:
+        hmm_result = hmm_detector.predict(ohlcv_map_1h) if ohlcv_map_1h else {}
+    except Exception:
+        hmm_result = {}
     hmm_regime = hmm_result.get("regime", "UNKNOWN")
     hmm_conf = hmm_result.get("confidence", 0)
 
@@ -166,6 +169,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
     cycle_counter += 1
     _t0 = time.time()
     risk.daily_loss_stopped = False
+    actual_idr_balance = 0
 
     for pid in list(_pending_orders.keys()):
         try:
@@ -471,6 +475,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                         await send_message(f"🧠 HMM: {regime_info.get('regime','?')} (confidence {regime_info.get('hmm_confidence',0):.0%})")
             except Exception as e:
                 print(f"HMM train error: {e}", flush=True)
+                hmm_detector.trained = False
 
         _prev_equity = total_equity
         _prev_regime = regime_info["regime"]
