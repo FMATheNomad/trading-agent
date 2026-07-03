@@ -8,7 +8,7 @@ import time
 from urllib.parse import urlencode
 import httpx
 import config
-from data_layer import fetch_viable_pairs, fetch_ticker, fetch_ohlcv, fetch_ohlcv_both, fetch_all_tickers
+from data_layer import fetch_viable_pairs, fetch_ticker, fetch_ohlcv, fetch_ohlcv_both, fetch_all_tickers, fetch_orderbook
 from indicators import compute_signals, compute_batch_signals
 from hmm_regime import HMMRegimeDetector
 from risk_manager import RiskManager, PortfolioRiskManager
@@ -21,6 +21,7 @@ from market_ws import market_ws_loop, LIVE_TICKERS, stop as mws_stop, set_on_tic
 from private_ws import private_ws_loop, stop as pws_stop
 from momentum import MomentumEngine
 import rules
+import patterns
 
 risk = RiskManager()
 portfolio_risk = PortfolioRiskManager()
@@ -450,10 +451,20 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         _prev_equity = total_equity
         _prev_regime = regime_info["regime"]
 
+        book_pressure_map = {}
+        top_sigs = sorted(all_signals.items(), key=lambda x: abs(x[1].get("score", 0)), reverse=True)[:5]
+        for pid, _ in top_sigs:
+            try:
+                ob = await fetch_orderbook(client, pair=pid, depth=5)
+                if ob:
+                    book_pressure_map[pid] = ob
+            except Exception:
+                pass
+
         decision = rules.decide(
             all_signals, ticker_map, LIVE_TICKERS, positions,
             actual_idr_balance, total_equity, regime_info, ohlcv_map_1h,
-            _coin_blacklist, _pair_meta,
+            _coin_blacklist, _pair_meta, book_pressure_map=book_pressure_map,
         )
         print(f"Decision: {decision['decision']} | {decision['reasoning'][:80]}", flush=True)
 
@@ -943,6 +954,21 @@ async def _momentum_scanner():
                 if _latest_all_signals.get(pid, {}).get("timeframe_aligned") is not True:
                     print(f"    TF not aligned — skip", flush=True)
                     continue
+                if len(ohlcv) >= 15:
+                    pcloses = [float(c["close"]) for c in ohlcv[-30:]]
+                    pat = patterns.detect_paradiddle(pcloses)
+                    if pat in ("FAKE_BREAKOUT_SELL", "EXHAUSTION_SELL"):
+                        print(f"    Pattern {pat} — skip", flush=True)
+                        continue
+                if pid in _pair_meta:
+                    try:
+                        async with httpx.AsyncClient() as _obc:
+                            _ob = await fetch_orderbook(_obc, pair=pid, depth=3)
+                        if _ob and _ob.get("imbalance_pct", 0) < -10:
+                            print(f"    Book sell pressure {_ob['imbalance_pct']:.0f}% — skip", flush=True)
+                            continue
+                    except Exception:
+                        pass
                 alloc = 0.4
                 amount = int(cash_avail * alloc)
                 if amount < config.MIN_ORDER_IDR:

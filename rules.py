@@ -1,9 +1,11 @@
 import time
 import config
 
+
 def decide(all_signals, ticker_map, live_tickers, positions, actual_idr_balance,
-           total_equity, regime_info, ohlcv_map_1h, coin_blacklist, pair_meta):
-    ranked = _score_all_pairs(all_signals, ticker_map, live_tickers)
+           total_equity, regime_info, ohlcv_map_1h, coin_blacklist, pair_meta,
+           book_pressure_map=None):
+    ranked = _score_all_pairs(all_signals, ticker_map, live_tickers, book_pressure_map)
     trades = []
     held_pairs = {p["pair"] for p in positions}
 
@@ -63,9 +65,10 @@ def decide(all_signals, ticker_map, live_tickers, positions, actual_idr_balance,
             and r["price"] > 0
             and (r["atr"] or 0) <= 55.0
         ]
-        per_slot = max(config.MIN_ORDER_IDR, int(actual_idr_balance * 0.35 / max(slots, 1)))
-        for c in candidates[:slots]:
-            alloc = int(per_slot / actual_idr_balance * 100) if actual_idr_balance > 0 else 0
+        n_bins = min(slots, max(1, int(actual_idr_balance / config.MIN_ORDER_IDR / 2)))
+        per_bin = max(config.MIN_ORDER_IDR, int(actual_idr_balance / max(n_bins, 1)))
+        for c in candidates[:n_bins]:
+            alloc = int(per_bin / actual_idr_balance * 100) if actual_idr_balance > 0 else 0
             alloc = min(max(alloc, 20), 50)
             trades.append({
                 "pair": c["pair"], "action": "BUY", "allocation_pct": alloc,
@@ -88,7 +91,7 @@ def decide(all_signals, ticker_map, live_tickers, positions, actual_idr_balance,
     }
 
 
-def _score_all_pairs(all_signals, ticker_map, live_tickers):
+def _score_all_pairs(all_signals, ticker_map, live_tickers, book_pressure_map=None):
     results = []
     for pair, sig in all_signals.items():
         total = 50.0
@@ -149,6 +152,13 @@ def _score_all_pairs(all_signals, ticker_map, live_tickers):
         elif chg24 < -5:
             total -= 3
 
+        book = book_pressure_map.get(pair) if book_pressure_map else None
+        if book:
+            if book.get("imbalance_pct", 0) > 5:
+                total += 4
+            elif book.get("imbalance_pct", 0) < -5:
+                total -= 3
+
         ticker = ticker_map.get(pair, {})
         price = ticker.get("sell", 0) or lt.get("last", 0)
         vol_idr = float(ticker.get("vol_idr", 0))
@@ -169,3 +179,4 @@ def _score_all_pairs(all_signals, ticker_map, live_tickers):
     for i, r in enumerate(results):
         r["rank"] = i + 1
     return results
+
