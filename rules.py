@@ -66,7 +66,7 @@ def decide(all_signals, ticker_map, live_tickers, positions, actual_idr_balance,
             and r["tf_aligned"]
             and r["score"] >= min_score
             and r["vol_idr"] >= 1_000_000_000
-            and r["price"] > 0
+            and r["price"] >= 100
             and (r["atr"] or 0) <= 55.0
         ]
         for c in candidates[:2]:
