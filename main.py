@@ -443,13 +443,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
 
         if portfolio_risk.check_portfolio_stop(total_equity):
             actual_dd = (portfolio_risk.peak_capital - total_equity) / portfolio_risk.peak_capital * 100
-            msg = (f"⚠️ DRAWDOWN {actual_dd:.0f}% > {abs(config.PORTFOLIO_STOP_LOSS_PCT)*100:.0f}% — "
-                   f"Equity: Rp{total_equity:,.0f}")
-            await send_message(msg)
-            print(msg, flush=True)
-
-        if risk.should_stop_trading(total_equity):
-            await send_message(f"⚠️ Daily loss warning — Equity: Rp{total_equity:,.0f}.")
+            print(f"DRAWDOWN {actual_dd:.0f}% > {abs(config.PORTFOLIO_STOP_LOSS_PCT)*100:.0f}% — "
+                  f"Equity: Rp{total_equity:,.0f}", flush=True)
 
         for p in positions:
             last = ticker_map.get(p["pair"], {}).get("last", p.get("current_price") or p.get("entry_price") or 0)
@@ -641,7 +636,19 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         trades_today = get_trade_count_today()
 
         trades_today = get_trade_count_today()
+        _max_trade_reported = getattr(_portfolio_cycle, "_max_trade_reported", False)
         if trades_today >= config.MAX_DAILY_TRADES:
+            if not _max_trade_reported:
+                sells = [a for a in _recent_actions if a.get("action") == "SELL"]
+                pnl_total = sum(a.get("pnl", 0) for a in sells)
+                wins = sum(1 for a in sells if a.get("pnl", 0) > 0)
+                losses = sum(1 for a in sells if a.get("pnl", 0) <= 0)
+                wr = wins / max(wins + losses, 1) * 100
+                await send_message(
+                    f"📊 HARIAN: {trades_today} trade | {wins}W/{losses}L ({wr:.0f}%)\n"
+                    f"PnL: {pnl_total:+.1f}% | Equity: Rp{total_equity:,.0f} | Cash: Rp{actual_idr_balance:,.0f}"
+                )
+                _portfolio_cycle._max_trade_reported = True
             print(f"MAX TRADES/DAY ({config.MAX_DAILY_TRADES}) reached. Skipping new buys.", flush=True)
             decision["trades"] = [t for t in decision.get("trades", []) if t.get("action") != "BUY"]
 
@@ -694,12 +701,6 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         if not trades:
             print(f"Cycle done in {int(time.time() - _t0)}s. Sleeping.", flush=True)
             persist.save_initial_equity(total_equity)
-            base_eq = persist.load_initial_equity() or total_equity
-            eq_pct = (total_equity - base_eq) / base_eq * 100
-            await send_message(
-                f"💳 Rp{total_equity:,.0f} ({eq_pct:+.1f}%)\n"
-                f"Cycle #{cycle_counter} | {regime_info['regime']} | {len(positions)} pos | Cash: Rp{actual_idr_balance:,.0f}"
-            )
             if positions and config.INDODAX_API_KEY:
                 pair_str = ",".join(p["pair"] for p in positions[:5])
                 await refresh_deadman(client, pair_str)
