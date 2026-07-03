@@ -443,11 +443,10 @@ async def portfolio_cycle(client: httpx.AsyncClient):
 
         if portfolio_risk.check_portfolio_stop(total_equity):
             actual_dd = (portfolio_risk.peak_capital - total_equity) / portfolio_risk.peak_capital * 100
-            msg = (f"🛑 DRAWDOWN {actual_dd:.0f}% > {abs(config.PORTFOLIO_STOP_LOSS_PCT)*100:.0f}% — "
-                   f"STOP TRADING. Equity: Rp{total_equity:,.0f}")
+            msg = (f"⚠️ DRAWDOWN {actual_dd:.0f}% > {abs(config.PORTFOLIO_STOP_LOSS_PCT)*100:.0f}% — "
+                   f"Equity: Rp{total_equity:,.0f}")
             await send_message(msg)
             print(msg, flush=True)
-            return
 
         if risk.should_stop_trading(total_equity):
             await send_message(f"⚠️ Daily loss warning — Equity: Rp{total_equity:,.0f}.")
