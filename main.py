@@ -1030,10 +1030,7 @@ async def _momentum_scanner():
                     continue
                 vol_idr = float(_latest_ticker_map.get(pid, {}).get("vol_idr", 0) or 0)
                 if vol_idr < 500_000_000:
-                    print(f"    Vol Rp{vol_idr:,.0f} < 1T — skip", flush=True)
-                    continue
-                if _latest_all_signals.get(pid, {}).get("timeframe_aligned") is not True:
-                    print(f"    TF not aligned — skip", flush=True)
+                    print(f"    Vol Rp{vol_idr:,.0f} < 500M — skip", flush=True)
                     continue
                 if len(ohlcv) >= 15:
                     pcloses = [float(c["close"]) for c in ohlcv[-30:]]

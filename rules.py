@@ -46,6 +46,9 @@ def decide(all_signals, ticker_map, live_tickers, positions, actual_idr_balance,
         elif pnl >= atr * config.ATR_PROFIT_SELL_MULT and config.ATR_PROFIT_SELL_MULT < 10:
             sell_reason = f"Profit {pnl:.1f}% (ATR×{config.ATR_PROFIT_SELL_MULT})"
 
+        elif hold > 7200 and pnl > 0:
+            sell_reason = f"Time TP {pnl:.1f}% ({int(hold/60)}m)"
+
         if sell_reason:
             trades.append({"pair": pair, "action": "SELL", "allocation_pct": 100, "reason": sell_reason})
 
