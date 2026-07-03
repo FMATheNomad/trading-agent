@@ -414,8 +414,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         )
         total_equity = actual_idr_balance + paper_equity
         if positions and paper_equity == 0:
-            print(f"  Equity Rp{total_equity:,.0f} — paper_equity 0, semua harga ilang", flush=True)
-            total_equity = max(total_equity, config.PLAY_CAPITAL_IDR)
+            print(f"  Equity Rp{total_equity:,.0f} — paper_equity 0, tunggu harga", flush=True)
+            total_equity = config.PLAY_CAPITAL_IDR if total_equity < config.MIN_ORDER_IDR else total_equity
         elif _prev_equity > 0 and total_equity < _prev_equity * 0.5:
             print(f"  Equity suspicious: Rp{total_equity:,.0f} vs prev Rp{_prev_equity:,.0f} — keep prev", flush=True)
             total_equity = _prev_equity
@@ -426,11 +426,10 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         if cycle_counter == 1:
             portfolio_risk.peak_capital = total_equity
             persist.save_peak_capital(total_equity)
-            print(f"  Peak capital reset to Rp{total_equity:,.0f} (new session)", flush=True)
-        else:
-            saved_peak = persist.load_peak_capital()
-            if saved_peak and saved_peak > portfolio_risk.peak_capital:
-                portfolio_risk.peak_capital = saved_peak
+            print(f"  Initial equity: Rp{total_equity:,.0f}", flush=True)
+        saved_peak = persist.load_peak_capital()
+        if saved_peak and saved_peak > portfolio_risk.peak_capital:
+            portfolio_risk.peak_capital = saved_peak
         if total_equity > portfolio_risk.peak_capital:
             portfolio_risk.peak_capital = total_equity
             persist.save_peak_capital(total_equity)
