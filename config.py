@@ -19,8 +19,7 @@ MAX_OPEN_POSITIONS = 3
 def max_positions_for_equity(equity: float) -> int:
     if equity >= 10_000_000: return 3
     if equity >= 5_000_000: return 2
-    if equity >= 1_000_000: return 2
-    return 1
+    return 2
 
 MIN_24H_VOLUME_IDR = 50_000_000
 MAX_SCAN_PAIRS = 60
