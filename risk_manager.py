@@ -36,7 +36,9 @@ class RiskManager:
         return amount_idr * config.TAKER_FEE_PCT
 
     def is_profit_viable(self, entry_price: float, qty: float, side: str, atr_pct: float | None = None) -> bool:
-        atr = atr_pct or 1.0
+        atr = max(atr_pct or 1.5, 1.5)
+        if atr < 1.0:
+            atr = 1.5
         target_mult = atr * config.ATR_TP_MULTIPLIER / 100
         if side.upper() == "BUY":
             target = entry_price * (1 + target_mult)
@@ -48,8 +50,8 @@ class RiskManager:
             return False
         sl_mult = atr * config.ATR_SL_MULTIPLIER / 100
         loss_if_sl = abs(entry_price * sl_mult) * qty + fee_roundtrip
-        rr_ratio = gross / max(loss_if_sl, 1)
-        if rr_ratio < 0.8:
+        rr_ratio = gross / max(loss_if_sl, 1e-6)
+        if rr_ratio < 0.6:
             return False
         return True
 
