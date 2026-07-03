@@ -734,7 +734,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 qty = sell_qty_raw
                 ticker = ticker_map.get(pid, {})
                 price = ticker.get("buy", 0)
-                if not price or price < 100:
+                if not price or price < 50:
                     continue
                 amount = qty * price
                 t["entry_price"] = match.get("entry_price", 0)
@@ -743,7 +743,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 amount = balance_idr * (alloc / 100)
                 ticker = ticker_map.get(pid, {})
                 price = ticker.get("sell" if action == "BUY" else "buy", 0)
-                if not price or price < 100:
+                if not price or price < 50:
                     continue
                 qty = amount / price
 
@@ -1017,7 +1017,7 @@ async def _momentum_scanner():
                 if time.time() - _last_scan_pairs.get(pid, 0) < 30:
                     continue
                 price = LIVE_TICKERS.get(pid, {}).get("last") or _latest_ticker_map.get(pid, {}).get("last", 0)
-                if not price or price < 100:
+                if not price or price < 50:
                     continue
                 signal = momentum_engine.evaluate(pid, ohlcv, price)
                 if not signal:
