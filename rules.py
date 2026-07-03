@@ -31,22 +31,22 @@ def decide(all_signals, ticker_map, live_tickers, positions, actual_idr_balance,
         atr = r["atr"] or 1.0
         sell_reason = None
 
-        cut_thresh = -max(atr * config.ATR_CUT_MULT, 3)
+        cut_thresh = -max(atr * config.ATR_CUT_MULT, 4)
         if is_bear:
-            cut_thresh = -max(atr * config.ATR_CUT_MULT * 0.8, 2)
+            cut_thresh = -max(atr * config.ATR_CUT_MULT, 3)
         if pnl < cut_thresh:
             sell_reason = f"Cut {pnl:.1f}% (ATR×{config.ATR_CUT_MULT})"
 
         elif r["signal"] == "SELL" and pnl < 0:
             sell_reason = f"Signal SELL"
 
-        elif r["rank"] > len(ranked) * 0.5 and pnl < -max(atr * 0.5, 1):
+        elif r["rank"] > len(ranked) * 0.6 and pnl < -max(atr * 0.5, 1):
             sell_reason = f"Rank {r['rank']}/{len(ranked)} turun"
 
-        elif pnl >= atr * config.ATR_PROFIT_SELL_MULT and config.ATR_PROFIT_SELL_MULT < 10:
+        elif pnl >= atr * config.ATR_PROFIT_SELL_MULT and config.ATR_PROFIT_SELL_MULT < 20:
             sell_reason = f"Profit {pnl:.1f}% (ATR×{config.ATR_PROFIT_SELL_MULT})"
 
-        elif hold > 7200 and pnl > 0:
+        elif hold > 14400 and pnl > 0:
             sell_reason = f"Time TP {pnl:.1f}% ({int(hold/60)}m)"
 
         if sell_reason:
@@ -57,8 +57,8 @@ def decide(all_signals, ticker_map, live_tickers, positions, actual_idr_balance,
     max_pos = config.max_positions_for_equity(total_equity)
     slots = max_pos - remaining
 
-    if slots > 0 and actual_idr_balance >= config.MIN_ORDER_IDR:
-        min_score = 3 if is_bear else 5
+    if slots > 0 and actual_idr_balance >= config.MIN_ORDER_IDR * 3:
+        min_score = 3 if is_bear else 6
         candidates = [
             r for r in ranked
             if r["pair"] not in held_pairs
@@ -70,15 +70,15 @@ def decide(all_signals, ticker_map, live_tickers, positions, actual_idr_balance,
             and r["score"] >= min_score
             and r["vol_idr"] >= 500_000_000
             and r["price"] >= 50
-            and (r["atr"] or 0) <= 55.0
+            and (r["atr"] or 0) <= 25.0
         ]
-        slots = min(slots, 3)
-        n_bins = max(1, int(actual_idr_balance / 35000))
-        n_bins = min(n_bins, slots, 4)
-        per_bin = max(config.MIN_ORDER_IDR, int(actual_idr_balance / max(n_bins, 1)))
+        slots = min(slots, 2)
+        n_bins = max(1, int(actual_idr_balance / 50000))
+        n_bins = min(n_bins, slots, 3)
+        per_bin = max(config.MIN_ORDER_IDR, int(actual_idr_balance * 0.35 / max(n_bins, 1)))
         for c in candidates[:n_bins]:
             alloc = int(per_bin / actual_idr_balance * 100) if actual_idr_balance > 0 else 0
-            alloc = min(max(alloc, 15), 45)
+            alloc = min(max(alloc, 15), 35)
             trades.append({
                 "pair": c["pair"], "action": "BUY", "allocation_pct": alloc,
                 "reason": f"Rank {c['rank']} s{c['score']:.0f}"
@@ -90,7 +90,7 @@ def decide(all_signals, ticker_map, live_tickers, positions, actual_idr_balance,
              "Wait — no data"
 
     cash_low = actual_idr_balance < 200_000
-    play_pct = 95 if config.INSANE_MODE else (70 if is_bear else (95 if cash_low else 85))
+    play_pct = 90 if config.INSANE_MODE else (50 if is_bear else (65 if cash_low else 55))
 
     return {
         "decision": decision,

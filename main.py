@@ -752,7 +752,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             if action == "BUY" and atr_pct:
                 raw_atr = risk.compute_atr(ohlcv, clamped=False)
                 vol_idr = float(ticker.get("vol_idr", 0))
-                if raw_atr > 55.0 or vol_idr < 500_000_000:
+                if raw_atr > 25.0 or vol_idr < 500_000_000:
                     print(f"  {pid}: ATR {raw_atr:.1f}% vol Rp{vol_idr:,.0f} — skip (terlalu berisiko)", flush=True)
                     continue
             if not risk.is_profit_viable(price, qty, action, atr_pct=atr_pct):
@@ -767,12 +767,13 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 tp_limit_price = int(tp)
                 print(f"  ATR: {atr_pct}% | SL: {sl} | TP: {tp}", flush=True)
 
-            ot = "maker_first" if (config.MAKER_FIRST and action == "BUY") else "market"
+            ot = "maker_first" if config.MAKER_FIRST else "market"
             if config.ROTHSCHILD_ACTIVE and action == "BUY":
                 ot = "maker_first"
             try:
                 order = await place_order(client, action.lower(), price, amount,
-                                           pair=pid, order_type=ot)
+                                           pair=pid, order_type=ot,
+                                           qty=qty if action == "SELL" else None)
             except Exception as e:
                 err_str = str(e)
                 print(f"  Order failed {pid}: {err_str}", flush=True)
@@ -1025,7 +1026,7 @@ async def _momentum_scanner():
                 _last_scan_pairs[pid] = time.time()
                 print(f"  MOMENTUM: {pid} {signal}", flush=True)
                 atr_chk = risk.compute_atr(ohlcv, clamped=False)
-                if atr_chk > 55.0:
+                if atr_chk > 25.0:
                     print(f"    ATR {atr_chk:.1f}% > 55 — skip", flush=True)
                     continue
                 vol_idr = float(_latest_ticker_map.get(pid, {}).get("vol_idr", 0) or 0)

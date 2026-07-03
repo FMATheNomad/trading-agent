@@ -31,7 +31,7 @@ def fmt_coin_qty(qty: float, pair: str = "") -> str:
     return s if s != "0" else "0"
 
 async def place_order(client: httpx.AsyncClient, side: str, price: float, amount_idr: float,
-                      pair: str | None = None, order_type: str = "limit") -> dict:
+                      pair: str | None = None, order_type: str = "limit", qty: float | None = None) -> dict:
     pair = pair or config.PAIR
     coin = pair.split("_")[0]
     params = {
@@ -48,24 +48,32 @@ async def place_order(client: httpx.AsyncClient, side: str, price: float, amount
         if side == "buy":
             params["idr"] = str(int(amount_idr))
         else:
-            coin_qty = round(amount_idr / price, 8)
+            coin_qty = qty if qty is not None else round(amount_idr / price, 8)
             params[coin] = fmt_coin_qty(coin_qty, pair)
     elif order_type == "maker_first":
-        maker_price = int(price * (1 - config.MAKER_SLIPPAGE)) if side == "buy" else int(price * (1 + config.MAKER_SLIPPAGE))
+        slippage = config.MAKER_SLIPPAGE
+        if side == "buy":
+            maker_price = int(price * (1 - slippage))
+            params["idr"] = str(int(amount_idr))
+        else:
+            maker_price = int(price * (1 + slippage))
+            coin_qty = qty if qty is not None else round(amount_idr / price, 8)
+            params[coin] = fmt_coin_qty(coin_qty, pair)
         params["price"] = str(maker_price)
-        coin_qty = round(amount_idr / maker_price, 8)
-        params[coin] = fmt_coin_qty(coin_qty, pair)
         params["order_type"] = "limit"
     elif order_type == "maker":
         buy_price = int(price * 0.998)
         sell_price = int(price * 1.002)
         side_price = buy_price if side == "buy" else sell_price
         params["price"] = str(side_price)
-        coin_qty = round(amount_idr / side_price, 8)
-        params[coin] = fmt_coin_qty(coin_qty, pair)
+        if side == "buy":
+            params["idr"] = str(int(amount_idr))
+        else:
+            coin_qty = qty if qty is not None else round(amount_idr / price, 8)
+            params[coin] = fmt_coin_qty(coin_qty, pair)
         params["order_type"] = "limit"
     else:
-        coin_qty = round(amount_idr / price, 8)
+        coin_qty = qty if qty is not None else round(amount_idr / price, 8)
         params[coin] = fmt_coin_qty(coin_qty, pair)
         params["order_type"] = "limit"
 
