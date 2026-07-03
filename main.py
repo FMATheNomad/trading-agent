@@ -752,7 +752,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             if action == "BUY" and atr_pct:
                 raw_atr = risk.compute_atr(ohlcv, clamped=False)
                 vol_idr = float(ticker.get("vol_idr", 0))
-                if raw_atr > 55.0 or vol_idr < 1_000_000_000:
+                if raw_atr > 55.0 or vol_idr < 500_000_000:
                     print(f"  {pid}: ATR {raw_atr:.1f}% vol Rp{vol_idr:,.0f} — skip (terlalu berisiko)", flush=True)
                     continue
             if not risk.is_profit_viable(price, qty, action, atr_pct=atr_pct):
@@ -1029,7 +1029,7 @@ async def _momentum_scanner():
                     print(f"    ATR {atr_chk:.1f}% > 55 — skip", flush=True)
                     continue
                 vol_idr = float(_latest_ticker_map.get(pid, {}).get("vol_idr", 0) or 0)
-                if vol_idr < 1_000_000_000:
+                if vol_idr < 500_000_000:
                     print(f"    Vol Rp{vol_idr:,.0f} < 1T — skip", flush=True)
                     continue
                 if _latest_all_signals.get(pid, {}).get("timeframe_aligned") is not True:
