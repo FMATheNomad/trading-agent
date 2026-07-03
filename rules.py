@@ -64,6 +64,7 @@ def decide(all_signals, ticker_map, live_tickers, positions, actual_idr_balance,
             if r["pair"] not in held_pairs
             and r["pair"] not in config.STABLECOINS
             and r["pair"] not in config.SKIP_COINS
+            and (not config.FUNDAMENTAL_COINS or r["pair"] in config.FUNDAMENTAL_COINS)
             and r["pair"] not in coin_blacklist
             and r["signal"] == "BUY"
             and r["tf_aligned"]

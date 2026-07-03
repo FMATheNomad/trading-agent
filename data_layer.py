@@ -119,6 +119,8 @@ async def fetch_viable_pairs(client: httpx.AsyncClient) -> list[dict]:
         vol_idr = t.get("vol_idr", 0)
         if vol_idr < config.MIN_24H_VOLUME_IDR:
             continue
+        if config.FUNDAMENTAL_COINS and pid not in config.FUNDAMENTAL_COINS:
+            continue
         candidates.append({
             "pair": pid,
             "traded": p.get("traded_currency", ""),

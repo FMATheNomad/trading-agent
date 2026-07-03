@@ -22,8 +22,8 @@ def max_positions_for_equity(equity: float) -> int:
     if equity >= 1_000_000: return 3
     return 2
 
-MIN_24H_VOLUME_IDR = 200_000_000
-MAX_SCAN_PAIRS = 30
+MIN_24H_VOLUME_IDR = 50_000_000
+MAX_SCAN_PAIRS = 60
 OHLCV_FETCH_CONCURRENCY = 15
 MAX_POSITION_PCT_PER_ASSET = 0.35
 MAX_SECTOR_EXPOSURE_PCT = 0.5
@@ -56,7 +56,20 @@ TAKER_FEE_PCT = 0.0035
 MAKER_FEE_PCT = 0.0020
 FEE_CLEARANCE_RATIO = 2.5
 
-FUNDAMENTAL_COINS: set[str] = set()
+FUNDAMENTAL_COINS: set[str] = {
+    "btc_idr", "eth_idr", "sol_idr", "xrp_idr", "ada_idr",
+    "doge_idr", "avax_idr", "dot_idr", "link_idr", "bnb_idr",
+    "trx_idr", "bch_idr", "shib_idr", "near_idr", "ltc_idr",
+    "xlm_idr", "sui_idr", "pepe_idr", "uni_idr", "aave_idr",
+    "atom_idr", "algo_idr", "fil_idr", "icp_idr", "xtz_idr",
+    "arb_idr", "op_idr", "inj_idr", "grt_idr", "sand_idr",
+    "mana_idr", "crv_idr", "fet_idr", "ethereum_idr", "etc_idr",
+    "hbar_idr", "vet_idr", "theta_idr", "eos_idr", "iota_idr",
+    "ksm_idr", "yfi_idr", "axs_idr", "cake_idr", "enj_idr",
+    "celo_idr", "imx_idr", "pendle_idr", "jup_idr", "ondo_idr",
+    "ldo_idr", "bonk_idr", "wif_idr", "mnt_idr", "trump_idr",
+    "hype_idr", "render_idr", "ionet_idr", "strk_idr", "tia_idr",
+}
 STABLECOINS = {"usdt_idr", "usdc_idr", "busd_idr", "dai_idr", "tusd_idr", "fdusd_idr"}
 SKIP_COINS: set[str] = set()
 

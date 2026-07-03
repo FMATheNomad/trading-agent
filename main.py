@@ -668,6 +668,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 print("STARTUP GUARD: blocked CIO sells (positions restored from balance)", flush=True)
             trades = [t for t in trades if t.get("action") != "SELL"]
         trades = [t for t in trades if t.get("action") != "BUY" or t["pair"] not in _coin_blacklist]
+        if config.FUNDAMENTAL_COINS:
+            trades = [t for t in trades if t.get("action") != "BUY" or t["pair"] in config.FUNDAMENTAL_COINS]
         if config.SKIP_COINS:
             trades = [t for t in trades if t.get("action") != "BUY" or t["pair"] not in config.SKIP_COINS]
         if _coin_blacklist:
@@ -1012,6 +1014,8 @@ async def _momentum_scanner():
                 if any(p["pair"] == pid for p in positions):
                     continue
                 if pid in config.STABLECOINS or pid in config.SKIP_COINS:
+                    continue
+                if config.FUNDAMENTAL_COINS and pid not in config.FUNDAMENTAL_COINS:
                     continue
                 if pid in _coin_blacklist:
                     continue
