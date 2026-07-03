@@ -8,7 +8,9 @@
 import json
 import sqlite3
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+
+WIB = timezone(timedelta(hours=7))
 
 DATA_DIR = os.getenv("STATE_DIR") or os.getenv("DATA_DIR") or ("/data" if os.path.isdir("/data") else os.path.dirname(__file__))
 DB_PATH = os.path.join(DATA_DIR, "trades.db")
@@ -63,7 +65,7 @@ def log_trade(side: str, price: float, qty: float, amount_idr: float,
         conn.execute(
             "INSERT INTO trades (timestamp, side, price, qty, amount_idr, order_type, status, pnl, reason, paper_trade) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (datetime.now(timezone.utc).isoformat(), side, price, qty,
+            (datetime.now(WIB).isoformat(), side, price, qty,
              amount_idr, order_type, status, pnl, reason, 1),
         )
 
@@ -72,7 +74,7 @@ def log_decision(raw_signal: str, llm_decision: str, llm_reasoning: str, execute
         conn.execute(
             "INSERT INTO decisions (timestamp, raw_signal, llm_decision, llm_reasoning, executed) "
             "VALUES (?, ?, ?, ?, ?)",
-            (datetime.now(timezone.utc).isoformat(), raw_signal, llm_decision, llm_reasoning, int(executed)),
+            (datetime.now(WIB).isoformat(), raw_signal, llm_decision, llm_reasoning, int(executed)),
         )
 
 def get_recent_trades(limit: int = 3) -> list[dict]:
@@ -130,7 +132,7 @@ def load_peak_capital() -> float | None:
     return float(row[0]) if row else None
 
 def get_trade_count_today() -> int:
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    today = datetime.now(WIB).strftime("%Y-%m-%d")
     with _conn() as conn:
         row = conn.execute(
             "SELECT COUNT(*) FROM trades WHERE timestamp LIKE ?", (f"{today}%",)
@@ -138,7 +140,7 @@ def get_trade_count_today() -> int:
     return row[0] if row else 0
 
 def get_trades_by_period(period: str = "day") -> list[dict]:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(WIB)
     if period == "day":
         prefix = now.strftime("%Y-%m-%d")
         like = f"{prefix}%"
@@ -179,7 +181,7 @@ def save_chat(role: str, message: str):
     with _conn() as conn:
         conn.execute(
             "INSERT INTO chat_history (timestamp, role, message) VALUES (?, ?, ?)",
-            (datetime.now(timezone.utc).isoformat(), role, message),
+            (datetime.now(WIB).isoformat(), role, message),
         )
         conn.execute("DELETE FROM chat_history WHERE id NOT IN (SELECT id FROM chat_history ORDER BY id DESC LIMIT 50)")
 
