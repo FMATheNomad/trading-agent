@@ -217,6 +217,22 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     print(f"  Maker retry failed {pid}: {e}", flush=True)
                 del _pending_orders[pid]
         except Exception:
+            po = _pending_orders.get(pid)
+            if po and po.get("order_id"):
+                try:
+                    cancel_body_b = urlencode({
+                        "method": "cancelOrder", "timestamp": int(time.time() * 1000),
+                        "recvWindow": "5000", "pair": pid,
+                        "order_id": str(po["order_id"]), "type": po.get("side", "buy").lower(),
+                    })
+                    cancel_sig_b = hmac.new(config.INDODAX_SECRET_KEY.encode(), cancel_body_b.encode(), hashlib.sha512).hexdigest()
+                    await client.post(config.INDODAX_TAPI_URL, headers={
+                        "Key": config.INDODAX_API_KEY, "Sign": cancel_sig_b,
+                        "Content-Type": "application/x-www-form-urlencoded",
+                    }, content=cancel_body_b)
+                    print(f"  CANCEL STUCK: {pid} order_id={po['order_id']}", flush=True)
+                except Exception:
+                    pass
             del _pending_orders[pid]
 
     try:
@@ -891,6 +907,41 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         if positions and config.INDODAX_API_KEY:
             pair_str = ",".join(p["pair"] for p in positions[:5])
             await refresh_deadman(client, pair_str)
+
+        if cycle_counter % 10 == 0 and config.INDODAX_API_KEY:
+            try:
+                clean_ts = int(time.time() * 1000)
+                clean_params = {"method": "openOrders", "timestamp": str(clean_ts), "recvWindow": "5000"}
+                clean_body = urlencode(clean_params)
+                clean_sig = hmac.new(config.INDODAX_SECRET_KEY.encode(), clean_body.encode(), hashlib.sha512).hexdigest()
+                clean_r = await client.post(config.INDODAX_TAPI_URL, headers={
+                    "Key": config.INDODAX_API_KEY, "Sign": clean_sig,
+                    "Content-Type": "application/x-www-form-urlencoded",
+                }, content=clean_body)
+                clean_data = clean_r.json()
+                if clean_data.get("success") == 1:
+                    tracked = {p["pair"] for p in positions} | set(_pending_orders.keys())
+                    orders_map = clean_data["return"].get("orders", {})
+                    if isinstance(orders_map, dict):
+                        for opair, olist in orders_map.items():
+                            if isinstance(olist, list):
+                                for o in olist:
+                                    if opair not in tracked:
+                                        oid = o.get("order_id")
+                                        if oid:
+                                            cancel_cbody = urlencode({
+                                                "method": "cancelOrder", "timestamp": int(time.time() * 1000),
+                                                "recvWindow": "5000", "pair": opair,
+                                                "order_id": str(oid), "type": o.get("type", "buy"),
+                                            })
+                                            cancel_csig = hmac.new(config.INDODAX_SECRET_KEY.encode(), cancel_cbody.encode(), hashlib.sha512).hexdigest()
+                                            await client.post(config.INDODAX_TAPI_URL, headers={
+                                                "Key": config.INDODAX_API_KEY, "Sign": cancel_csig,
+                                                "Content-Type": "application/x-www-form-urlencoded",
+                                            }, content=cancel_cbody)
+                                            print(f"CLEANUP: cancelled orphan {opair} {o.get('type')} (order_id={oid})", flush=True)
+            except Exception as e:
+                print(f"Orphan cleanup error: {e}", flush=True)
 
         _latest_regime = regime_info
         _latest_ticker_map = ticker_map
