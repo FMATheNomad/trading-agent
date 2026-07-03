@@ -695,6 +695,19 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             blocked = [t for t in decision.get("trades", []) if t.get("action") == "BUY" and t["pair"] in _coin_blacklist]
             if blocked:
                 print(f"BLACKLIST: Skipped BUY for {', '.join(t['pair'] for t in blocked)}", flush=True)
+        for p in list(positions):
+            if p["pair"] not in config.FUNDAMENTAL_COINS and p["pair"] not in config.RECOVERY_TOP:
+                last_p = _coin_price(p["pair"]) or LIVE_TICKERS.get(p["pair"], {}).get("last") or 0
+                if last_p == 0:
+                    try:
+                        t = await fetch_ticker(client, pair=p["pair"])
+                        if t: last_p = t.get("last", 0)
+                    except Exception:
+                        pass
+                pnl_est = (last_p - p["entry_price"]) / p["entry_price"] * 100 if p["entry_price"] and last_p else 0
+                print(f"  FORCE SELL {p['pair']}: {pnl_est:+.1f}% (di luar daftar)", flush=True)
+                trades.append({"pair": p["pair"], "action": "SELL", "allocation_pct": 100, "reason": "Force close (outside trading list)"})
+
         selling_pairs = {t["pair"] for t in trades if t.get("action") == "SELL"}
         extra_buys = [t for t in trades if t.get("action") == "BUY" and t["pair"] in all_held]
         new_buys = [t for t in trades if t.get("action") == "BUY" and t["pair"] not in all_held]
