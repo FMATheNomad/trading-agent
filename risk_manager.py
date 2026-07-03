@@ -153,7 +153,7 @@ class RiskManager:
             if side.upper() == "BUY":
                 if pair and current_price > self.trailing_highs.get(pair, entry_price):
                     self.trailing_highs[pair] = current_price
-                if pair and pnl_pct > 0:
+                if pair and pnl_pct > 0.02:
                     trail_stop = self.trailing_highs[pair] * (1 - trail_pct)
                     if current_price <= trail_stop:
                         return "TRAILING_SL"
@@ -162,7 +162,7 @@ class RiskManager:
             else:
                 if pair and current_price < self.trailing_highs.get(pair, entry_price):
                     self.trailing_highs[pair] = current_price
-                if pair and pnl_pct > 0:
+                if pair and pnl_pct > 0.02:
                     trail_stop = self.trailing_highs[pair] * (1 + trail_pct)
                     if current_price >= trail_stop:
                         return "TRAILING_SL"
