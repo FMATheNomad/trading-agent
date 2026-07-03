@@ -69,14 +69,17 @@ def decide(all_signals, ticker_map, live_tickers, positions, actual_idr_balance,
             and r["price"] > 0
             and (r["atr"] or 0) <= 55.0
         ]
-        n_bins = min(slots, max(1, int(actual_idr_balance / (50000 if actual_idr_balance < 500000 else 100000))))
-        per_bin = max(config.MIN_ORDER_IDR, int(actual_idr_balance / max(n_bins, 1)))
-        for c in candidates[:n_bins]:
-            alloc = int(per_bin / actual_idr_balance * 100) if actual_idr_balance > 0 else 0
-            alloc = min(max(alloc, 20), 50)
+        for c in candidates[:2]:
+            vr = c.get("volume_ratio", 1)
+            conf = 0
+            if c["score"] >= 80: conf += 2
+            elif c["score"] >= 65: conf += 1
+            if vr >= 2.0: conf += 1
+            if c.get("atr", 0) >= 2.0: conf += 1
+            alloc = {4: 70, 3: 55, 2: 40, 1: 25}.get(conf, 25)
             trades.append({
                 "pair": c["pair"], "action": "BUY", "allocation_pct": alloc,
-                "reason": f"Rank {c['rank']} s{c['score']:.0f}"
+                "reason": f"Rank {c['rank']} s{c['score']:.0f} conf{conf}"
             })
 
     decision = "REBALANCE" if trades else "HOLD"
