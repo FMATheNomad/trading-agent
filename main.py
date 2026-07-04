@@ -698,9 +698,13 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         for sl_hit in sl_hits:
             if "SL_HIT" in sl_hit or "TRAILING_SL" in sl_hit or "INITIAL_SL" in sl_hit or "ATR_SL" in sl_hit:
                 pair = sl_hit.split(" ")[0].replace(":", "")
-                _coin_blacklist.add(pair)
-                print(f"BLACKLIST: {pair} added (hit stop loss)", flush=True)
-                await send_message(f"⛔ {pair} blacklist (kena SL)")
+                if _rothschild_active:
+                    _cooldown[pair] = time.time() + 3600
+                    print(f"COOLDOWN: {pair} 60 menit (Rothschild mode)", flush=True)
+                else:
+                    _coin_blacklist.add(pair)
+                    print(f"BLACKLIST: {pair} added (hit stop loss)", flush=True)
+                    await send_message(f"⛔ {pair} blacklist (kena SL)")
         if len(_coin_blacklist) > 20:
             _coin_blacklist.clear()
 
@@ -744,7 +748,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             if any(t.get("action") == "SELL" for t in decision.get("trades", [])):
                 print("STARTUP GUARD: blocked CIO sells (positions restored from balance)", flush=True)
             trades = [t for t in trades if t.get("action") != "SELL"]
-        trades = [t for t in trades if t.get("action") != "BUY" or t["pair"] not in _coin_blacklist]
+        trades = [t for t in trades if t.get("action") != "BUY" or (t["pair"] not in _coin_blacklist and (t["pair"] not in _cooldown or time.time() >= _cooldown.get(t["pair"], 0)))]
         if config.SKIP_COINS:
             trades = [t for t in trades if t.get("action") != "BUY" or t["pair"] not in config.SKIP_COINS]
         if _coin_blacklist:
@@ -1098,6 +1102,8 @@ async def _momentum_scanner():
                 if pid in config.STABLECOINS or pid in config.SKIP_COINS:
                     continue
                 if pid in _coin_blacklist or pid in _realtime_sold:
+                    continue
+                if pid in _cooldown and time.time() < _cooldown[pid]:
                     continue
                 if time.time() - _last_scan_pairs.get(pid, 0) < 30:
                     continue
