@@ -434,21 +434,25 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             except Exception as e:
                 print(f"Balance fetch error: {e} (using previous balance: Rp{actual_idr_balance:,.0f})", flush=True)
 
-        def _coin_price(pair: str) -> float:
+        async def _coin_price(pair: str) -> float:
             lt = LIVE_TICKERS.get(pair, {})
             if lt.get("last"):
                 return lt["last"]
             tm = ticker_map.get(pair, {})
             if tm.get("last"):
                 return tm["last"]
+            try:
+                r = await fetch_ticker(client, pair=pair)
+                if r and r.get("last"):
+                    return r["last"]
+            except Exception:
+                pass
             return 0
 
         pending_play_capital_pct = config.DEFAULT_PLAY_CAPITAL_PCT
         balance_idr = int(actual_idr_balance * pending_play_capital_pct)
-        paper_equity = sum(
-            p["qty"] * _coin_price(p["pair"])
-            for p in positions
-        )
+        paper_prices = await asyncio.gather(*[_coin_price(p["pair"]) for p in positions])
+        paper_equity = sum(p["qty"] * price for p, price in zip(positions, paper_prices))
         total_equity = actual_idr_balance + paper_equity
         if positions and paper_equity < config.MIN_ORDER_IDR:
             print(f"  Paper equity Rp{paper_equity:,.0f} — pake entry price fallback", flush=True)
@@ -756,7 +760,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             if blocked:
                 print(f"BLACKLIST: Skipped BUY for {', '.join(t['pair'] for t in blocked)}", flush=True)
         for p in list(positions):
-            last_p = _coin_price(p["pair"]) or LIVE_TICKERS.get(p["pair"], {}).get("last") or 0
+                last_p = await _coin_price(p["pair"]) or LIVE_TICKERS.get(p["pair"], {}).get("last") or 0
             if last_p == 0:
                 try:
                     t = await fetch_ticker(client, pair=p["pair"])
