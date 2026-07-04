@@ -22,10 +22,11 @@ class RiskManager:
     def check_daily_limits(self, total_equity: float) -> str | None:
         if total_equity > self.today_peak:
             self.today_peak = total_equity
-        if total_equity < config.DAILY_LOSS_FLOOR_IDR and not self.daily_loss_stopped:
+        daily_loss = self.today_peak - total_equity
+        if daily_loss >= config.DAILY_LOSS_FLOOR_IDR and not self.daily_loss_stopped:
             self.daily_loss_stopped = True
             return "DAILY_LOSS_LIMIT"
-        if total_equity > config.MIN_ORDER_IDR and self.daily_loss_stopped:
+        if total_equity > self.today_peak - config.MIN_ORDER_IDR and self.daily_loss_stopped:
             self.daily_loss_stopped = False
             self.today_peak = total_equity
         return None
