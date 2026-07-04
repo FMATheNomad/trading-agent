@@ -54,7 +54,8 @@ async def place_order(client: httpx.AsyncClient, side: str, price: float, amount
         slippage = config.MAKER_SLIPPAGE
         if side == "buy":
             maker_price = int(price * (1 - slippage))
-            params["idr"] = str(int(amount_idr))
+            coin_qty = round(amount_idr / maker_price, 8)
+            params[coin] = fmt_coin_qty(coin_qty, pair)
         else:
             maker_price = int(price * (1 + slippage))
             coin_qty = qty if qty is not None else round(amount_idr / price, 8)
