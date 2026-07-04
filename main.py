@@ -10,6 +10,7 @@ import datetime
 import hashlib
 import hmac
 import math
+import os
 import sys
 import signal
 import time
@@ -1269,6 +1270,11 @@ async def main():
         if saved:
             positions.extend(saved)
         print("DB init OK", flush=True)
+        if os.getenv("CLEAR_LOSS_HOLD"):
+            persist.save_daily_loss_hit(False)
+            persist.save_loss_hit_date("")
+            _daily_loss_hit_today = False
+            print(f"  CLEAR_LOSS_HOLD: daily loss flag reset by env", flush=True)
         _daily_loss_hit_today = persist.load_daily_loss_hit()
         if _daily_loss_hit_today:
             print(f"  Previous session hit daily loss — TP allow, SL hold", flush=True)
