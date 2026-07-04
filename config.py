@@ -21,7 +21,7 @@ def max_positions_for_equity(equity: float) -> int:
     if equity >= 5_000_000: return 4
     return 4
 
-MIN_24H_VOLUME_IDR = 200_000_000
+MIN_24H_VOLUME_IDR = 500_000_000
 MAX_SCAN_PAIRS = 40
 OHLCV_FETCH_CONCURRENCY = 15
 MAX_POSITION_PCT_PER_ASSET = 0.35
