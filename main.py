@@ -470,6 +470,15 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             portfolio_risk.peak_capital = total_equity
             persist.save_peak_capital(total_equity)
 
+        base_eq = persist.load_initial_equity() or total_equity
+        eq_pct = (total_equity - base_eq) / base_eq * 100 if base_eq else 0
+        tag = "🔴 R" if _rothschild_active else "🟢 K"
+        hold_tag = " ⏸️" if _daily_loss_hit_today else ""
+        await send_message(
+            f"💳 Rp{total_equity:,.0f} ({eq_pct:+.1f}%) {tag}{hold_tag}\n"
+            f"Cycle #{cycle_counter} | {regime_info['regime']} | {len(positions)} pos | Cash: Rp{actual_idr_balance:,.0f}"
+        )
+
         if _daily_loss_hit_today and total_equity > config.DAILY_LOSS_FLOOR_IDR + config.MIN_ORDER_IDR:
             _daily_loss_hit_today = False
             persist.save_daily_loss_hit(False)
@@ -479,10 +488,6 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         if daily_limit == "DAILY_LOSS_LIMIT":
             _daily_loss_hit_today = True
             persist.save_daily_loss_hit(True)
-            await send_message(
-                f"🛑 DAILY LOSS LIMIT — Rp{total_equity:,.0f} (loss Rp{risk.today_peak - total_equity:,.0f})\n"
-                f"Cycle #{cycle_counter} | {regime_info['regime']} | {len(positions)} pos | HOLD sampe besok"
-            )
             print(f"DAILY LOSS LIMIT HIT. Equity: Rp{total_equity:,.0f}. Realtime: TP izin, SL skip.", flush=True)
             return
 
@@ -756,14 +761,6 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         if len(new_buys) > slots_left:
             trades = [t for t in trades if t.get("action") == "SELL"] + extra_buys + new_buys[:slots_left]
             print(f"Limited new buys to {slots_left} (max {max_positions} unique, equity Rp{total_equity:,.0f})", flush=True)
-
-        base_eq = persist.load_initial_equity() or total_equity
-        eq_pct = (total_equity - base_eq) / base_eq * 100 if base_eq else 0
-        tag = "🔴 R" if _rothschild_active else "🟢 K"
-        await send_message(
-            f"💳 Rp{total_equity:,.0f} ({eq_pct:+.1f}%) {tag}\n"
-            f"Cycle #{cycle_counter} | {regime_info['regime']} | {len(positions)} pos | Cash: Rp{actual_idr_balance:,.0f}"
-        )
 
         if not trades:
             print(f"Cycle done in {int(time.time() - _t0)}s. Sleeping.", flush=True)
