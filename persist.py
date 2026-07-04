@@ -85,3 +85,11 @@ def save_cooldown(cooldown: dict[str, float]):
     state = _load()
     state["cooldown"] = cooldown
     _save(state)
+
+def load_daily_loss_hit() -> bool:
+    return _load().get("daily_loss_hit", False)
+
+def save_daily_loss_hit(flag: bool):
+    state = _load()
+    state["daily_loss_hit"] = flag
+    _save(state)

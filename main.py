@@ -67,6 +67,7 @@ _realized_pnl_idr: float = 0.0
 _rothschild_active: bool = False
 _regime_bull_streak: int = 0
 _regime_bear_streak: int = 0
+_daily_loss_hit_today: bool = False
 
 def classify_regime(all_signals: dict, ohlcv_map_1h: dict | None = None) -> dict:
     signals = [s.get("raw_signal") for s in all_signals.values() if s.get("raw_signal")]
@@ -169,7 +170,7 @@ def pnl_pct(entry: float, current: float, side: str) -> float:
 cycle_counter = 0
 
 async def portfolio_cycle(client: httpx.AsyncClient):
-    global positions, cycle_counter, _prev_regime, _prev_equity, _report_sent_count, _latest_regime, _latest_ticker_map, _latest_all_signals, _latest_ohlcv_map_1h, _latest_balance, _realized_pnl_idr
+    global positions, cycle_counter, _prev_regime, _prev_equity, _report_sent_count, _latest_regime, _latest_ticker_map, _latest_all_signals, _latest_ohlcv_map_1h, _latest_balance, _realized_pnl_idr, _daily_loss_hit_today
     cycle_counter += 1
     _t0 = time.time()
     risk.daily_loss_stopped = False
@@ -468,9 +469,17 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             portfolio_risk.peak_capital = total_equity
             persist.save_peak_capital(total_equity)
 
+        if _daily_loss_hit_today and total_equity > config.DAILY_LOSS_FLOOR_IDR + config.MIN_ORDER_IDR:
+            _daily_loss_hit_today = False
+            persist.save_daily_loss_hit(False)
+            print(f"  Daily loss reset — equity recovered", flush=True)
+
         daily_limit = risk.check_daily_limits(total_equity)
         if daily_limit == "DAILY_LOSS_LIMIT":
-            print(f"DAILY LOSS LIMIT HIT. Equity: Rp{total_equity:,.0f}", flush=True)
+            global _daily_loss_hit_today
+            _daily_loss_hit_today = True
+            persist.save_daily_loss_hit(True)
+            print(f"DAILY LOSS LIMIT HIT. Equity: Rp{total_equity:,.0f}. Realtime: TP izin, SL skip.", flush=True)
             return
 
         if portfolio_risk.check_portfolio_stop(total_equity):
@@ -1186,6 +1195,10 @@ async def _realtime_sltp_check(pair: str, price: float):
         positions.remove(p)
         return
     pnl = (price - p["entry_price"]) * p["qty"]
+    is_sl = any(w in str(result).upper() for w in ["SL", "ATR_SL", "TRAILING", "INITIAL", "CUT"])
+    if _daily_loss_hit_today and is_sl:
+        print(f"  DAILY LOSS HOLD: skip {pair} {result} ({pnl:+.0f} IDR) — tahan sampai besok", flush=True)
+        return
     print(f"  REALTIME SL: {pair} {result} ({pnl:+.0f} IDR)", flush=True)
     try:
         async with httpx.AsyncClient() as c:
@@ -1254,6 +1267,9 @@ async def main():
         if saved:
             positions.extend(saved)
         print("DB init OK", flush=True)
+        _daily_loss_hit_today = persist.load_daily_loss_hit()
+        if _daily_loss_hit_today:
+            print(f"  Previous session hit daily loss — TP allow, SL hold", flush=True)
         _ext_entry_prices.update(persist.load_entry_prices())
         print(f"Loaded {len(_ext_entry_prices)} entry prices from DB", flush=True)
         recent = get_recent_trades(limit=100)
