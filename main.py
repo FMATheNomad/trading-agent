@@ -689,7 +689,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                         print(f"  Cancel TP failed {p['pair']}: {e}", flush=True)
 
         for sl_hit in sl_hits:
-            if "SL_HIT" in sl_hit or "TRAILING_SL" in sl_hit:
+            if "SL_HIT" in sl_hit or "TRAILING_SL" in sl_hit or "INITIAL_SL" in sl_hit or "ATR_SL" in sl_hit:
                 pair = sl_hit.split(" ")[0].replace(":", "")
                 _coin_blacklist.add(pair)
                 print(f"BLACKLIST: {pair} added (hit stop loss)", flush=True)
@@ -1082,7 +1082,7 @@ async def _momentum_scanner():
             cash_avail = _latest_balance
             if cash_avail < config.MIN_ORDER_IDR:
                 continue
-            max_pos = config.max_positions_for_equity(cash_avail + sum(p["qty"] * 1000 for p in positions))
+            max_pos = config.MAX_OPEN_POSITIONS if _rothschild_active else config.max_positions_for_equity(cash_avail + sum(p["qty"] * 1000 for p in positions))
             if len(positions) >= max_pos:
                 continue
             for pid, ohlcv in list(_latest_ohlcv_map_1h.items()):
@@ -1090,7 +1090,7 @@ async def _momentum_scanner():
                     continue
                 if pid in config.STABLECOINS or pid in config.SKIP_COINS:
                     continue
-                if pid in _coin_blacklist:
+                if pid in _coin_blacklist or pid in _realtime_sold:
                     continue
                 if time.time() - _last_scan_pairs.get(pid, 0) < 30:
                     continue
