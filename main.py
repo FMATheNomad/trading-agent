@@ -760,7 +760,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             if blocked:
                 print(f"BLACKLIST: Skipped BUY for {', '.join(t['pair'] for t in blocked)}", flush=True)
         for p in list(positions):
-                last_p = await _coin_price(p["pair"]) or LIVE_TICKERS.get(p["pair"], {}).get("last") or 0
+            last_p = await _coin_price(p["pair"]) or LIVE_TICKERS.get(p["pair"], {}).get("last") or 0
             if last_p == 0:
                 try:
                     t = await fetch_ticker(client, pair=p["pair"])
