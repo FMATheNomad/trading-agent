@@ -721,6 +721,13 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             trades = [t for t in trades if t.get("action") == "SELL"] + extra_buys + new_buys[:slots_left]
             print(f"Limited new buys to {slots_left} (max {max_positions} unique, equity Rp{total_equity:,.0f})", flush=True)
 
+        base_eq = persist.load_initial_equity() or total_equity
+        eq_pct = (total_equity - base_eq) / base_eq * 100 if base_eq else 0
+        await send_message(
+            f"💳 Rp{total_equity:,.0f} ({eq_pct:+.1f}%)\n"
+            f"Cycle #{cycle_counter} | {regime_info['regime']} | {len(positions)} pos | Cash: Rp{actual_idr_balance:,.0f}"
+        )
+
         if not trades:
             print(f"Cycle done in {int(time.time() - _t0)}s. Sleeping.", flush=True)
             persist.save_initial_equity(total_equity)
@@ -992,13 +999,6 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             )
             print(f"COMPOUND: +Rp{_realized_pnl_idr:,.0f} (Rp{old_cap:,.0f} → Rp{config.PLAY_CAPITAL_IDR:,.0f})", flush=True)
             _realized_pnl_idr = 0.0
-
-        base_eq = persist.load_initial_equity() or total_equity
-        eq_pct = (total_equity - base_eq) / base_eq * 100 if base_eq else 0
-        await send_message(
-            f"💳 Rp{total_equity:,.0f} ({eq_pct:+.1f}%)\n"
-            f"Cycle #{cycle_counter} | {regime_info['regime']} | {len(positions)} pos | Cash: Rp{actual_idr_balance:,.0f}"
-        )
 
     except Exception as e:
         print(f"Portfolio cycle error: {e}", flush=True)
