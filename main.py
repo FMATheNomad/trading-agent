@@ -1489,7 +1489,7 @@ async def main():
                                     total_pnl = sum(t["pnl"] for t in sells)
                                     wins = [t for t in sells if t["pnl"] > 0]
                                     losses = [t for t in sells if t["pnl"] <= 0]
-                                    fee_est = sum(abs(t.get("amount_idr", 0) or 0) for t in trades_in) * config.TAKER_FEE_PCT
+                                    fee_est = sum(abs(t.get("amount_idr", 0) or 0) for t in trades_in) * config.TOTAL_MAKER_ROUNDTRIP_PCT
                                     text = (
                                         f"📊 {label}\n"
                                         f"Trade: {len(sells)}x ({len(wins)}W/{len(losses)}L)\n"
