@@ -79,10 +79,10 @@ def decide(all_signals, ticker_map, live_tickers, positions, actual_idr_balance,
             if candidates:
                 print(f"  Relaxed filter: {candidates[0]['pair']} s{candidates[0]['score']:.0f} (tf not aligned)", flush=True)
                 candidates = candidates[:1]
-        slots = min(slots, 1)
-        n_bins = max(1, int(actual_idr_balance / 75000))
-        n_bins = min(n_bins, slots, 2)
-        per_bin = max(config.MIN_ORDER_IDR, int(actual_idr_balance * 0.25 / max(n_bins, 1)))
+        slots = min(slots, 4)
+        n_bins = max(1, int(actual_idr_balance / 50000))
+        n_bins = min(n_bins, slots, 4)
+        per_bin = max(config.MIN_ORDER_IDR, int(actual_idr_balance * 0.85 / max(n_bins, 1)))
         for c in candidates[:n_bins]:
             alloc = int(per_bin / actual_idr_balance * 100) if actual_idr_balance > 0 else 0
             alloc = min(max(alloc, 10), 25)

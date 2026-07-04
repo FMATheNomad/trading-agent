@@ -17,9 +17,10 @@ DEFAULT_PLAY_CAPITAL_PCT = 0.5
 PORTFOLIO_MODE = True
 MAX_OPEN_POSITIONS = 3
 def max_positions_for_equity(equity: float) -> int:
-    if equity >= 10_000_000: return 3
-    if equity >= 5_000_000: return 2
-    return 2
+    if equity >= 10_000_000: return 4
+    if equity >= 5_000_000: return 4
+    if equity >= 1_000_000: return 4
+    return 4
 
 MIN_24H_VOLUME_IDR = 50_000_000
 MAX_SCAN_PAIRS = 60
@@ -47,7 +48,7 @@ elif ALPHA_MODE:
     DAILY_LOSS_FLOOR_IDR = 15_000
     PORTFOLIO_STOP_LOSS_PCT = -0.15
     MAX_DAILY_TRADES = 10
-    MAX_OPEN_POSITIONS = 1
+    MAX_OPEN_POSITIONS = 4
     MAX_POSITION_PCT_PER_ASSET = 0.25
     KELLY_FRACTION = 0.10
     ATR_TP_MULTIPLIER = 1.5
@@ -65,21 +66,8 @@ MAKER_FEE_PCT = 0.0020
 FEE_CLEARANCE_RATIO = 2.5
 
 FUNDAMENTAL_COINS: set[str] = {
-    # Top 50 market cap (available on Indodax)
-    "btc_idr", "eth_idr", "bnb_idr", "xrp_idr", "sol_idr",
-    "trx_idr", "hype_idr", "doge_idr", "xlm_idr", "ada_idr",
-    "link_idr", "bch_idr", "ltc_idr", "hbar_idr", "sui_idr",
-    "avax_idr", "near_idr", "shib_idr", "uni_idr", "cro_idr",
-    "wld_idr", "dot_idr", "leo_idr", "okb_idr", "ondo_idr",
-    "paxg_idr", "aster_idr", "wlfi_idr",
-    # Top 100 tambahan yang ada di Indodax
-    "pepe_idr", "aave_idr", "atom_idr", "algo_idr", "arb_idr",
-    "op_idr", "inj_idr", "grt_idr", "sand_idr", "mana_idr",
-    "crv_idr", "fet_idr", "etc_idr", "vet_idr", "theta_idr",
-    "iota_idr", "ksm_idr", "yfi_idr", "axs_idr", "enj_idr",
-    "imx_idr", "pendle_idr", "jup_idr", "ldo_idr", "render_idr",
-    "strk_idr", "tia_idr", "fil_idr", "icp_idr", "xtz_idr",
-    "cake_idr", "mnt_idr", "bonk_idr",
+    "btc_idr", "eth_idr", "sol_idr", "xrp_idr", "ada_idr",
+    "bnb_idr", "doge_idr", "avax_idr", "dot_idr", "link_idr",
 }
 RECOVERY_TOP: set[str] = FUNDAMENTAL_COINS.copy()
 STABLECOINS = {"usdt_idr", "usdc_idr", "busd_idr", "dai_idr", "tusd_idr", "fdusd_idr"}
