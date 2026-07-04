@@ -73,16 +73,11 @@ FUNDAMENTAL_COINS: set[str] = {
     "arb_idr", "op_idr", "inj_idr", "grt_idr", "sand_idr",
     "mana_idr", "crv_idr", "fet_idr", "etc_idr", "hbar_idr",
     "vet_idr", "theta_idr", "iota_idr", "ksm_idr", "yfi_idr",
-    "axs_idr", "cake_idr", "enj_idr", "celo_idr", "imx_idr",
+    "axs_idr", "cake_idr", "enj_idr", "imx_idr",
     "pendle_idr", "jup_idr", "ondo_idr", "ldo_idr", "bonk_idr",
-    "wif_idr", "mnt_idr", "trump_idr", "hype_idr", "render_idr",
-    "strk_idr", "tia_idr",
+    "mnt_idr", "hype_idr", "render_idr", "strk_idr", "tia_idr",
 }
-RECOVERY_TOP: set[str] = {
-    "btc_idr", "eth_idr", "sol_idr", "xrp_idr", "bnb_idr",
-    "ada_idr", "doge_idr", "avax_idr", "dot_idr", "link_idr",
-    "sui_idr", "near_idr", "trx_idr",
-}
+RECOVERY_TOP: set[str] = FUNDAMENTAL_COINS.copy()
 STABLECOINS = {"usdt_idr", "usdc_idr", "busd_idr", "dai_idr", "tusd_idr", "fdusd_idr"}
 SKIP_COINS: set[str] = set()
 
