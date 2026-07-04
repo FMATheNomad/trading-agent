@@ -659,14 +659,17 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         today_str = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=7))).strftime("%Y-%m-%d")
         if getattr(portfolio_cycle, "_last_report_date", "") != today_str:
             portfolio_cycle._last_report_date = today_str
-            sells = [a for a in _recent_actions if a.get("action") == "SELL"]
-            pnl_total = sum(a.get("pnl", 0) for a in sells)
-            wins = sum(1 for a in sells if a.get("pnl", 0) > 0)
-            losses = sum(1 for a in sells if a.get("pnl", 0) <= 0)
+            all_trades = get_trades_by_period("day")
+            sells = [t for t in all_trades if t["side"] == "sell" and t["pnl"] is not None]
+            total_pnl = sum(t["pnl"] for t in sells)
+            wins = len([t for t in sells if t["pnl"] > 0])
+            losses = len([t for t in sells if t["pnl"] <= 0])
             wr = wins / max(wins + losses, 1) * 100
+            fee_all = sum(abs(t.get("amount_idr", 0) or 0) for t in all_trades) * config.TAKER_FEE_PCT
             await send_message(
-                f"📊 HARIAN: {trades_today} trade | {wins}W/{losses}L ({wr:.0f}%)\n"
-                f"PnL: {pnl_total:+.1f}% | Equity: Rp{total_equity:,.0f} | Cash: Rp{actual_idr_balance:,.0f}"
+                f"📊 HARIAN: {len(all_trades)} trade | {wins}W/{losses}L ({wr:.0f}%)\n"
+                f"PnL: Rp{total_pnl:+,.0f} (fee Rp{fee_all:,.0f})\n"
+                f"Equity: Rp{total_equity:,.0f} | Cash: Rp{actual_idr_balance:,.0f}"
             )
 
         trades = decision.get("trades", [])
