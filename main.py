@@ -656,6 +656,19 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         if trades_today >= config.MAX_DAILY_TRADES:
             print(f"MAX TRADES/DAY ({config.MAX_DAILY_TRADES}) reached.", flush=True)
 
+        today_str = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=7))).strftime("%Y-%m-%d")
+        if getattr(portfolio_cycle, "_last_report_date", "") != today_str:
+            portfolio_cycle._last_report_date = today_str
+            sells = [a for a in _recent_actions if a.get("action") == "SELL"]
+            pnl_total = sum(a.get("pnl", 0) for a in sells)
+            wins = sum(1 for a in sells if a.get("pnl", 0) > 0)
+            losses = sum(1 for a in sells if a.get("pnl", 0) <= 0)
+            wr = wins / max(wins + losses, 1) * 100
+            await send_message(
+                f"📊 HARIAN: {trades_today} trade | {wins}W/{losses}L ({wr:.0f}%)\n"
+                f"PnL: {pnl_total:+.1f}% | Equity: Rp{total_equity:,.0f} | Cash: Rp{actual_idr_balance:,.0f}"
+            )
+
         trades = decision.get("trades", [])
         all_held = {p["pair"] for p in positions}
         bot_pair_set = {p["pair"] for p in positions}
