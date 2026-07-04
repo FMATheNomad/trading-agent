@@ -170,7 +170,8 @@ def pnl_pct(entry: float, current: float, side: str) -> float:
 cycle_counter = 0
 
 async def portfolio_cycle(client: httpx.AsyncClient):
-    global positions, cycle_counter, _prev_regime, _prev_equity, _report_sent_count, _latest_regime, _latest_ticker_map, _latest_all_signals, _latest_ohlcv_map_1h, _latest_balance, _realized_pnl_idr, _daily_loss_hit_today
+    global positions, cycle_counter, _prev_regime, _prev_equity, _report_sent_count, _latest_regime, _latest_ticker_map, _latest_all_signals, _latest_ohlcv_map_1h, _latest_balance, _realized_pnl_idr
+    global _daily_loss_hit_today
     cycle_counter += 1
     _t0 = time.time()
     risk.daily_loss_stopped = False
@@ -476,7 +477,6 @@ async def portfolio_cycle(client: httpx.AsyncClient):
 
         daily_limit = risk.check_daily_limits(total_equity)
         if daily_limit == "DAILY_LOSS_LIMIT":
-            global _daily_loss_hit_today
             _daily_loss_hit_today = True
             persist.save_daily_loss_hit(True)
             print(f"DAILY LOSS LIMIT HIT. Equity: Rp{total_equity:,.0f}. Realtime: TP izin, SL skip.", flush=True)
