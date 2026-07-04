@@ -717,10 +717,6 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 print("STARTUP GUARD: blocked CIO sells (positions restored from balance)", flush=True)
             trades = [t for t in trades if t.get("action") != "SELL"]
         trades = [t for t in trades if t.get("action") != "BUY" or t["pair"] not in _coin_blacklist]
-        if config.FUNDAMENTAL_COINS:
-            trades = [t for t in trades if t.get("action") != "BUY" or t["pair"] in config.FUNDAMENTAL_COINS]
-        if config.RECOVERY_TOP:
-            trades = [t for t in trades if t.get("action") != "BUY" or t["pair"] in config.RECOVERY_TOP]
         if config.SKIP_COINS:
             trades = [t for t in trades if t.get("action") != "BUY" or t["pair"] not in config.SKIP_COINS]
         if _coin_blacklist:
@@ -728,7 +724,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             if blocked:
                 print(f"BLACKLIST: Skipped BUY for {', '.join(t['pair'] for t in blocked)}", flush=True)
         for p in list(positions):
-            if p["pair"] not in config.FUNDAMENTAL_COINS and p["pair"] not in config.RECOVERY_TOP:
+            if p["pair"] not in {c["pair"] for c in ranked}:
                 last_p = _coin_price(p["pair"]) or LIVE_TICKERS.get(p["pair"], {}).get("last") or 0
                 if last_p == 0:
                     try:
@@ -736,9 +732,10 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                         if t: last_p = t.get("last", 0)
                     except Exception:
                         pass
-                pnl_est = (last_p - p["entry_price"]) / p["entry_price"] * 100 if p["entry_price"] and last_p else 0
-                print(f"  FORCE SELL {p['pair']}: {pnl_est:+.1f}% (di luar daftar)", flush=True)
-                trades.append({"pair": p["pair"], "action": "SELL", "allocation_pct": 100, "reason": "Force close (outside trading list)"})
+                if last_p > 0:
+                    pnl_est = (last_p - p["entry_price"]) / p["entry_price"] * 100 if p["entry_price"] else 0
+                    print(f"  FORCE SELL {p['pair']}: {pnl_est:+.1f}% (di luar daftar)", flush=True)
+                    trades.append({"pair": p["pair"], "action": "SELL", "allocation_pct": 100, "reason": "Force close"})
 
         selling_pairs = {t["pair"] for t in trades if t.get("action") == "SELL"}
         extra_buys = [t for t in trades if t.get("action") == "BUY" and t["pair"] in all_held]
@@ -1080,8 +1077,6 @@ async def _momentum_scanner():
                 if any(p["pair"] == pid for p in positions):
                     continue
                 if pid in config.STABLECOINS or pid in config.SKIP_COINS:
-                    continue
-                if config.FUNDAMENTAL_COINS and pid not in config.FUNDAMENTAL_COINS:
                     continue
                 if pid in _coin_blacklist:
                     continue
