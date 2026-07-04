@@ -19,7 +19,6 @@ MAX_OPEN_POSITIONS = 3
 def max_positions_for_equity(equity: float) -> int:
     if equity >= 10_000_000: return 4
     if equity >= 5_000_000: return 4
-    if equity >= 1_000_000: return 4
     return 4
 
 MIN_24H_VOLUME_IDR = 50_000_000
@@ -50,6 +49,8 @@ elif ALPHA_MODE:
     MAX_DAILY_TRADES = 999999
     MAX_OPEN_POSITIONS = 4
     MAX_POSITION_PCT_PER_ASSET = 0.25
+    ROTHSCHILD_OPEN_POSITIONS = 6
+    ROTHSCHILD_POSITION_PCT = 0.15
     KELLY_FRACTION = 0.10
     ATR_TP_MULTIPLIER = 2.0
     ATR_SL_MULTIPLIER = 1.2
@@ -70,8 +71,20 @@ FEE_CLEARANCE_RATIO = 3.0
 FUNDAMENTAL_COINS: set[str] = {
     "btc_idr", "eth_idr", "sol_idr", "xrp_idr", "ada_idr",
     "bnb_idr", "doge_idr", "avax_idr", "dot_idr", "link_idr",
+    "trx_idr", "bch_idr", "shib_idr", "near_idr", "ltc_idr",
+    "xlm_idr", "sui_idr", "pepe_idr", "uni_idr", "aave_idr",
+    "atom_idr", "algo_idr", "fil_idr", "icp_idr", "xtz_idr",
+    "arb_idr", "op_idr", "inj_idr", "grt_idr", "sand_idr",
+    "mana_idr", "crv_idr", "fet_idr", "etc_idr", "hbar_idr",
+    "vet_idr", "theta_idr", "iota_idr", "ksm_idr", "yfi_idr",
+    "axs_idr", "enj_idr", "imx_idr", "pendle_idr", "jup_idr",
+    "ondo_idr", "ldo_idr", "hype_idr", "render_idr", "strk_idr",
+    "tia_idr", "wld_idr", "cro_idr", "leo_idr", "okb_idr",
+    "cake_idr", "mnt_idr", "bonk_idr", "dydx_idr", "egld_idr",
 }
 RECOVERY_TOP: set[str] = FUNDAMENTAL_COINS.copy()
+REGIME_STABILITY_CYCLES = 5
+REGIME_STABILITY_BEAR_CYCLES = 3
 STABLECOINS = {"usdt_idr", "usdc_idr", "busd_idr", "dai_idr", "tusd_idr", "fdusd_idr"}
 SKIP_COINS: set[str] = set()
 

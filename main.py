@@ -64,6 +64,9 @@ _cycle_last_info: dict = {}
 _recent_actions: list[dict] = []
 _strategic_rotate_enabled: bool = True
 _realized_pnl_idr: float = 0.0
+_rothschild_active: bool = False
+_regime_bull_streak: int = 0
+_regime_bear_streak: int = 0
 
 def classify_regime(all_signals: dict, ohlcv_map_1h: dict | None = None) -> dict:
     signals = [s.get("raw_signal") for s in all_signals.values() if s.get("raw_signal")]
@@ -334,6 +337,30 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         print(f"Regime: {regime_info['regime']}{hmm_tag} | B:{regime_info['buy_ratio']} S:{regime_info['sell_ratio']} "
               f"Score:{regime_info['avg_score']} HC:{regime_info['high_conviction_count']}", flush=True)
 
+        global _rothschild_active, _regime_bull_streak, _regime_bear_streak
+        if regime_info["regime"] in ("BULL", "HIGH_VOL"):
+            _regime_bull_streak += 1
+            _regime_bear_streak = 0
+        else:
+            _regime_bear_streak += 1
+            _regime_bull_streak = 0
+        if _regime_bull_streak >= config.REGIME_STABILITY_CYCLES and not _rothschild_active:
+            _rothschild_active = True
+            config.ROTHSCHILD_ACTIVE = True
+            config.MAX_OPEN_POSITIONS = config.ROTHSCHILD_OPEN_POSITIONS
+            config.MAX_POSITION_PCT_PER_ASSET = config.ROTHSCHILD_POSITION_PCT
+            print(f"  🚀 ROTHSCHILD AKTIF — {config.ROTHSCHILD_OPEN_POSITIONS} slot @{config.ROTHSCHILD_POSITION_PCT*100:.0f}%", flush=True)
+            await send_message(f"🚀 ROTHSCHILD MODE — {config.ROTHSCHILD_OPEN_POSITIONS} slot, pyramid ON")
+        elif _regime_bear_streak >= config.REGIME_STABILITY_BEAR_CYCLES and _rothschild_active:
+            _rothschild_active = False
+            config.ROTHSCHILD_ACTIVE = False
+            config.MAX_OPEN_POSITIONS = 4
+            config.MAX_POSITION_PCT_PER_ASSET = 0.25
+            print(f"  🛑 ROTHSCHILD OFF — balik ke konservatif 4 slot @25%", flush=True)
+            await send_message(f"🛑 ROTHSCHILD OFF — sideway mode 4 slot")
+        mode_tag = "🔴 R" if _rothschild_active else "🟢 K"
+        print(f"  Mode: {mode_tag} (bull streak: {_regime_bull_streak}, bear: {_regime_bear_streak})", flush=True)
+
         actual_idr_balance = config.PLAY_CAPITAL_IDR
 
         if config.INDODAX_API_KEY and config.INDODAX_SECRET_KEY:
@@ -429,7 +456,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         elif _prev_equity == 0 and total_equity < config.MIN_ORDER_IDR and positions:
             total_equity = config.PLAY_CAPITAL_IDR + sum(p.get("entry_price", 0) * p["qty"] for p in positions)
             print(f"  First cycle equity (fallback): Rp{total_equity:,.0f}", flush=True)
-        max_positions = config.max_positions_for_equity(total_equity)
+        max_positions = config.MAX_OPEN_POSITIONS if _rothschild_active else config.max_positions_for_equity(total_equity)
         if cycle_counter == 1:
             portfolio_risk.peak_capital = total_equity
             persist.save_peak_capital(total_equity)
@@ -723,8 +750,9 @@ async def portfolio_cycle(client: httpx.AsyncClient):
 
         base_eq = persist.load_initial_equity() or total_equity
         eq_pct = (total_equity - base_eq) / base_eq * 100 if base_eq else 0
+        tag = "🔴 R" if _rothschild_active else "🟢 K"
         await send_message(
-            f"💳 Rp{total_equity:,.0f} ({eq_pct:+.1f}%)\n"
+            f"💳 Rp{total_equity:,.0f} ({eq_pct:+.1f}%) {tag}\n"
             f"Cycle #{cycle_counter} | {regime_info['regime']} | {len(positions)} pos | Cash: Rp{actual_idr_balance:,.0f}"
         )
 
