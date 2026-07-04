@@ -6,6 +6,7 @@
 # See the LICENSE file for more details.
 
 import asyncio
+import datetime
 import hashlib
 import hmac
 import math
@@ -509,6 +510,19 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             balance_idr = max(balance_idr, config.MIN_ORDER_IDR)
         print(f"Play capital: {play_capital_pct}% of Rp{actual_idr_balance:,.0f} = Rp{balance_idr:,}", flush=True)
 
+        hour_wib = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=7))).hour
+        if 0 <= hour_wib < 8:
+            session_tag = "🇯🇵 Asia"
+            session_mult = 0.7
+        elif 8 <= hour_wib < 16:
+            session_tag = "🇪🇺 Euro"
+            session_mult = 1.0
+        else:
+            session_tag = "🇺🇸 US"
+            session_mult = 1.3
+        balance_idr = int(balance_idr * session_mult)
+        print(f"Session: {session_tag} ({hour_wib:02d} WIB) — size: {session_mult:.1f}x", flush=True)
+
         log_decision("PORTFOLIO", decision.get("decision", "HOLD"),
                      decision.get("reasoning", ""),
                      executed=len(decision.get("trades", [])) > 0)
@@ -639,47 +653,22 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             await send_message("SL/TP triggered:\n" + "\n".join(sl_hits))
 
         trades_today = get_trade_count_today()
-
-        trades_today = get_trade_count_today()
-        _max_trade_reported = getattr(portfolio_cycle, "_max_trade_reported", False)
         if trades_today >= config.MAX_DAILY_TRADES:
-            if not _max_trade_reported:
-                sells = [a for a in _recent_actions if a.get("action") == "SELL"]
-                pnl_total = sum(a.get("pnl", 0) for a in sells)
-                wins = sum(1 for a in sells if a.get("pnl", 0) > 0)
-                losses = sum(1 for a in sells if a.get("pnl", 0) <= 0)
-                wr = wins / max(wins + losses, 1) * 100
-                await send_message(
-                    f"📊 HARIAN: {trades_today} trade | {wins}W/{losses}L ({wr:.0f}%)\n"
-                    f"PnL: {pnl_total:+.1f}% | Equity: Rp{total_equity:,.0f} | Cash: Rp{actual_idr_balance:,.0f}"
-                )
-                portfolio_cycle._max_trade_reported = True
-            print(f"MAX TRADES/DAY ({config.MAX_DAILY_TRADES}) reached. Skipping new buys.", flush=True)
-            decision["trades"] = [t for t in decision.get("trades", []) if t.get("action") != "BUY"]
+            print(f"MAX TRADES/DAY ({config.MAX_DAILY_TRADES}) reached.", flush=True)
 
         trades = decision.get("trades", [])
         all_held = {p["pair"] for p in positions}
         bot_pair_set = {p["pair"] for p in positions}
         trades = [t for t in trades if t.get("action") != "SELL" or t["pair"] in all_held]
-        profit_sells = []
         for t in list(trades):
             if t.get("action") == "SELL":
                 sell_pair = t["pair"]
                 match = next((p for p in positions if p["pair"] == sell_pair), None)
-                if match:
-                    price_now = LIVE_TICKERS.get(sell_pair, {}).get("last") or ticker_map.get(sell_pair, {}).get("last", 0)
-                    entry = match.get("entry_price", 0)
-                    pnl = (price_now - entry) / entry * 100 if entry else 0
-                    atr_here = risk.compute_atr(_latest_ohlcv_map_1h.get(sell_pair, []))
-                    min_move = atr_here * config.ATR_MIN_MOVE_MULTIPLIER if config.ATR_MIN_MOVE_MULTIPLIER > 0 else 0
-                    hold_time = time.time() - match.get("entry_time", time.time())
-                    pnl_target = atr_here * config.ATR_PROFIT_SELL_MULT
-                    if abs(pnl) >= min_move and pnl >= pnl_target:
-                        profit_sells.append(t)
-                        label = "PROFIT"
-                        print(f"{label} ROTATE: sell {sell_pair} ({pnl:+.1f}%)", flush=True)
-                        await send_message(f"🔄 JUAL {sell_pair} ({pnl:+.1f}%)")
-        trades = [t for t in trades if not (t.get("action") == "SELL" and t not in profit_sells)]
+                if not match:
+                    continue
+                price_now = LIVE_TICKERS.get(sell_pair, {}).get("last") or ticker_map.get(sell_pair, {}).get("last", 0)
+                entry = match.get("entry_price", 0)
+                pnl = (price_now - entry) / entry * 100 if entry else 0
         if cycle_counter <= 1:
             if any(t.get("action") == "SELL" for t in decision.get("trades", [])):
                 print("STARTUP GUARD: blocked CIO sells (positions restored from balance)", flush=True)
