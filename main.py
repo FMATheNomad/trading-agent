@@ -450,15 +450,16 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             for p in positions
         )
         total_equity = actual_idr_balance + paper_equity
-        if positions and paper_equity == 0:
-            print(f"  Equity Rp{total_equity:,.0f} — paper_equity 0, tunggu harga", flush=True)
-            total_equity = config.PLAY_CAPITAL_IDR if total_equity < config.MIN_ORDER_IDR else total_equity
-        elif _prev_equity > 0 and total_equity < _prev_equity * 0.5:
+        if positions and paper_equity < config.MIN_ORDER_IDR:
+            print(f"  Paper equity Rp{paper_equity:,.0f} — pake entry price fallback", flush=True)
+            real_paper = sum(p.get("entry_price", 0) * p["qty"] for p in positions)
+            total_equity = actual_idr_balance + real_paper
+            print(f"  Equity (fallback): Rp{total_equity:,.0f}", flush=True)
+        if not positions and paper_equity == 0 and total_equity < config.MIN_ORDER_IDR:
+            pass
+        elif _prev_equity > 0 and total_equity < _prev_equity * 0.5 and paper_equity > config.MIN_ORDER_IDR:
             print(f"  Equity suspicious: Rp{total_equity:,.0f} vs prev Rp{_prev_equity:,.0f} — keep prev", flush=True)
             total_equity = _prev_equity
-        elif _prev_equity == 0 and total_equity < config.MIN_ORDER_IDR and positions:
-            total_equity = config.PLAY_CAPITAL_IDR + sum(p.get("entry_price", 0) * p["qty"] for p in positions)
-            print(f"  First cycle equity (fallback): Rp{total_equity:,.0f}", flush=True)
         max_positions = config.MAX_OPEN_POSITIONS if _rothschild_active else config.max_positions_for_equity(total_equity)
         if cycle_counter == 1:
             portfolio_risk.peak_capital = total_equity
