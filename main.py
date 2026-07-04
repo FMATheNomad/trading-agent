@@ -481,7 +481,14 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             f"Cycle #{cycle_counter} | {regime_info['regime']} | {len(positions)} pos | Cash: Rp{actual_idr_balance:,.0f}"
         )
 
+        saved_peak = persist.load_today_peak()
+        if saved_peak > risk.today_peak:
+            risk.today_peak = saved_peak
+            print(f"  Restored today_peak: Rp{risk.today_peak:,.0f}", flush=True)
+
         daily_limit = risk.check_daily_limits(total_equity)
+        persist.save_today_peak(risk.today_peak)
+
         _today_d = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=7))).strftime("%Y-%m-%d")
         if _daily_loss_hit_today and persist.load_loss_hit_date() != _today_d:
             _daily_loss_hit_today = False
@@ -1270,6 +1277,10 @@ async def main():
         saved = persist.load_positions()
         if saved:
             positions.extend(saved)
+        saved_tp = persist.load_today_peak()
+        if saved_tp > risk.today_peak:
+            risk.today_peak = saved_tp
+            print(f"  Restored today_peak from persist: Rp{risk.today_peak:,.0f}", flush=True)
         print("DB init OK", flush=True)
         if os.getenv("CLEAR_LOSS_HOLD"):
             persist.save_daily_loss_hit(False)
