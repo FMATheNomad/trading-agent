@@ -93,3 +93,11 @@ def save_daily_loss_hit(flag: bool):
     state = _load()
     state["daily_loss_hit"] = flag
     _save(state)
+
+def load_loss_hit_date() -> str:
+    return _load().get("loss_hit_date", "")
+
+def save_loss_hit_date(date_str: str):
+    state = _load()
+    state["loss_hit_date"] = date_str
+    _save(state)
