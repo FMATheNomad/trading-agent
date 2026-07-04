@@ -347,7 +347,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         else:
             _regime_bear_streak += 1
             _regime_bull_streak = 0
-        if _regime_bull_streak >= config.REGIME_STABILITY_CYCLES and not _rothschild_active:
+        _buy_ok = regime_info.get('buy_ratio', 0) >= regime_info.get('sell_ratio', 0) and regime_info.get('avg_score', 0) > 0
+        if _regime_bull_streak >= config.REGIME_STABILITY_CYCLES and not _rothschild_active and _buy_ok:
             _rothschild_active = True
             config.ROTHSCHILD_ACTIVE = True
             config.MAX_OPEN_POSITIONS = config.ROTHSCHILD_OPEN_POSITIONS
