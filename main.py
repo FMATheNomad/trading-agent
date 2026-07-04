@@ -1720,11 +1720,7 @@ async def main():
     set_on_tick(_realtime_sltp_check)
     ws_task = asyncio.create_task(market_ws_loop())
     pws_task = asyncio.create_task(private_ws_loop())
-    if not config.ALPHA_MODE:
-        momentum_task = asyncio.create_task(_momentum_scanner())
-    else:
-        print("RECOVERY MODE: momentum scanner disabled", flush=True)
-        momentum_task = None
+    momentum_task = asyncio.create_task(_momentum_scanner())
     for _ in range(6):
         await asyncio.sleep(0.5)
 
