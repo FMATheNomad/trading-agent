@@ -479,6 +479,10 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         if daily_limit == "DAILY_LOSS_LIMIT":
             _daily_loss_hit_today = True
             persist.save_daily_loss_hit(True)
+            await send_message(
+                f"🛑 DAILY LOSS LIMIT — Rp{total_equity:,.0f} (loss Rp{risk.today_peak - total_equity:,.0f})\n"
+                f"Cycle #{cycle_counter} | {regime_info['regime']} | {len(positions)} pos | HOLD sampe besok"
+            )
             print(f"DAILY LOSS LIMIT HIT. Equity: Rp{total_equity:,.0f}. Realtime: TP izin, SL skip.", flush=True)
             return
 
