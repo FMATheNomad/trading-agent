@@ -479,9 +479,10 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             f"Cycle #{cycle_counter} | {regime_info['regime']} | {len(positions)} pos | Cash: Rp{actual_idr_balance:,.0f}"
         )
 
-        if _daily_loss_hit_today and total_equity > config.DAILY_LOSS_FLOOR_IDR + config.MIN_ORDER_IDR:
+        if _daily_loss_hit_today and total_equity > risk.today_peak - config.MIN_ORDER_IDR:
             _daily_loss_hit_today = False
             persist.save_daily_loss_hit(False)
+            risk.today_peak = total_equity
             print(f"  Daily loss reset — equity recovered", flush=True)
 
         daily_limit = risk.check_daily_limits(total_equity)

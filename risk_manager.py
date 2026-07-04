@@ -12,7 +12,7 @@ import config
 class RiskManager:
     def __init__(self):
         self.daily_start_balance = config.PLAY_CAPITAL_IDR
-        self.today_peak = config.PLAY_CAPITAL_IDR
+        self.today_peak = 0
         self.trailing_highs: dict[str, float] = {}
         self._initial_sl_released: dict[str, bool] = {}
         self._pyramid_done: dict[str, bool] = {}
