@@ -449,8 +449,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 pass
             return 0
 
-        pending_play_capital_pct = config.DEFAULT_PLAY_CAPITAL_PCT
-        balance_idr = int(actual_idr_balance * pending_play_capital_pct)
+        balance_idr = int(actual_idr_balance)
         paper_prices = await asyncio.gather(*[_coin_price(p["pair"]) for p in positions])
         paper_equity = sum(p["qty"] * price for p, price in zip(positions, paper_prices))
         total_equity = actual_idr_balance + paper_equity
@@ -557,17 +556,11 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         )
         print(f"Decision: {decision['decision']} | {decision['reasoning'][:80]}", flush=True)
 
-        play_capital_pct = decision.get("play_capital_pct", pending_play_capital_pct * 100)
-        if play_capital_pct == 0 or actual_idr_balance < config.MIN_ORDER_IDR:
+        if actual_idr_balance < config.MIN_ORDER_IDR:
             print(f"Cash Rp{actual_idr_balance:,.0f} < min Rp{config.MIN_ORDER_IDR:,}. Skipping buys.", flush=True)
             balance_idr = 0
-        else:
-            min_balance_needed = config.MIN_ORDER_IDR * 1.2
-            if actual_idr_balance < min_balance_needed * 3:
-                play_capital_pct = max(play_capital_pct, 80)
-            balance_idr = int(actual_idr_balance * play_capital_pct / 100)
-            balance_idr = max(balance_idr, config.MIN_ORDER_IDR)
-        print(f"Play capital: {play_capital_pct}% of Rp{actual_idr_balance:,.0f} = Rp{balance_idr:,}", flush=True)
+        balance_idr = max(balance_idr, config.MIN_ORDER_IDR)
+        print(f"Balance: Rp{balance_idr:,}", flush=True)
 
         hour_wib = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=7))).hour
         if 0 <= hour_wib < 8:
