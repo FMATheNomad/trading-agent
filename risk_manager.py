@@ -53,12 +53,13 @@ class RiskManager:
         else:
             target = entry_price * (1 - target_mult)
         gross = abs(target - entry_price) * qty
-        exit_fee = config.MAKER_FEE_PCT if is_tp_maker else config.TAKER_FEE_PCT
-        fee_roundtrip = (entry_price * qty * config.TAKER_FEE_PCT) + (target * qty * exit_fee)
+        entry_fee = config.MAKER_FEE_PCT if config.MAKER_FIRST else config.TAKER_FEE_PCT
+        exit_fee = (config.MAKER_FEE_PCT + config.SELL_TAX_PCT) if is_tp_maker else (config.TAKER_FEE_PCT + config.SELL_TAX_PCT)
+        fee_roundtrip = (entry_price * qty * entry_fee) + (target * qty * exit_fee)
         if gross <= fee_roundtrip:
             return False
         sl_mult = atr * config.ATR_SL_MULTIPLIER / 100
-        loss_if_sl = abs(entry_price * sl_mult) * qty + (entry_price * qty * config.TAKER_FEE_PCT) + (target * qty * config.TAKER_FEE_PCT)
+        loss_if_sl = abs(entry_price * sl_mult) * qty + fee_roundtrip
         rr_ratio = gross / max(loss_if_sl, 1e-6)
         if rr_ratio < 0.8:
             return False
