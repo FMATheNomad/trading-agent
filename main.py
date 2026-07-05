@@ -1667,7 +1667,9 @@ async def main():
                                 if _daily_loss_hit_today:
                                     _daily_loss_hit_today = False
                                     _greed_used_today = True
+                                    risk.today_peak = 0
                                     persist.save_daily_loss_hit(False)
+                                    persist.save_today_peak(0)
                                     reply = "🟢 GREED MODE — daily loss hold bypass sampe midnight. SL/TP jalan normal."
                                 else:
                                     reply = "✅ Daily loss hold gak aktif. Bot udah jalan normal."
