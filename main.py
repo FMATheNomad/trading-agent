@@ -1669,11 +1669,7 @@ async def main():
                                 risk.today_peak = risk.today_peak + config.DAILY_LOSS_FLOOR_IDR
                                 persist.save_daily_loss_hit(False)
                                 persist.save_today_peak(risk.today_peak)
-                                else:
-                                    reply = "✅ Daily loss hold gak aktif. Bot udah jalan normal."
-                                async with httpx.AsyncClient() as cc:
-                                    await cc.post(f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
-                                        json={"chat_id": cid, "text": reply})
+                                await send_message("🟢 GREED MODE — daily loss extended Rp15k. SL/TP jalan normal.")
                                 continue
 
                             if txt == "/why":
