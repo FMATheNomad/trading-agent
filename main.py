@@ -1667,9 +1667,10 @@ async def main():
                                 if _daily_loss_hit_today:
                                     _daily_loss_hit_today = False
                                     _greed_used_today = True
-                                    risk.today_peak = 0
+                                    eq_now = _latest_balance + sum(p["qty"] * (LIVE_TICKERS.get(p["pair"], {}).get("last") or p.get("entry_price", 0)) for p in positions)
+                                    risk.today_peak = max(eq_now, 1) + config.DAILY_LOSS_FLOOR_IDR
                                     persist.save_daily_loss_hit(False)
-                                    persist.save_today_peak(0)
+                                    persist.save_today_peak(risk.today_peak)
                                     reply = "🟢 GREED MODE — daily loss hold bypass sampe midnight. SL/TP jalan normal."
                                 else:
                                     reply = "✅ Daily loss hold gak aktif. Bot udah jalan normal."
