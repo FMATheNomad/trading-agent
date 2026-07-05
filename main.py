@@ -209,7 +209,6 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 po["cycles"] = po.get("cycles", 0) + 1
                 grace = max(1, int(config.ROTHSCHILD_LIMIT_GRACE_SEC / config.LOOP_INTERVAL_SECONDS))
                 if po["cycles"] >= grace:
-                    print(f"  MAKER TIMEOUT: {pid} → cancelling and retrying market", flush=True)
                     try:
                         cancel_body = urlencode({
                             "method": "cancelOrder", "timestamp": int(time.time() * 1000),
@@ -221,6 +220,18 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                             "Key": config.INDODAX_API_KEY, "Sign": cancel_sig,
                             "Content-Type": "application/x-www-form-urlencoded",
                         }, content=cancel_body)
+                        retries = po.get("retry_count", 0)
+                        if retries < 3:
+                            better_price = int(po["price"] * (1 + config.MAKER_SLIPPAGE))
+                            print(f"  MAKER TIMEOUT: {pid} → retry limit @ {better_price} (attempt {retries+1}/3)", flush=True)
+                            po["price"] = better_price
+                            po["cycles"] = 0
+                            po["retry_count"] = retries + 1
+                            order = await place_order(client, po.get("side", "buy").lower(), better_price, po["amount_idr"], pair=pid, order_type="maker_first")
+                            if order.get("order_id"):
+                                po["order_id"] = order["order_id"]
+                                print(f"  MAKER RETRY: order_id={order['order_id']}", flush=True)
+                                continue
                         market_order = await place_order(client, po.get("side", "buy").lower(), po["price"], po["amount_idr"], pair=pid, order_type="market")
                         if market_order.get("order_id") or market_order.get("receive_rp"):
                             print(f"  MAKER TIMEOUT → market order placed for {pid}", flush=True)
