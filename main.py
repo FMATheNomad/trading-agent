@@ -508,11 +508,14 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             persist.save_daily_loss_hit(False)
             print(f"  Daily loss reset — new trading day", flush=True)
         if daily_limit == "DAILY_LOSS_LIMIT":
-            _daily_loss_hit_today = True
-            persist.save_daily_loss_hit(True)
-            persist.save_loss_hit_date(_today_d)
-            print(f"DAILY LOSS LIMIT HIT. Equity: Rp{total_equity:,.0f}. Realtime: TP izin, SL skip.", flush=True)
-            return
+            if _greed_used_today:
+                print(f"DAILY LOSS HIT TAPI GREED AKTIF — lanjut trading. Equity: Rp{total_equity:,.0f}", flush=True)
+            else:
+                _daily_loss_hit_today = True
+                persist.save_daily_loss_hit(True)
+                persist.save_loss_hit_date(_today_d)
+                print(f"DAILY LOSS LIMIT HIT. Equity: Rp{total_equity:,.0f}. Realtime: TP izin, SL skip.", flush=True)
+                return
 
         if portfolio_risk.check_portfolio_stop(total_equity):
             actual_dd = (portfolio_risk.peak_capital - total_equity) / portfolio_risk.peak_capital * 100
@@ -1664,13 +1667,9 @@ async def main():
 
                             if txt == "/greed":
                                 global _daily_loss_hit_today, _greed_used_today
-                                if _daily_loss_hit_today:
-                                    _daily_loss_hit_today = False
-                                    _greed_used_today = True
-                                    risk.today_peak = 999_999_999
-                                    persist.save_daily_loss_hit(False)
-                                    persist.save_today_peak(999_999_999)
-                                    reply = "🟢 GREED MODE — daily loss hold bypass sampe midnight. SL/TP jalan normal."
+                                _greed_used_today = True
+                                _daily_loss_hit_today = False
+                                persist.save_daily_loss_hit(False)
                                 else:
                                     reply = "✅ Daily loss hold gak aktif. Bot udah jalan normal."
                                 async with httpx.AsyncClient() as cc:
