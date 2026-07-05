@@ -172,7 +172,7 @@ cycle_counter = 0
 
 async def portfolio_cycle(client: httpx.AsyncClient):
     global positions, cycle_counter, _prev_regime, _prev_equity, _report_sent_count, _latest_regime, _latest_ticker_map, _latest_all_signals, _latest_ohlcv_map_1h, _latest_balance, _realized_pnl_idr
-    global _daily_loss_hit_today, _greed_used_today
+    global _daily_loss_hit_today, _greed_used_today, _rothschild_active, _regime_bull_streak, _regime_bear_streak
     cycle_counter += 1
     _t0 = time.time()
     risk.daily_loss_stopped = False
@@ -352,7 +352,6 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         print(f"Regime: {regime_info['regime']}{hmm_tag} | B:{regime_info['buy_ratio']} S:{regime_info['sell_ratio']} "
               f"Score:{regime_info['avg_score']} HC:{regime_info['high_conviction_count']}", flush=True)
 
-        global _rothschild_active, _regime_bull_streak, _regime_bear_streak
         if regime_info["regime"] in ("BULL", "HIGH_VOL"):
             _regime_bull_streak += 1
             _regime_bear_streak = 0
