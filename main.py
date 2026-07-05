@@ -63,7 +63,6 @@ _momentum_entry_time: dict[str, float] = {}
 _cycle_last_end: float = 0
 _cycle_last_info: dict = {}
 _recent_actions: list[dict] = []
-_strategic_rotate_enabled: bool = True
 _realized_pnl_idr: float = 0.0
 _rothschild_active: bool = False
 _regime_bull_streak: int = 0
@@ -1489,7 +1488,6 @@ async def main():
                                               "/perf — Performa & win rate\n"
                                               "/log — Aktivitas terakhir CIO\n"
                                               "/risk — Status risiko & proteksi\n"
-                                               "/rotate — Status & toggle strategic rotate\n"
                                                "/greed — Bypass daily loss hold (1×/hari)"
                                          )},
                                     )
@@ -1662,21 +1660,6 @@ async def main():
                                         json={"chat_id": cid, "text": detail},
                                     )
                                 save_chat("assistant", detail)
-                                continue
-
-                            if txt.startswith("/rotate"):
-                                args = txt.split()[1] if len(txt.split()) > 1 else ""
-                                if args == "on":
-                                    _strategic_rotate_enabled = True
-                                    reply = "🔄 Strategic rotate: ON"
-                                elif args == "off":
-                                    _strategic_rotate_enabled = False
-                                    reply = "🔄 Strategic rotate: OFF"
-                                else:
-                                    reply = f"🔄 Strategic rotate: {'ON' if _strategic_rotate_enabled else 'OFF'}\nGunakan: /rotate on / /rotate off"
-                                async with httpx.AsyncClient() as cc:
-                                    await cc.post(f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
-                                        json={"chat_id": cid, "text": reply})
                                 continue
 
                             if txt == "/greed":
