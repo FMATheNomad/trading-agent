@@ -410,9 +410,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                         print(f"  {pair}: belom ada harga — track dulu", flush=True)
                     else:
                         coin_value = qty * last_price
-                        pair_min = _pair_meta.get(pair, {}).get("min_base", config.MIN_ORDER_IDR)
-                        if coin_value < pair_min:
-                            print(f"  {pair}: dust Rp{coin_value:,.0f} < min Rp{pair_min:,} — skip tracking", flush=True)
+                        if coin_value < 5000:
+                            print(f"  {pair}: dust Rp{coin_value:,.0f} < Rp5rb — skip", flush=True)
                             continue
 
                     db_pos_pairs = {p.get("pair") for p in persist.load_positions()}
