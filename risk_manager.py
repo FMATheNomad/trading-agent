@@ -98,7 +98,7 @@ class RiskManager:
             atr_pct = max(atr_pct, 0.5)
         return atr_pct
 
-    def check_sl_tp(self, entry_price: float, current_price: float, side: str, pair: str = "", atr_pct: float | None = None) -> str | None:
+    def check_sl_tp(self, entry_price: float, current_price: float, side: str, pair: str = "", atr_pct: float | None = None, entry_mode: str = "KONSERVATIF") -> str | None:
         if entry_price <= 0:
             return None
         atr = atr_pct or config.ATR_SL_MULTIPLIER
@@ -107,7 +107,7 @@ class RiskManager:
         else:
             pnl_pct = (entry_price - current_price) / entry_price
 
-        if config.ROTHSCHILD_ACTIVE:
+        if entry_mode == "ROTHSCHILD":
             sl_mult = config.ROTHSCHILD_INITIAL_SL_ATR
             trail_mult = config.ROTHSCHILD_TRAILING_SL_ATR
             pyr_mult = config.ROTHSCHILD_PYRAMID_TRIGGER

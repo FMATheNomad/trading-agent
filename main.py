@@ -196,6 +196,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     "entry_price": po["price"], "qty": po["qty"],
                     "amount_idr": po["amount_idr"],
                     "atr_pct": po.get("atr_pct"), "entry_time": time.time(),
+                    "entry_mode": "ROTHSCHILD" if _rothschild_active else "KONSERVATIF",
                 })
                 persist.save_positions(positions)
                 print(f"  MAKER FILLED: {pid} → position opened", flush=True)
@@ -433,6 +434,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                         "amount_idr": qty * (entry_price or 1),
                         "atr_pct": None,
                         "entry_time": time.time(),
+                        "entry_mode": "KONSERVATIF",
                     })
                     print(f"  {pair}: restored to positions", flush=True)
                 bal_coins = {f"{c}_idr" for c in bal if c != "idr" and float(bal[c]) > 0}
@@ -602,7 +604,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 continue
             last = ticker_map.get(p["pair"], {}).get("last", p["entry_price"])
             atr_val = p.get("atr_pct") or risk.compute_atr(ohlcv_map_1h.get(p["pair"], []))
-            result = risk.check_sl_tp(p["entry_price"], last, p["side"], pair=p["pair"], atr_pct=atr_val)
+            result = risk.check_sl_tp(p["entry_price"], last, p["side"], pair=p["pair"], atr_pct=atr_val, entry_mode=p.get("entry_mode", "KONSERVATIF"))
             if not result and atr_val:
                 atr_sl = atr_val * config.ATR_SL_MULTIPLIER
                 dyn_sl = p["entry_price"] * (1 - atr_sl / 100) if p["side"] == "BUY" else p["entry_price"] * (1 + atr_sl / 100)
@@ -918,6 +920,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     "entry_price": actual_price, "qty": actual_qty,
                     "amount_idr": actual_spend,
                     "atr_pct": atr_pct if ohlcv else None, "entry_time": time.time(),
+                    "entry_mode": "ROTHSCHILD" if _rothschild_active else "KONSERVATIF",
                 })
                 persist.save_positions(positions)
             elif action == "SELL":
@@ -1169,6 +1172,7 @@ async def _momentum_scanner():
                         positions.append({
                             "pair": pid, "side": "BUY", "entry_price": actual_spend / actual_qty if actual_qty else price,
                             "qty": actual_qty, "amount_idr": actual_spend, "atr_pct": None, "entry_time": time.time(),
+                            "entry_mode": "ROTHSCHILD" if _rothschild_active else "KONSERVATIF",
                         })
                         persist.save_positions(positions)
                         cash_avail -= actual_spend
@@ -1195,7 +1199,7 @@ async def _realtime_sltp_check(pair: str, price: float):
     if mentry > 0 and now_t - mentry < 120:
         return
     atr_val = p.get("atr_pct") or risk.compute_atr(_latest_ohlcv_map_1h.get(pair, []))
-    result = risk.check_sl_tp(p["entry_price"], price, p["side"], pair=pair, atr_pct=atr_val)
+    result = risk.check_sl_tp(p["entry_price"], price, p["side"], pair=pair, atr_pct=atr_val, entry_mode=p.get("entry_mode", "KONSERVATIF"))
     if result == "PYRAMID_TRIGGER":
         if not _daily_loss_hit_today or _greed_used_today:
             async with httpx.AsyncClient() as _pc:

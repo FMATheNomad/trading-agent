@@ -59,7 +59,8 @@ def save_positions(positions: list[dict]):
         {"pair": p["pair"], "side": p.get("side", "BUY"),
          "entry_price": p.get("entry_price", 0), "qty": p.get("qty", 0),
          "amount_idr": p.get("amount_idr", 0), "atr_pct": p.get("atr_pct"),
-         "entry_time": p.get("entry_time", 0)}
+         "entry_time": p.get("entry_time", 0),
+         "entry_mode": p.get("entry_mode", "KONSERVATIF")}
         for p in positions
     ]
     state["positions"] = clean
