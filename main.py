@@ -69,6 +69,7 @@ _rothschild_active: bool = False
 _regime_bull_streak: int = 0
 _regime_bear_streak: int = 0
 _daily_loss_hit_today: bool = False
+_greed_used_today: bool = False
 
 def classify_regime(all_signals: dict, ohlcv_map_1h: dict | None = None) -> dict:
     signals = [s.get("raw_signal") for s in all_signals.values() if s.get("raw_signal")]
@@ -172,7 +173,7 @@ cycle_counter = 0
 
 async def portfolio_cycle(client: httpx.AsyncClient):
     global positions, cycle_counter, _prev_regime, _prev_equity, _report_sent_count, _latest_regime, _latest_ticker_map, _latest_all_signals, _latest_ohlcv_map_1h, _latest_balance, _realized_pnl_idr
-    global _daily_loss_hit_today
+    global _daily_loss_hit_today, _greed_used_today
     cycle_counter += 1
     _t0 = time.time()
     risk.daily_loss_stopped = False
@@ -506,6 +507,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         _today_d = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=7))).strftime("%Y-%m-%d")
         if _daily_loss_hit_today and persist.load_loss_hit_date() != _today_d:
             _daily_loss_hit_today = False
+            _greed_used_today = False
             persist.save_daily_loss_hit(False)
             print(f"  Daily loss reset — new trading day", flush=True)
         if daily_limit == "DAILY_LOSS_LIMIT":
@@ -1192,19 +1194,22 @@ async def _realtime_sltp_check(pair: str, price: float):
     atr_val = p.get("atr_pct") or risk.compute_atr(_latest_ohlcv_map_1h.get(pair, []))
     result = risk.check_sl_tp(p["entry_price"], price, p["side"], pair=pair, atr_pct=atr_val)
     if result == "PYRAMID_TRIGGER":
-        async with httpx.AsyncClient() as _pc:
-            pyr_amt = int(max(config.MIN_ORDER_IDR, _latest_balance * config.ROTHSCHILD_PYRAMID_MULT))
-            if pyr_amt >= config.MIN_ORDER_IDR:
-                try:
-                    pyr_order = await place_order(_pc, "buy", price, pyr_amt, pair=pair, order_type="maker_first" if config.ROTHSCHILD_ACTIVE else "market")
-                    if pyr_order.get("order_id") or pyr_order.get("receive_rp"):
-                        coin_n = pair.split("_")[0]
-                        pyr_f = float(pyr_order.get(f"receive_{coin_n}", 0)) or (pyr_amt / price)
-                        p["qty"] += pyr_f
-                        print(f"  PYRAMID: +{pyr_f:.6f} {pair} (realtime)", flush=True)
-                        await send_message(f"🔺 PYRAMID: +{pyr_f:.6f} {pair}")
-                except Exception as e:
-                    print(f"  Pyramid realtime error: {e}", flush=True)
+        if not _daily_loss_hit_today or _greed_used_today:
+            async with httpx.AsyncClient() as _pc:
+                pyr_amt = int(max(config.MIN_ORDER_IDR, _latest_balance * config.ROTHSCHILD_PYRAMID_MULT))
+                if pyr_amt >= config.MIN_ORDER_IDR:
+                    try:
+                        pyr_order = await place_order(_pc, "buy", price, pyr_amt, pair=pair, order_type="maker_first" if config.ROTHSCHILD_ACTIVE else "market")
+                        if pyr_order.get("order_id") or pyr_order.get("receive_rp"):
+                            coin_n = pair.split("_")[0]
+                            pyr_f = float(pyr_order.get(f"receive_{coin_n}", 0)) or (pyr_amt / price)
+                            p["qty"] += pyr_f
+                            print(f"  PYRAMID: +{pyr_f:.6f} {pair} (realtime)", flush=True)
+                            await send_message(f"🔺 PYRAMID: +{pyr_f:.6f} {pair}")
+                    except Exception as e:
+                        print(f"  Pyramid realtime error: {e}", flush=True)
+        else:
+            print(f"  PYRAMID SKIP: {pair} — daily loss hold aktif, /greed kalo mau", flush=True)
         return
     if not result and atr_val:
         atr_sl = atr_val * config.ATR_SL_MULTIPLIER
@@ -1484,7 +1489,8 @@ async def main():
                                               "/perf — Performa & win rate\n"
                                               "/log — Aktivitas terakhir CIO\n"
                                               "/risk — Status risiko & proteksi\n"
-                                              "/rotate — Status & toggle strategic rotate"
+                                               "/rotate — Status & toggle strategic rotate\n"
+                                               "/greed — Bypass daily loss hold (1×/hari)"
                                          )},
                                     )
                                 continue
@@ -1668,6 +1674,20 @@ async def main():
                                     reply = "🔄 Strategic rotate: OFF"
                                 else:
                                     reply = f"🔄 Strategic rotate: {'ON' if _strategic_rotate_enabled else 'OFF'}\nGunakan: /rotate on / /rotate off"
+                                async with httpx.AsyncClient() as cc:
+                                    await cc.post(f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
+                                        json={"chat_id": cid, "text": reply})
+                                continue
+
+                            if txt == "/greed":
+                                global _daily_loss_hit_today, _greed_used_today
+                                if _daily_loss_hit_today:
+                                    _daily_loss_hit_today = False
+                                    _greed_used_today = True
+                                    persist.save_daily_loss_hit(False)
+                                    reply = "🟢 GREED MODE — daily loss hold bypass sampe midnight. SL/TP jalan normal."
+                                else:
+                                    reply = "✅ Daily loss hold gak aktif. Bot udah jalan normal."
                                 async with httpx.AsyncClient() as cc:
                                     await cc.post(f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
                                         json={"chat_id": cid, "text": reply})
