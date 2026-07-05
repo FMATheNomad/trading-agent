@@ -1102,10 +1102,12 @@ async def _momentum_scanner():
             cash_avail = _latest_balance
             if cash_avail < config.MIN_ORDER_IDR:
                 continue
-            max_pos = config.MAX_OPEN_POSITIONS if _rothschild_active else config.max_positions_for_equity(cash_avail + sum(p["qty"] * 1000 for p in positions))
+            max_pos = config.MAX_OPEN_POSITIONS
             if len(positions) >= max_pos:
                 continue
             for pid, ohlcv in list(_latest_ohlcv_map_1h.items()):
+                if len(positions) >= max_pos:
+                    break
                 if any(p["pair"] == pid for p in positions):
                     continue
                 if pid in config.STABLECOINS or pid in config.SKIP_COINS:
