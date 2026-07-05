@@ -508,11 +508,15 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             persist.save_daily_loss_hit(False)
             print(f"  Daily loss reset — new trading day", flush=True)
         if daily_limit == "DAILY_LOSS_LIMIT":
-            _daily_loss_hit_today = True
-            persist.save_daily_loss_hit(True)
-            persist.save_loss_hit_date(_today_d)
-            print(f"DAILY LOSS LIMIT HIT. Equity: Rp{total_equity:,.0f}. Realtime: TP izin, SL skip.", flush=True)
-            return
+            actual_loss = risk.today_peak - total_equity
+            if _greed_used_today and actual_loss < config.DAILY_LOSS_FLOOR_IDR * 2:
+                print(f"DAILY LOSS {actual_loss:,.0f} ≥ 15k TAPI GREED — lanjut (max Rp30k)", flush=True)
+            else:
+                _daily_loss_hit_today = True
+                persist.save_daily_loss_hit(True)
+                persist.save_loss_hit_date(_today_d)
+                print(f"DAILY LOSS LIMIT HIT. Equity: Rp{total_equity:,.0f}. Realtime: TP izin, SL skip.", flush=True)
+                return
 
         if portfolio_risk.check_portfolio_stop(total_equity):
             actual_dd = (portfolio_risk.peak_capital - total_equity) / portfolio_risk.peak_capital * 100
@@ -1666,10 +1670,8 @@ async def main():
                                 global _daily_loss_hit_today, _greed_used_today
                                 _greed_used_today = True
                                 _daily_loss_hit_today = False
-                                risk.today_peak = risk.today_peak + config.DAILY_LOSS_FLOOR_IDR
                                 persist.save_daily_loss_hit(False)
-                                persist.save_today_peak(risk.today_peak)
-                                await send_message("🟢 GREED MODE — daily loss extended Rp15k. SL/TP jalan normal.")
+                                await send_message("🟢 GREED MODE — daily loss 2× (Rp30k). SL/TP jalan normal.")
                                 continue
 
                             if txt == "/why":
