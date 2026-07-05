@@ -494,7 +494,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         )
 
         saved_peak = persist.load_today_peak()
-        if saved_peak > risk.today_peak:
+        if saved_peak > risk.today_peak and 1_000 < saved_peak < 100_000_000_000:
             risk.today_peak = saved_peak
             print(f"  Restored today_peak: Rp{risk.today_peak:,.0f}", flush=True)
 
@@ -1299,7 +1299,7 @@ async def main():
         if saved:
             positions.extend(saved)
         saved_tp = persist.load_today_peak()
-        if saved_tp > risk.today_peak:
+        if saved_tp > risk.today_peak and 1_000 < saved_tp < 100_000_000_000:
             risk.today_peak = saved_tp
             print(f"  Restored today_peak from persist: Rp{risk.today_peak:,.0f}", flush=True)
         print("DB init OK", flush=True)
