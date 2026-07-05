@@ -462,13 +462,12 @@ async def portfolio_cycle(client: httpx.AsyncClient):
 
         balance_idr = int(actual_idr_balance)
         paper_prices = await asyncio.gather(*[_coin_price(p["pair"]) for p in positions])
-        paper_equity = sum(p["qty"] * price for p, price in zip(positions, paper_prices))
+        paper_equity = 0
+        for p, price in zip(positions, paper_prices):
+            if price <= 0 and p.get("entry_price"):
+                price = p["entry_price"]
+            paper_equity += p["qty"] * price
         total_equity = actual_idr_balance + paper_equity
-        if positions and paper_equity < config.MIN_ORDER_IDR:
-            print(f"  Paper equity Rp{paper_equity:,.0f} — pake entry price fallback", flush=True)
-            real_paper = sum(p.get("entry_price", 0) * p["qty"] for p in positions)
-            total_equity = actual_idr_balance + real_paper
-            print(f"  Equity (fallback): Rp{total_equity:,.0f}", flush=True)
         if not positions and paper_equity == 0 and total_equity < config.MIN_ORDER_IDR:
             pass
         elif _prev_equity > 0 and total_equity < _prev_equity * 0.5 and paper_equity > config.MIN_ORDER_IDR:
