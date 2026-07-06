@@ -1692,8 +1692,10 @@ async def main():
                                 global _daily_loss_hit_today, _greed_used_today
                                 _greed_used_today = True
                                 _daily_loss_hit_today = False
+                                risk.today_peak = _latest_balance + sum(p["qty"] * (LIVE_TICKERS.get(p["pair"], {}).get("last") or p.get("entry_price", 0)) for p in positions)
                                 persist.save_daily_loss_hit(False)
-                                await send_message("🟢 GREED MODE — daily loss 2× (Rp30k). SL/TP jalan normal.")
+                                persist.save_today_peak(risk.today_peak)
+                                await send_message("🟢 GREED MODE — peak reset, bot jalan normal sampe midnight.")
                                 continue
 
                             if txt == "/why":
