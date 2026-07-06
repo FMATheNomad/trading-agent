@@ -110,3 +110,20 @@ def save_today_peak(value: float):
     state = _load()
     state["today_peak"] = value
     _save(state)
+
+def load_cooldown() -> dict[str, float]:
+    return _load().get("cooldown", {})
+
+def save_cooldown(data: dict[str, float]):
+    state = _load()
+    now = __import__("time").time()
+    state["cooldown"] = {k: v for k, v in data.items() if v > now}
+    _save(state)
+
+def load_blacklist() -> list[str]:
+    return _load().get("blacklist", [])
+
+def save_blacklist(data: set[str]):
+    state = _load()
+    state["blacklist"] = list(data)[:50]
+    _save(state)

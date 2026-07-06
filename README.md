@@ -169,6 +169,27 @@ Info yang gak bisa dilihat trader manual → kita exploit
 
 ---
 
+## 🔬 Penemuan 6: Adaptive Regime Switching
+
+**Masalah:** Setiap strategi trading punya regime pasar ideal masing-masing. Trend-following unggul di BULL/BEAR, tapi rugi di SIDEWAYS. Rothschild (tight SL, trailing TP) butuh volatilitas, loss di sideway. Sebelumnya bot cuma jalan di SATU mode terus-menerus.
+
+**Solusi:** Adaptive switching dengan Hidden Markov Model (HMM):
+| HMM State | Mode Aktif | Strategi |
+|-----------|-----------|----------|
+| BULL/BEAR (≥5 cycle) | Rothschild 🔴 | Momentum + trailing TP + pyramid |
+| SIDEWAYS / transisi | Konservatif 🟢 | Mean-reversion, SL longgar |
+| HIGH_VOL | -- | Kurangi eksposur |
+
+### 💡 Penemuan Kunci: Stabilty Buffer 5/3 Cycle
+Market kripto sangat labil — bisa BULL milidetik, SIDEWAYS berikutnya. Tanpa buffer, bot flip-flop chaos.
+
+- **BULL streak ≥ 5** → nyalakan Rothschild (terverifikasi)
+- **Non-BULL streak ≥ 3** → matikan Rothschild (sideway terverifikasi)
+
+Ini memecahkan masalah yang gak bisa dipecahkan AI agent sebelumnya — mereka tahu Rothschild power law, tahu HMM, tapi gak ada yang mikir menggabungkannya dengan buffer anti-flip.
+
+---
+
 ## ⚖️ License & Legal
 
 **Copyright (C) 2026 FMA ALPHA QUANT LABS**

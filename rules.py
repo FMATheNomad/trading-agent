@@ -12,6 +12,23 @@ import config
 def decide(all_signals, ticker_map, live_tickers, positions, actual_idr_balance,
            total_equity, regime_info, ohlcv_map_1h, coin_blacklist, pair_meta,
            book_pressure_map=None):
+    regime = regime_info.get("regime", "SIDEWAYS")
+    if regime in ("BULL", "BEAR"):
+        return _momentum_decide(all_signals, ticker_map, live_tickers, positions,
+                                actual_idr_balance, total_equity, regime_info,
+                                ohlcv_map_1h, coin_blacklist, pair_meta, book_pressure_map)
+    elif regime == "SIDEWAYS" or regime == "SIDEWAYS_LOW_VOL":
+        return _mean_reversion_decide(all_signals, ticker_map, live_tickers, positions,
+                                      actual_idr_balance, total_equity, regime_info,
+                                      ohlcv_map_1h, coin_blacklist, pair_meta, book_pressure_map)
+    else:
+        return {"decision": "HOLD", "reasoning": "HIGH_VOL — survival, no entry",
+                "trades": [], "play_capital_pct": 0}
+
+
+def _momentum_decide(all_signals, ticker_map, live_tickers, positions, actual_idr_balance,
+                     total_equity, regime_info, ohlcv_map_1h, coin_blacklist, pair_meta,
+                     book_pressure_map=None):
     ranked = _score_all_pairs(all_signals, ticker_map, live_tickers, book_pressure_map)
     trades = []
     held_pairs = {p["pair"] for p in positions}
@@ -35,7 +52,7 @@ def decide(all_signals, ticker_map, live_tickers, positions, actual_idr_balance,
         if is_bear:
             cut_thresh = -max(atr * config.ATR_CUT_MULT, 3)
         if pnl < cut_thresh:
-            sell_reason = f"Cut {pnl:.1f}% (ATR×{config.ATR_CUT_MULT})"
+            sell_reason = f"Cut {pnl:.1f}% (ATR x {config.ATR_CUT_MULT})"
 
         elif r["signal"] == "SELL" and pnl < 0:
             sell_reason = f"Signal SELL"
@@ -44,7 +61,7 @@ def decide(all_signals, ticker_map, live_tickers, positions, actual_idr_balance,
             sell_reason = f"Rank {r['rank']}/{len(ranked)} turun"
 
         elif pnl >= atr * config.ATR_PROFIT_SELL_MULT and config.ATR_PROFIT_SELL_MULT < 20:
-            sell_reason = f"Profit {pnl:.1f}% (ATR×{config.ATR_PROFIT_SELL_MULT})"
+            sell_reason = f"Profit {pnl:.1f}% (ATR x {config.ATR_PROFIT_SELL_MULT})"
 
         elif hold > 14400 and pnl > 0:
             sell_reason = f"Time TP {pnl:.1f}% ({int(hold/60)}m)"
@@ -57,7 +74,7 @@ def decide(all_signals, ticker_map, live_tickers, positions, actual_idr_balance,
     max_pos = config.max_positions_for_equity(total_equity)
     slots = max_pos - remaining
 
-    if slots > 0 and actual_idr_balance >= config.MIN_ORDER_IDR * 3:
+    if slots > 0 and actual_idr_balance >= config.MIN_ORDER_IDR * 1.5:
         min_score = 5 if is_bear else 8
         candidates = [
             r for r in ranked
@@ -103,6 +120,87 @@ def decide(all_signals, ticker_map, live_tickers, positions, actual_idr_balance,
         "reasoning": reason,
         "trades": trades,
         "play_capital_pct": play_pct,
+    }
+
+
+def _mean_reversion_decide(all_signals, ticker_map, live_tickers, positions, actual_idr_balance,
+                           total_equity, regime_info, ohlcv_map_1h, coin_blacklist, pair_meta,
+                           book_pressure_map=None):
+    trades = []
+    held_pairs = {p["pair"] for p in positions}
+
+    for pos in positions:
+        pair = pos["pair"]
+        sig = all_signals.get(pair, {})
+        price = ticker_map.get(pair, {}).get("sell") or live_tickers.get(pair, {}).get("last", 0)
+        entry = pos.get("entry_price", 0) or 1
+        pnl = (price - entry) / entry * 100
+        hold = time.time() - pos.get("entry_time", time.time())
+
+        rsi = sig.get("rsi", 50)
+        bb_lower = sig.get("bb_lower")
+        bb_upper = sig.get("bb_upper")
+        atr = sig.get("atr_pct", 1.5) or 1.5
+
+        sell_reason = None
+        if pnl >= atr * 0.5:
+            sell_reason = f"MR TP {pnl:.1f}% (ATRev)"
+        elif rsi and rsi > 70 and bb_upper and price >= bb_upper:
+            sell_reason = f"MR BB+RSI sell"
+        elif hold > 7200 and pnl > 0:
+            sell_reason = f"MR time TP ({int(hold/60)}m)"
+        elif pnl < -max(atr * 0.8, 1):
+            sell_reason = f"MR SL {pnl:.1f}%"
+
+        if sell_reason:
+            trades.append({"pair": pair, "action": "SELL", "allocation_pct": 100, "reason": sell_reason})
+
+    selling = {t["pair"] for t in trades if t["action"] == "SELL"}
+    remaining = len(held_pairs - selling)
+    slots = max(0, 2 - remaining)
+
+    if slots > 0 and actual_idr_balance >= config.MIN_ORDER_IDR:
+        candidates = []
+        for pair, sig in all_signals.items():
+            if pair in held_pairs or pair in config.STABLECOINS or pair in config.SKIP_COINS:
+                continue
+            if pair in coin_blacklist:
+                continue
+            price = ticker_map.get(pair, {}).get("sell") or live_tickers.get(pair, {}).get("last", 0)
+            if price < 50:
+                continue
+            rsi = sig.get("rsi", 50)
+            bb_lower = sig.get("bb_lower")
+            vol_idr = float(ticker_map.get(pair, {}).get("vol_idr", 0))
+            if vol_idr < 200_000_000:
+                continue
+            atr = sig.get("atr_pct", 1.5) or 1.5
+            if atr > 8.0:
+                continue
+            if rsi and rsi < 35 and bb_lower and price <= bb_lower:
+                vol_ratio = sig.get("volume_ratio", 0) or 0
+                score = 2 if vol_ratio > 1.2 else 1
+                candidates.append((pair, score, price, atr))
+
+        candidates.sort(key=lambda x: -x[1])
+        n_bins = min(slots, len(candidates))
+        for i in range(n_bins):
+            pair, score, price, atr = candidates[i]
+            amount = actual_idr_balance * 0.4
+            alloc = int(min(amount / actual_idr_balance * 100, 50))
+            trades.append({
+                "pair": pair, "action": "BUY", "allocation_pct": alloc,
+                "reason": f"MR BB+RSI oversold"
+            })
+
+    decision = "REBALANCE" if trades else "HOLD"
+    reason = f"MeanRev: {len(trades)} trade(s)" if trades else "MeanRev: wait — no oversold"
+
+    return {
+        "decision": decision,
+        "reasoning": reason,
+        "trades": trades,
+        "play_capital_pct": 40,
     }
 
 
@@ -195,4 +293,3 @@ def _score_all_pairs(all_signals, ticker_map, live_tickers, book_pressure_map=No
     for i, r in enumerate(results):
         r["rank"] = i + 1
     return results
-

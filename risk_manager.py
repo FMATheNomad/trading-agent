@@ -204,6 +204,14 @@ class KellyCalculator:
         alloc = base + score_boost + conv_boost
         return round(max(min(alloc, config.MAX_KELLY_ALLOC), config.MIN_KELLY_ALLOC), 2)
 
+PER_REGIME_KELLY = {
+    "BULL": 0.25,
+    "BEAR": 0.15,
+    "SIDEWAYS": 0.10,
+    "SIDEWAYS_LOW_VOL": 0.05,
+    "HIGH_VOL": 0.05,
+}
+
 class PortfolioRiskManager:
     def __init__(self, initial_capital: float = config.PLAY_CAPITAL_IDR):
         self.peak_capital = initial_capital
@@ -212,6 +220,9 @@ class PortfolioRiskManager:
 
     def set_trade_history(self, trades: list[dict]):
         self.kelly.update(trades)
+
+    def kelly_for_regime(self, regime: str) -> float:
+        return PER_REGIME_KELLY.get(regime, 0.10)
 
     def check_portfolio_stop(self, total_equity: float) -> bool:
         if total_equity > self.peak_capital:
@@ -234,6 +245,13 @@ class PortfolioRiskManager:
                 pct = config.MAX_POSITION_PCT_PER_ASSET * 100
             amount = balance_idr * (pct / 100)
             if amount < config.MIN_ORDER_IDR:
+                if balance_idr >= config.MIN_ORDER_IDR:
+                    min_pct = config.MIN_ORDER_IDR / balance_idr * 100
+                    pct = min(min_pct, 100)
+                    amount = balance_idr * (pct / 100)
+                    if amount >= config.MIN_ORDER_IDR:
+                        t["allocation_pct"] = pct
+                        valid.append(t)
                 continue
             t["allocation_pct"] = pct
             valid.append(t)

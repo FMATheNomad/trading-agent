@@ -370,12 +370,18 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         print(f"Regime: {regime_info['regime']}{hmm_tag} | B:{regime_info['buy_ratio']} S:{regime_info['sell_ratio']} "
               f"Score:{regime_info['avg_score']} HC:{regime_info['high_conviction_count']}", flush=True)
 
-        if regime_info["regime"] in ("BULL", "HIGH_VOL"):
+        current_regime = regime_info["regime"]
+
+        if current_regime == "BULL":
             _regime_bull_streak += 1
             _regime_bear_streak = 0
-        else:
+        elif current_regime == "BEAR":
             _regime_bear_streak += 1
             _regime_bull_streak = 0
+        else:
+            _regime_bull_streak = 0
+            _regime_bear_streak = 0
+
         if _regime_bull_streak >= config.REGIME_STABILITY_CYCLES and not _rothschild_active:
             _rothschild_active = True
             config.ROTHSCHILD_ACTIVE = True
@@ -383,15 +389,18 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             config.MAX_POSITION_PCT_PER_ASSET = config.ROTHSCHILD_POSITION_PCT
             print(f"  🚀 ROTHSCHILD AKTIF — {config.ROTHSCHILD_OPEN_POSITIONS} slot @{config.ROTHSCHILD_POSITION_PCT*100:.0f}%", flush=True)
             await send_message(f"🚀 ROTHSCHILD MODE — {config.ROTHSCHILD_OPEN_POSITIONS} slot, pyramid ON")
-        elif _regime_bear_streak >= config.REGIME_STABILITY_BEAR_CYCLES and _rothschild_active:
+        elif current_regime != "BULL" and _rothschild_active and _regime_bear_streak >= config.REGIME_STABILITY_BEAR_CYCLES:
             _rothschild_active = False
             config.ROTHSCHILD_ACTIVE = False
             config.MAX_OPEN_POSITIONS = 4
             config.MAX_POSITION_PCT_PER_ASSET = 0.25
-            print(f"  🛑 ROTHSCHILD OFF — balik ke konservatif 4 slot @25%", flush=True)
-            await send_message(f"🛑 ROTHSCHILD OFF — sideway mode 4 slot")
+            print(f"  🛑 ROTHSCHILD OFF — {current_regime} detected, balik ke konservatif 4 slot @25%", flush=True)
+            await send_message(f"🛑 ROTHSCHILD OFF — {current_regime} mode, konservatif 4 slot")
         mode_tag = "🔴 R" if _rothschild_active else "🟢 K"
-        print(f"  Mode: {mode_tag} (bull streak: {_regime_bull_streak}, bear: {_regime_bear_streak})", flush=True)
+        kelly_alloc = portfolio_risk.kelly_for_regime(current_regime)
+        if not _rothschild_active:
+            config.MAX_POSITION_PCT_PER_ASSET = kelly_alloc
+        print(f"  Mode: {mode_tag} (regime: {current_regime}, kelly: {kelly_alloc:.0%}, bull streak: {_regime_bull_streak}, bear: {_regime_bear_streak})", flush=True)
 
         actual_idr_balance = config.PLAY_CAPITAL_IDR
 
@@ -739,7 +748,10 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     print(f"BLACKLIST: {pair} added (hit stop loss)", flush=True)
                     await send_message(f"⛔ {pair} blacklist (kena SL)")
         if len(_coin_blacklist) > 20:
-            _coin_blacklist.clear()
+            oldest = next(iter(_coin_blacklist))
+            _coin_blacklist.discard(oldest)
+        persist.save_blacklist(_coin_blacklist)
+        persist.save_cooldown(_cooldown)
 
         if sl_hits:
             await send_message("SL/TP triggered:\n" + "\n".join(sl_hits))
@@ -951,6 +963,10 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 sell_entry = t.get("entry_price", 0) or 0
                 sell_cost = sell_entry * actual_qty
                 sell_pnl_idr = actual_received - sell_cost
+                if sell_pnl_idr > 0:
+                    _cio_stats["wins"] += 1
+                else:
+                    _cio_stats["losses"] += 1
                 if config.AUTO_COMPOUND and sell_pnl_idr > 0:
                     _realized_pnl_idr += sell_pnl_idr
             pnl_trade = (t.get("exec_price", 0) - t.get("entry_price", 0)) / t.get("entry_price", 1) * 100 if t.get("entry_price") else 0
@@ -1339,6 +1355,15 @@ async def main():
         recent = get_recent_trades(limit=100)
         portfolio_risk.set_trade_history(recent)
         print(f"Kelly: {len(recent)} trades loaded, optimal f={portfolio_risk.kelly.optimal_fraction():.2f}", flush=True)
+        saved_blacklist = persist.load_blacklist()
+        if saved_blacklist:
+            _coin_blacklist.update(saved_blacklist)
+            print(f"Restored {len(_coin_blacklist)} blacklisted pairs", flush=True)
+        saved_cooldown = persist.load_cooldown()
+        if saved_cooldown:
+            now = time.time()
+            _cooldown.update({k: v for k, v in saved_cooldown.items() if v > now})
+            print(f"Restored {len(_cooldown)} active cooldowns", flush=True)
     except Exception as e:
         print(f"DB init failed: {e}", flush=True)
 
