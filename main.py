@@ -11,7 +11,6 @@ import hashlib
 import hmac
 import math
 import os
-import sentry_sdk
 import sys
 import signal
 import time
@@ -1292,10 +1291,6 @@ async def _realtime_sltp_check(pair: str, price: float):
 
 async def main():
     global _latest_balance, shutdown_flag
-
-    if config.SENTRY_DSN:
-        sentry_sdk.init(dsn=config.SENTRY_DSN, traces_sample_rate=0.1)
-        print("Sentry initialized", flush=True)
 
     if config.INDODAX_API_KEY:
         try:
