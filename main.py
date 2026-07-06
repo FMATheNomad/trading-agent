@@ -69,6 +69,10 @@ _regime_bull_streak: int = 0
 _regime_bear_streak: int = 0
 _daily_loss_hit_today: bool = False
 _greed_used_today: bool = False
+_cb_consecutive_loss_days: int = 0
+_cb_last_loss_date: str = ""
+_cb_triggered_at: float = 0
+_cb_active_until: float = 0
 
 def classify_regime(all_signals: dict, ohlcv_map_1h: dict | None = None) -> dict:
     signals = [s.get("raw_signal") for s in all_signals.values() if s.get("raw_signal")]
@@ -195,10 +199,21 @@ cycle_counter = 0
 async def portfolio_cycle(client: httpx.AsyncClient):
     global positions, cycle_counter, _prev_regime, _prev_equity, _report_sent_count, _latest_regime, _latest_ticker_map, _latest_all_signals, _latest_ohlcv_map_1h, _latest_balance, _realized_pnl_idr
     global _daily_loss_hit_today, _greed_used_today, _rothschild_active, _regime_bull_streak, _regime_bear_streak
+    global _cb_consecutive_loss_days, _cb_last_loss_date, _cb_triggered_at, _cb_active_until, shutdown_flag
     cycle_counter += 1
     _t0 = time.time()
     risk.daily_loss_stopped = False
     actual_idr_balance = 0
+
+    if _cb_active_until > time.time():
+        print(f"🛑 CIRCUIT BREAKER ACTIVE — cooling down until {datetime.datetime.fromtimestamp(_cb_active_until).strftime('%Y-%m-%d %H:%M')} WIB", flush=True)
+        return
+    if _cb_active_until > 0 and _cb_active_until <= time.time():
+        _cb_consecutive_loss_days = 0
+        _cb_active_until = 0
+        _cb_triggered_at = 0
+        await send_message("✅ CIRCUIT BREAKER selesai — bot lanjut normal")
+        persist.save_circuit_breaker({"consecutive_loss_days": 0, "last_loss_date": "", "triggered_at": 0, "active_until": 0})
 
     for pid in list(_pending_orders.keys()):
         try:
@@ -536,6 +551,12 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             persist.save_daily_loss_hit(False)
             persist.save_loss_hit_date(_today_d)
             print(f"  Daily loss reset — new trading day", flush=True)
+        if total_equity < config.EQUITY_FLOOR_IDR:
+            print(f"🛑 EQUITY FLOOR: Rp{total_equity:,.0f} < Rp{config.EQUITY_FLOOR_IDR:,} — stop total", flush=True)
+            await send_message(f"🛑 EQUITY FLOOR — bot stop. Equity Rp{total_equity:,.0f}")
+            shutdown_flag = True
+            return
+
         if daily_limit == "DAILY_LOSS_LIMIT":
             actual_loss = risk.today_peak - total_equity
             if _greed_used_today and actual_loss < config.DAILY_LOSS_FLOOR_IDR * 2:
@@ -544,8 +565,25 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 _daily_loss_hit_today = True
                 persist.save_daily_loss_hit(True)
                 persist.save_loss_hit_date(_today_d)
+                if _cb_last_loss_date != _today_d:
+                    _cb_consecutive_loss_days += 1
+                    _cb_last_loss_date = _today_d
+                    print(f"CIRCUIT BREAKER: consecutive loss day #{_cb_consecutive_loss_days}", flush=True)
+                    persist.save_circuit_breaker({"consecutive_loss_days": _cb_consecutive_loss_days, "last_loss_date": _cb_last_loss_date, "triggered_at": _cb_triggered_at, "active_until": _cb_active_until})
+                    if _cb_consecutive_loss_days >= config.CIRCUIT_BREAKER_LIMIT:
+                        _cb_triggered_at = time.time()
+                        _cb_active_until = _cb_triggered_at + config.CIRCUIT_BREAKER_HOURS * 3600
+                        persist.save_circuit_breaker({"consecutive_loss_days": _cb_consecutive_loss_days, "last_loss_date": _cb_last_loss_date, "triggered_at": _cb_triggered_at, "active_until": _cb_active_until})
+                        cooldown_until = datetime.datetime.fromtimestamp(_cb_active_until).strftime("%Y-%m-%d %H:%M")
+                        await send_message(f"🛑 CIRCUIT BREAKER: {_cb_consecutive_loss_days} hari loss berturut — bot stop sampai {cooldown_until} WIB")
+                        print(f"🛑 CIRCUIT BREAKER: {_cb_consecutive_loss_days} consecutive loss days — stop until {cooldown_until}", flush=True)
                 print(f"DAILY LOSS LIMIT HIT. Equity: Rp{total_equity:,.0f}. Realtime: TP izin, SL skip.", flush=True)
                 return
+        else:
+            if _cb_last_loss_date != _today_d:
+                _cb_consecutive_loss_days = 0
+                _cb_last_loss_date = _today_d
+                persist.save_circuit_breaker({"consecutive_loss_days": 0, "last_loss_date": "", "triggered_at": _cb_triggered_at, "active_until": _cb_active_until})
 
         if portfolio_risk.check_portfolio_stop(total_equity):
             actual_dd = (portfolio_risk.peak_capital - total_equity) / portfolio_risk.peak_capital * 100
@@ -1364,6 +1402,20 @@ async def main():
             now = time.time()
             _cooldown.update({k: v for k, v in saved_cooldown.items() if v > now})
             print(f"Restored {len(_cooldown)} active cooldowns", flush=True)
+        cb = persist.load_circuit_breaker()
+        _cb_consecutive_loss_days = cb.get("consecutive_loss_days", 0)
+        _cb_last_loss_date = cb.get("last_loss_date", "")
+        _cb_active_until = cb.get("active_until", 0)
+        if _cb_active_until > time.time():
+            remaining_h = int((_cb_active_until - time.time()) / 3600)
+            print(f"🛑 CIRCUIT BREAKER aktif — {_cb_consecutive_loss_days} hari loss berturut, sisa {remaining_h} jam cooldown", flush=True)
+        elif _cb_active_until > 0:
+            print(f"✅ CIRCUIT BREAKER selesai — session sebelumnya udah cooldown", flush=True)
+            _cb_consecutive_loss_days = 0
+            _cb_active_until = 0
+            persist.save_circuit_breaker({"consecutive_loss_days": 0, "last_loss_date": "", "triggered_at": 0, "active_until": 0})
+        else:
+            print(f"Circuit breaker: {_cb_consecutive_loss_days} consecutive loss days on record", flush=True)
     except Exception as e:
         print(f"DB init failed: {e}", flush=True)
 

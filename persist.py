@@ -79,14 +79,6 @@ def append_trade(trade: dict):
     trades.append(trade)
     save_trades(trades)
 
-def load_cooldown() -> dict[str, float]:
-    return _load().get("cooldown", {})
-
-def save_cooldown(cooldown: dict[str, float]):
-    state = _load()
-    state["cooldown"] = cooldown
-    _save(state)
-
 def load_daily_loss_hit() -> bool:
     return _load().get("daily_loss_hit", False)
 
@@ -126,4 +118,17 @@ def load_blacklist() -> list[str]:
 def save_blacklist(data: set[str]):
     state = _load()
     state["blacklist"] = list(data)[:50]
+    _save(state)
+
+def load_circuit_breaker() -> dict:
+    return _load().get("circuit_breaker", {
+        "consecutive_loss_days": 0,
+        "last_loss_date": "",
+        "triggered_at": 0,
+        "active_until": 0,
+    })
+
+def save_circuit_breaker(data: dict):
+    state = _load()
+    state["circuit_breaker"] = data
     _save(state)
