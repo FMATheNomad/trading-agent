@@ -11,6 +11,7 @@ import hashlib
 import hmac
 import math
 import os
+import sentry_sdk
 import sys
 import signal
 import time
@@ -168,6 +169,28 @@ def pnl_pct(entry: float, current: float, side: str) -> float:
         return (current - entry) / entry * 100
     return (entry - current) / entry * 100
 
+def add_position(pos_list: list[dict], pair: str, side: str, entry_price: float, qty: float,
+                  amount_idr: float, atr_pct: float | None, entry_time: float, entry_mode: str):
+    existing = next((p for p in pos_list if p["pair"] == pair), None)
+    if existing:
+        total_qty = existing["qty"] + qty
+        if total_qty > 0:
+            existing["entry_price"] = (existing["qty"] * existing.get("entry_price", 0) + qty * entry_price) / total_qty
+        existing["qty"] = total_qty
+        existing["amount_idr"] += amount_idr
+        if atr_pct is not None:
+            existing["atr_pct"] = atr_pct
+        if entry_mode:
+            existing["entry_mode"] = entry_mode
+    else:
+        pos_list.append({
+            "pair": pair, "side": side,
+            "entry_price": entry_price, "qty": qty,
+            "amount_idr": amount_idr,
+            "atr_pct": atr_pct, "entry_time": entry_time,
+            "entry_mode": entry_mode or "KONSERVATIF",
+        })
+
 cycle_counter = 0
 
 async def portfolio_cycle(client: httpx.AsyncClient):
@@ -191,13 +214,9 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             is_filled = status in ("filled",) or remain == 0
             if is_filled and po.get("is_maker"):
                 qty_filled = float(order_info.get(f"receive_{po.get('side', 'buy').lower()}", po["qty"]))
-                positions.append({
-                    "pair": pid, "side": po.get("side", "BUY"),
-                    "entry_price": po["price"], "qty": po["qty"],
-                    "amount_idr": po["amount_idr"],
-                    "atr_pct": po.get("atr_pct"), "entry_time": time.time(),
-                    "entry_mode": "ROTHSCHILD" if _rothschild_active else "KONSERVATIF",
-                })
+                add_position(positions, pid, po.get("side", "BUY"), po["price"], po["qty"],
+                             po["amount_idr"], po.get("atr_pct"), time.time(),
+                             "ROTHSCHILD" if _rothschild_active else "KONSERVATIF")
                 persist.save_positions(positions)
                 print(f"  MAKER FILLED: {pid} → position opened", flush=True)
                 await send_message(f"✅ MAKER FILLED: BUY {pid}\nRp{po['amount_idr']:,.0f} @ {po['price']:,.0f}")
@@ -622,8 +641,9 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                             coin_name = p["pair"].split("_")[0]
                             pyr_fill = float(pyr_order.get(f"receive_{coin_name}", 0)) or pyr_qty
                             pyr_spend = float(pyr_order.get("spend_rp", 0)) or pyr_amount
-                            p["qty"] += pyr_fill
-                            p["amount_idr"] += pyr_spend
+                            add_position(positions, p["pair"], p["side"], pyr_spend / pyr_fill if pyr_fill else p["entry_price"],
+                                         pyr_fill, pyr_spend, p.get("atr_pct"), time.time(),
+                                         p.get("entry_mode", "KONSERVATIF"))
                             actual_idr_balance -= pyr_spend
                             persist.save_positions(positions)
                             print(f"  PYRAMID: added {pyr_fill:.6f} @ {pyr_price:,.0f} (Rp{pyr_spend:,.0f})", flush=True)
@@ -916,13 +936,9 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 t["exec_price"] = actual_price
                 actual_idr_balance -= actual_spend
                 _latest_balance = actual_idr_balance
-                positions.append({
-                    "pair": pid, "side": action,
-                    "entry_price": actual_price, "qty": actual_qty,
-                    "amount_idr": actual_spend,
-                    "atr_pct": atr_pct if ohlcv else None, "entry_time": time.time(),
-                    "entry_mode": "ROTHSCHILD" if _rothschild_active else "KONSERVATIF",
-                })
+                add_position(positions, pid, action, actual_price, actual_qty, actual_spend,
+                             atr_pct if ohlcv else None, time.time(),
+                             "ROTHSCHILD" if _rothschild_active else "KONSERVATIF")
                 persist.save_positions(positions)
             elif action == "SELL":
                 actual_received = float(order.get("receive_rp", 0)) or amount
@@ -1170,11 +1186,9 @@ async def _momentum_scanner():
                         coin_name = pid.split("_")[0]
                         actual_qty = float(order.get(f"receive_{coin_name}", 0)) or qty
                         actual_spend = float(order.get("spend_rp", 0)) or amount
-                        positions.append({
-                            "pair": pid, "side": "BUY", "entry_price": actual_spend / actual_qty if actual_qty else price,
-                            "qty": actual_qty, "amount_idr": actual_spend, "atr_pct": None, "entry_time": time.time(),
-                            "entry_mode": "ROTHSCHILD" if _rothschild_active else "KONSERVATIF",
-                        })
+                        add_position(positions, pid, "BUY", actual_spend / actual_qty if actual_qty else price,
+                                     actual_qty, actual_spend, None, time.time(),
+                                     "ROTHSCHILD" if _rothschild_active else "KONSERVATIF")
                         persist.save_positions(positions)
                         cash_avail -= actual_spend
                         await send_message(f"⚡ MOMENTUM {signal}: BUY {pid}\nRp{actual_spend:,.0f} @ {price:,.0f}")
@@ -1211,7 +1225,9 @@ async def _realtime_sltp_check(pair: str, price: float):
                         if pyr_order.get("order_id") or pyr_order.get("receive_rp"):
                             coin_n = pair.split("_")[0]
                             pyr_f = float(pyr_order.get(f"receive_{coin_n}", 0)) or (pyr_amt / price)
-                            p["qty"] += pyr_f
+                            add_position(positions, pair, p["side"], price, pyr_f, pyr_amt,
+                                         p.get("atr_pct"), time.time(),
+                                         p.get("entry_mode", "KONSERVATIF"))
                             print(f"  PYRAMID: +{pyr_f:.6f} {pair} (realtime)", flush=True)
                             await send_message(f"🔺 PYRAMID: +{pyr_f:.6f} {pair}")
                     except Exception as e:
@@ -1276,6 +1292,10 @@ async def _realtime_sltp_check(pair: str, price: float):
 
 async def main():
     global _latest_balance, shutdown_flag
+
+    if config.SENTRY_DSN:
+        sentry_sdk.init(dsn=config.SENTRY_DSN, traces_sample_rate=0.1)
+        print("Sentry initialized", flush=True)
 
     if config.INDODAX_API_KEY:
         try:
