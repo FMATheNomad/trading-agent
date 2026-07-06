@@ -1232,8 +1232,9 @@ async def _realtime_sltp_check(pair: str, price: float):
         positions.remove(p)
         return
     pnl = (price - p["entry_price"]) * p["qty"]
-    is_sl = any(w in str(result).upper() for w in ["SL", "ATR_SL", "TRAILING", "INITIAL", "CUT"])
-    if _daily_loss_hit_today and is_sl:
+    is_loss = pnl < 0
+    is_sl_type = any(w in str(result).upper() for w in ["SL", "ATR_SL", "TRAILING", "INITIAL", "CUT"])
+    if _daily_loss_hit_today and is_sl_type and is_loss:
         print(f"  DAILY LOSS HOLD: skip {pair} {result} ({pnl:+.0f} IDR) — tahan sampai besok", flush=True)
         return
     print(f"  REALTIME SL: {pair} {result} ({pnl:+.0f} IDR)", flush=True)
