@@ -8,7 +8,7 @@ This project is an open-source crypto trading bot. If you discover a security vu
 
 ### Contact
 
-- **Email:** [security@fmaquantlabs.com](mailto:security@fmaquantlabs.com) *(placeholder)*
+- **Email:** [fmasoftwarelabs@gmail.com](mailto:security@fmaquantlabs.com) *(placeholder)*
 - **GitHub Issues:** For non-security bugs and feature requests
 
 ### What to Include
