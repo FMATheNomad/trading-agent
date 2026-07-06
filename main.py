@@ -503,10 +503,11 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         persist.save_today_peak(risk.today_peak)
 
         _today_d = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=7))).strftime("%Y-%m-%d")
-        if _daily_loss_hit_today and persist.load_loss_hit_date() != _today_d:
+        if persist.load_loss_hit_date() != _today_d:
             _daily_loss_hit_today = False
             _greed_used_today = False
             persist.save_daily_loss_hit(False)
+            persist.save_loss_hit_date(_today_d)
             print(f"  Daily loss reset — new trading day", flush=True)
         if daily_limit == "DAILY_LOSS_LIMIT":
             actual_loss = risk.today_peak - total_equity
