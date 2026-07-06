@@ -1165,7 +1165,7 @@ async def _momentum_scanner():
                     continue
                 try:
                     async with httpx.AsyncClient() as _mc:
-                        order = await place_order(_mc, "buy", price, amount, pair=pid, order_type="market")
+                        order = await place_order(_mc, "buy", price, amount, pair=pid, order_type="maker_first" if config.MAKER_FIRST else "market")
                     if order.get("order_id") or order.get("receive_rp"):
                         coin_name = pid.split("_")[0]
                         actual_qty = float(order.get(f"receive_{coin_name}", 0)) or qty
