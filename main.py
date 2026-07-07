@@ -406,7 +406,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             continue
         try:
             oi = await get_order(client, oid, pair=pid)
-            if oi and (oi.get("status", "").lower() in ("filled",) or float(oi.get("remain_rp", 0)) == 0):
+            if oi and (oi.get("status", "").lower() in ("filled",) or float(oi.get(f"remain_{pid.split('_')[0]}", 1)) == 0):
                 fill_price = float(oi.get("price", 0))
                 entry = sm["entry_price"]
                 pnl = (fill_price - entry) * sm["qty"]
