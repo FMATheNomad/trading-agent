@@ -232,19 +232,18 @@ async def _sm_place_tp(client: httpx.AsyncClient, pair: str, qty: float, entry: 
         return oid
     return None
 
-async def _sm_place_sl(client: httpx.AsyncClient, pair: str, qty: float, entry: float, atr: float) -> int | None:
-    sl_price = int(entry * (1 - max(atr, 0.5) * config.ATR_SL_MULTIPLIER / 100))
+async def _sm_place_sl(client: httpx.AsyncClient, pair: str, qty: float, entry: float, atr: float, mult: float | None = None) -> int | None:
+    m = mult if mult is not None else config.ATR_SL_MULTIPLIER
+    sl_price = int(entry * (1 - max(atr, 0.5) * m / 100))
     ret = await _sm_place_sell(client, pair, qty, sl_price)
     if ret and ret.get("order_id"):
         oid = int(ret["order_id"])
         _position_states[pair]["sl_order_id"] = oid
         _position_states[pair]["sl_price"] = sl_price
-        _position_states[pair]["state"] = "SL_ACTIVE"
-        print(f"  SM SL PLACED: {pair} @ Rp{sl_price:,} (oid={oid})", flush=True)
         return oid
     return None
 
-def _sm_init(pair: str, entry: float, qty: float, atr: float):
+def _sm_init(pair: str, entry: float, qty: float, atr: float, mode: str = "TP_ACTIVE"):
     _position_states[pair] = {
         "state": "NEW",
         "tp_order_id": None,
@@ -254,6 +253,8 @@ def _sm_init(pair: str, entry: float, qty: float, atr: float):
         "entry_price": entry,
         "qty": qty,
         "atr_pct": atr,
+        "target_mode": mode,
+        "trailing_high": entry,
     }
 
 def _sm_cleanup(pair: str):
@@ -399,7 +400,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 del _pending_sells[pid]
 
     for pid, sm in list(_position_states.items()):
-        if sm["state"] not in ("TP_ACTIVE", "SL_ACTIVE"):
+        if sm["state"] not in ("TP_ACTIVE", "SL_ACTIVE", "TRAILING"):
             continue
         oid = sm.get("tp_order_id") or sm.get("sl_order_id")
         if not oid:
@@ -814,13 +815,26 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 continue
             atr = p.get("atr_pct") or risk.compute_atr(ohlcv_map_1h.get(pid, []))
             if atr and p["qty"] > 0:
-                _sm_init(pid, p["entry_price"], p["qty"], atr)
-                oid = await _sm_place_tp(client, pid, p["qty"], p["entry_price"], atr)
-                if oid:
-                    print(f"  SM INIT: {pid} tp_oid={oid} entry={p['entry_price']:,.0f} atr={atr:.2f}%", flush=True)
+                sm_mode = "TRAILING" if current_regime == "BULL" else "TP_ACTIVE"
+                tmode = "R" if sm_mode == "TRAILING" else "TP"
+                _sm_init(pid, p["entry_price"], p["qty"], atr, mode=sm_mode)
+                if sm_mode == "TRAILING":
+                    oid = await _sm_place_sl(client, pid, p["qty"], p["entry_price"], atr, mult=0.3)
+                    if oid:
+                        _position_states[pid]["state"] = "TRAILING"
+                        _position_states[pid]["sl_order_id"] = oid
+                        _position_states[pid]["trailing_high"] = p["entry_price"]
+                        print(f"  SM TRAILING: {pid} initial_sl_oid={oid} entry={p['entry_price']:,.0f} atr={atr:.2f}%", flush=True)
+                    else:
+                        _position_states[pid]["state"] = "PENDING"
+                        print(f"  SM PENDING: {pid} — initial SL fail, retry next cycle", flush=True)
                 else:
-                    _position_states[pid]["state"] = "PENDING"
-                    print(f"  SM PENDING: {pid} — TP fail (buy belum keisi?), retry next cycle", flush=True)
+                    oid = await _sm_place_tp(client, pid, p["qty"], p["entry_price"], atr)
+                    if oid:
+                        print(f"  SM INIT: {pid} tp_oid={oid} entry={p['entry_price']:,.0f} atr={atr:.2f}%", flush=True)
+                    else:
+                        _position_states[pid]["state"] = "PENDING"
+                        print(f"  SM PENDING: {pid} — TP fail, retry next cycle", flush=True)
 
         sl_hits = []
         for p in list(positions):
@@ -1464,6 +1478,37 @@ async def _realtime_sltp_check(pair: str, price: float):
                         sm["state"] = "TP_ACTIVE"
                         await send_message(f"⚡ SM TP: {pair} (cancel SL, place TP @ Rp{int(sl_level):,})")
                         print(f"  SM → TP: {pair} @ Rp{int(sl_level):,} (price {price:,.0f})", flush=True)
+
+    elif sm["state"] == "TRAILING":
+        pnl_pct = (price - entry) / entry * 100 if entry else 0
+        if price > sm.get("trailing_high", entry) * 1.001:
+            old_high = sm.get("trailing_high", entry)
+            sm["trailing_high"] = price
+            trail_price = int(price * (1 - max(atr, 0.5) * config.ROTHSCHILD_TRAILING_SL_ATR / 100))
+            if sm.get("sl_order_id") and trail_price > sm.get("sl_price", 0):
+                async with httpx.AsyncClient() as c:
+                    await _sm_cancel(c, sm["sl_order_id"], pair)
+                    p = next((x for x in positions if x["pair"] == pair), None)
+                    if p:
+                        oid = await _sm_place_sell(c, pair, p["qty"], trail_price)
+                        if oid:
+                            sm["sl_order_id"] = oid
+                            sm["sl_price"] = trail_price
+                            print(f"  SM TRAIL: {pair} trailing_high={price:,.0f} sl={trail_price:,} (oid={oid})", flush=True)
+        if pnl_pct >= max(atr, 0.5) * config.ROTHSCHILD_PYRAMID_TRIGGER / 100:
+            if not _daily_loss_hit_today or _greed_used_today:
+                pyr_amt = int(max(config.MIN_ORDER_IDR, _latest_balance * config.ROTHSCHILD_PYRAMID_MULT))
+                if pyr_amt >= config.MIN_ORDER_IDR:
+                    async with httpx.AsyncClient() as _pc:
+                        try:
+                            pyr_order = await place_order(_pc, "buy", price, pyr_amt, pair=pair, order_type="market")
+                            if pyr_order.get("order_id") or pyr_order.get("receive_rp"):
+                                coin_n = pair.split("_")[0]
+                                pyr_f = float(pyr_order.get(f"receive_{coin_n}", 0)) or (pyr_amt / price)
+                                add_position(positions, pair, "BUY", price, pyr_f, pyr_amt, atr, time.time(), "TRAILING")
+                                print(f"  SM PYRAMID: {pair} +{pyr_f:.6f} @ {price:,.0f}", flush=True)
+                        except Exception as e:
+                            print(f"  SM pyramid fail {pair}: {e}", flush=True)
 
 async def main():
     global _latest_balance, shutdown_flag
