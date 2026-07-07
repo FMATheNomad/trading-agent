@@ -89,7 +89,16 @@ async def place_order(client: httpx.AsyncClient, side: str, price: float, amount
     if data.get("success") != 1:
         err = data.get("error", "unknown")
         if order_type == "maker_first" and "not maker" in err.lower():
-            return await place_order(client, side, price, amount_idr, pair=pair, order_type="market")
+            adj = 0.997 if side == "buy" else 1.003
+            maker_price2 = int(price * adj)
+            params2 = dict(params)
+            params2["price"] = str(maker_price2)
+            body2 = urlencode(params2)
+            r2 = await client.post(config.INDODAX_TAPI_URL, headers=_headers(body2), content=body2)
+            d2 = r2.json()
+            if d2.get("success") == 1:
+                return d2["return"]
+            raise RuntimeError(f"Order failed {pair}: {err} (retry: {d2.get('error','?')})")
         raise RuntimeError(f"Order failed {pair}: {err}")
     return data["return"]
 

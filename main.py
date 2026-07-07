@@ -266,10 +266,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                                 po["order_id"] = order["order_id"]
                                 print(f"  MAKER RETRY: order_id={order['order_id']}", flush=True)
                                 continue
-                        market_order = await place_order(client, po.get("side", "buy").lower(), po["price"], po["amount_idr"], pair=pid, order_type="market")
-                        if market_order.get("order_id") or market_order.get("receive_rp"):
-                            print(f"  MAKER TIMEOUT → market order placed for {pid}", flush=True)
-                            await send_message(f"⚡ MAKER TIMEOUT → MARKET BUY {pid}\nRp{po['amount_idr']:,.0f}")
+                        print(f"  MAKER TIMEOUT: {pid} limit unfilled after 3 retries — cancel, skip cycle", flush=True)
+                        await send_message(f"⏰ MAKER TIMEOUT: {pid} limit gak keisi — skip siklus ini")
                     except Exception as e:
                         print(f"  Maker retry failed {pid}: {e}", flush=True)
                     del _pending_orders[pid]
@@ -682,7 +680,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     pyr_price = last
                     pyr_qty = pyr_amount / pyr_price
                     try:
-                        pyr_order = await place_order(client, "buy", pyr_price, pyr_amount, pair=p["pair"], order_type="market")
+                        pyr_order = await place_order(client, "buy", pyr_price, pyr_amount, pair=p["pair"], order_type="maker_first")
                         if pyr_order.get("order_id") or pyr_order.get("receive_rp"):
                             coin_name = p["pair"].split("_")[0]
                             pyr_fill = float(pyr_order.get(f"receive_{coin_name}", 0)) or pyr_qty
@@ -727,9 +725,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                             pass
                         _ts_s = int(time.time() * 1000)
                         qty_str = f"{sl_qty:.8f}".rstrip("0").rstrip(".") or "0"
-                        ot_sell_main = "maker_first" if "TP_HIT" in str(result).upper() else "market"
                         sp = {"method":"trade","timestamp":_ts_s,"recvWindow":"5000","pair":p["pair"],"type":"sell",
-                              coin_name: qty_str, "order_type":ot_sell_main}
+                              coin_name: qty_str, "order_type":"maker_first"}
                         sb = urlencode(sp)
                         ss = hmac.new(config.INDODAX_SECRET_KEY.encode(),sb.encode(),hashlib.sha512).hexdigest()
                         sr = await client.post(config.INDODAX_TAPI_URL, headers={
@@ -744,7 +741,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                                 positions.remove(p)
                                 persist.save_positions(positions)
                                 continue
-                            print(f"  SOLD {p['pair']} at market", flush=True)
+                            print(f"  SOLD {p['pair']} via maker", flush=True)
                             positions.remove(p)
                             persist.save_positions(positions)
                             sell_value = last * p["qty"]
@@ -938,9 +935,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 tp_limit_price = int(tp)
                 print(f"  ATR: {atr_pct}% | SL: {sl} | TP: {tp}", flush=True)
 
-            ot = "maker_first" if config.MAKER_FIRST else "market"
-            if config.ROTHSCHILD_ACTIVE and action == "BUY":
-                ot = "maker_first"
+            ot = "maker_first"
             try:
                 order = await place_order(client, action.lower(), price, amount,
                                            pair=pid, order_type=ot,
@@ -972,7 +967,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 continue
 
             log_trade(action.lower(), price, qty, amount,
-                      order_type="limit" if config.PAPER_TRADING else ("maker" if ot == "maker_first" else "market"),
+                      order_type="maker",
                       status="simulated" if config.PAPER_TRADING else "placed",
                        reason=t.get("reason", ""))
 
@@ -1234,7 +1229,7 @@ async def _momentum_scanner():
                     continue
                 try:
                     async with httpx.AsyncClient() as _mc:
-                        order = await place_order(_mc, "buy", price, amount, pair=pid, order_type="maker_first" if config.MAKER_FIRST else "market")
+                        order = await place_order(_mc, "buy", price, amount, pair=pid, order_type="maker_first")
                     if order.get("order_id") or order.get("receive_rp"):
                         coin_name = pid.split("_")[0]
                         actual_qty = float(order.get(f"receive_{coin_name}", 0)) or qty
@@ -1274,7 +1269,7 @@ async def _realtime_sltp_check(pair: str, price: float):
                 pyr_amt = int(max(config.MIN_ORDER_IDR, _latest_balance * config.ROTHSCHILD_PYRAMID_MULT))
                 if pyr_amt >= config.MIN_ORDER_IDR:
                     try:
-                        pyr_order = await place_order(_pc, "buy", price, pyr_amt, pair=pair, order_type="market")
+                        pyr_order = await place_order(_pc, "buy", price, pyr_amt, pair=pair, order_type="maker_first")
                         if pyr_order.get("order_id") or pyr_order.get("receive_rp"):
                             coin_n = pair.split("_")[0]
                             pyr_f = float(pyr_order.get(f"receive_{coin_n}", 0)) or (pyr_amt / price)
@@ -1312,9 +1307,8 @@ async def _realtime_sltp_check(pair: str, price: float):
         async with httpx.AsyncClient() as c:
             coin = pair.split("_")[0]
             rt_qty_str = f"{p['qty']:.8f}".rstrip("0").rstrip(".") or "0"
-            ot_sell = "maker_first" if "TP_HIT" in str(result).upper() else "market"
             sp = {"method":"trade","timestamp":int(time.time()*1000),"recvWindow":"5000","pair":pair,
-                  "type":"sell", coin: rt_qty_str, "order_type":ot_sell}
+                  "type":"sell", coin: rt_qty_str, "order_type":"maker_first"}
             sb = urlencode(sp)
             ss = hmac.new(config.INDODAX_SECRET_KEY.encode(), sb.encode(), hashlib.sha512).hexdigest()
             sr = await c.post(config.INDODAX_TAPI_URL, headers={
