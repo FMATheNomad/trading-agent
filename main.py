@@ -421,6 +421,9 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     label = "TP" if sm["state"] == "TP_ACTIVE" else "SL"
                     emoji = "🟢" if pnl >= 0 else "🔴"
                     await send_message(f"{emoji} SM {label}: {pid}\n{pnl:+.0f} IDR @ Rp{fill_price:,}")
+                    if len(_realtime_sold) > 50:
+                        _realtime_sold.clear()
+                    _realtime_sold.add(pid)
                     print(f"  SM FILLED: {pid} {sm['state']} @ Rp{fill_price:,} ({pnl:+.0f} IDR)", flush=True)
                 _sm_cleanup(pid)
         except Exception:
@@ -958,7 +961,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                                 print(f"  SELL UNFILLED: {p['pair']} — track sampe keisi (max {config.SELL_GRACE_CYCLE} cycle)", flush=True)
                                 order_id = sj["return"].get("order_id")
                                 if order_id:
-                                    _pending_sells[pid] = {"order_id": order_id, "qty": sl_qty, "amount": sl_qty * last, "price": sell_price, "cycles": 0, "pair": pid}
+                                    _pending_sells[p["pair"]] = {"order_id": order_id, "qty": sl_qty, "amount": sl_qty * last, "price": sell_price, "cycles": 0, "pair": p["pair"]}
                                 continue
                             print(f"  SOLD {p['pair']} via maker", flush=True)
                             positions.remove(p)
