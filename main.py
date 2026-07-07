@@ -813,7 +813,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 if oid:
                     print(f"  SM INIT: {pid} tp_oid={oid} entry={p['entry_price']:,.0f} atr={atr:.2f}%", flush=True)
                 else:
-                    _sm_cleanup(pid)
+                    _position_states[pid]["state"] = "PENDING"
+                    print(f"  SM PENDING: {pid} — TP fail (buy belum keisi?), retry next cycle", flush=True)
 
         sl_hits = []
         for p in list(positions):
