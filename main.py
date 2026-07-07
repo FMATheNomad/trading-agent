@@ -591,6 +591,11 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                             coin_value = qty * last_price
                             pair_min = _pair_meta.get(pair, {}).get("min_base", config.MIN_ORDER_IDR)
                             if coin_value < pair_min and pair_min > 0:
+                                if _position_states.get(pair):
+                                    oid = _position_states[pair].get("tp_order_id") or _position_states[pair].get("sl_order_id")
+                                    if oid:
+                                        await _sm_cancel(client, oid, pair)
+                                    _sm_cleanup(pair)
                                 print(f"  {pair}: dust Rp{coin_value:,.0f} < min Rp{pair_min:,} — hapus", flush=True)
                                 await send_message(f"🧹 Dust {pair} Rp{int(coin_value):,} dihapus (di bawah min order)")
                                 positions.remove(old)
@@ -606,6 +611,11 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                         coin_value = qty * last_price
                         if coin_value < 5000:
                             print(f"  {pair}: dust Rp{coin_value:,.0f} < Rp5rb — skip", flush=True)
+                            continue
+                        pm = _pair_meta.get(pair, {})
+                        min_base = int(pm.get("min_base", config.MIN_ORDER_IDR))
+                        if coin_value < min_base:
+                            print(f"  {pair}: dust Rp{coin_value:,.0f} < min Rp{min_base:,} — skip restore", flush=True)
                             continue
 
                     db_pos_pairs = {p.get("pair") for p in persist.load_positions()}
