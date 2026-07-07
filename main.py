@@ -499,8 +499,24 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             if pm:
                 val = p["qty"] * (ticker_map.get(p["pair"], {}).get("last") or LIVE_TICKERS.get(p["pair"], {}).get("last") or p["entry_price"])
                 if val < pm["min_base"]:
-                    print(f"  CLEANUP: {p['pair']} dust Rp{val:,.0f} < min Rp{pm['min_base']:,} — hapus", flush=True)
-                    await send_message(f"🧹 Dust {p['pair']} Rp{int(val):,} dihapus (di bawah min order)")
+                    pid = p["pair"]
+                    sm = _position_states.get(pid)
+                    if sm:
+                        oid = sm.get("tp_order_id") or sm.get("sl_order_id")
+                        if oid:
+                            try:
+                                await _sm_cancel(client, oid, pid)
+                            except Exception:
+                                pass
+                        _sm_cleanup(pid)
+                    if pid in _pending_sells:
+                        try:
+                            await _sm_cancel(client, _pending_sells[pid]["order_id"], pid)
+                        except Exception:
+                            pass
+                        del _pending_sells[pid]
+                    print(f"  CLEANUP: {pid} dust Rp{val:,.0f} < min Rp{pm['min_base']:,} — hapus", flush=True)
+                    await send_message(f"🧹 Dust {pid} Rp{int(val):,} dihapus (di bawah min order)")
                     positions.remove(p)
                     persist.save_positions(positions)
 
