@@ -804,7 +804,13 @@ async def portfolio_cycle(client: httpx.AsyncClient):
 
         for p in list(positions):
             pid = p["pair"]
-            if _position_states.get(pid):
+            sm = _position_states.get(pid)
+            if sm:
+                if sm["state"] == "PENDING":
+                    atr = p.get("atr_pct") or risk.compute_atr(ohlcv_map_1h.get(pid, []))
+                    oid = await _sm_place_tp(client, pid, p["qty"], p["entry_price"], atr)
+                    if oid:
+                        print(f"  SM RETRY OK: {pid} tp_oid={oid}", flush=True)
                 continue
             atr = p.get("atr_pct") or risk.compute_atr(ohlcv_map_1h.get(pid, []))
             if atr and p["qty"] > 0:
