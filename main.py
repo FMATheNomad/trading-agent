@@ -60,6 +60,7 @@ _latest_ohlcv_map_1h: dict = {}
 _order_error_cooldown: dict[str, float] = {}
 _realtime_sltp_last: dict[str, float] = {}
 _realtime_sold: set[str] = set()
+_position_states: dict[str, dict] = {}
 _momentum_entry_time: dict[str, float] = {}
 _cycle_last_end: float = 0
 _cycle_last_info: dict = {}
@@ -194,6 +195,72 @@ def add_position(pos_list: list[dict], pair: str, side: str, entry_price: float,
             "atr_pct": atr_pct, "entry_time": entry_time,
             "entry_mode": entry_mode or "KONSERVATIF",
         })
+
+async def _sm_cancel(client: httpx.AsyncClient, oid: int, pair: str) -> bool:
+    try:
+        cb = urlencode({"method":"cancelOrder","timestamp":int(time.time()*1000),"recvWindow":"5000","pair":pair,"order_id":str(oid),"type":"sell"})
+        cs = hmac.new(config.INDODAX_SECRET_KEY.encode(), cb.encode(), hashlib.sha512).hexdigest()
+        r = await client.post(config.INDODAX_TAPI_URL, headers={"Key":config.INDODAX_API_KEY,"Sign":cs,"Content-Type":"application/x-www-form-urlencoded"}, content=cb)
+        return r.json().get("success") == 1
+    except Exception:
+        return False
+
+async def _sm_place_sell(client: httpx.AsyncClient, pair: str, qty: float, price: int) -> dict | None:
+    coin = pair.split("_")[0]
+    qs = f"{qty:.8f}".rstrip("0").rstrip(".") or "0"
+    sp = {"method":"trade","timestamp":int(time.time()*1000),"recvWindow":"5000","pair":pair,"type":"sell",coin: qs,"price":str(price),"order_type":"limit"}
+    sb = urlencode(sp)
+    ss = hmac.new(config.INDODAX_SECRET_KEY.encode(), sb.encode(), hashlib.sha512).hexdigest()
+    try:
+        r = await client.post(config.INDODAX_TAPI_URL, headers={"Key":config.INDODAX_API_KEY,"Sign":ss,"Content-Type":"application/x-www-form-urlencoded"}, content=sb)
+        d = r.json()
+        if d.get("success") == 1:
+            return d["return"]
+    except Exception:
+        pass
+    return None
+
+async def _sm_place_tp(client: httpx.AsyncClient, pair: str, qty: float, entry: float, atr: float) -> int | None:
+    tp_price = int(entry * (1 + max(atr, 0.5) * config.ATR_TP_MULTIPLIER / 100))
+    ret = await _sm_place_sell(client, pair, qty, tp_price)
+    if ret and ret.get("order_id"):
+        oid = int(ret["order_id"])
+        _position_states[pair]["tp_order_id"] = oid
+        _position_states[pair]["tp_price"] = tp_price
+        _position_states[pair]["state"] = "TP_ACTIVE"
+        print(f"  SM TP PLACED: {pair} @ Rp{tp_price:,} (oid={oid})", flush=True)
+        return oid
+    return None
+
+async def _sm_place_sl(client: httpx.AsyncClient, pair: str, qty: float, entry: float, atr: float) -> int | None:
+    sl_price = int(entry * (1 - max(atr, 0.5) * config.ATR_SL_MULTIPLIER / 100))
+    ret = await _sm_place_sell(client, pair, qty, sl_price)
+    if ret and ret.get("order_id"):
+        oid = int(ret["order_id"])
+        _position_states[pair]["sl_order_id"] = oid
+        _position_states[pair]["sl_price"] = sl_price
+        _position_states[pair]["state"] = "SL_ACTIVE"
+        print(f"  SM SL PLACED: {pair} @ Rp{sl_price:,} (oid={oid})", flush=True)
+        return oid
+    return None
+
+def _sm_init(pair: str, entry: float, qty: float, atr: float):
+    _position_states[pair] = {
+        "state": "NEW",
+        "tp_order_id": None,
+        "sl_order_id": None,
+        "tp_price": 0,
+        "sl_price": 0,
+        "entry_price": entry,
+        "qty": qty,
+        "atr_pct": atr,
+    }
+
+def _sm_cleanup(pair: str):
+    _position_states.pop(pair, None)
+
+def _sm_get(pair: str) -> dict | None:
+    return _position_states.get(pair)
 
 cycle_counter = 0
 
@@ -330,6 +397,30 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         except Exception:
             if pid in _pending_sells:
                 del _pending_sells[pid]
+
+    for pid, sm in list(_position_states.items()):
+        if sm["state"] not in ("TP_ACTIVE", "SL_ACTIVE"):
+            continue
+        oid = sm.get("tp_order_id") or sm.get("sl_order_id")
+        if not oid:
+            continue
+        try:
+            oi = await get_order(client, oid, pair=pid)
+            if oi and (oi.get("status", "").lower() in ("filled",) or float(oi.get("remain_rp", 0)) == 0):
+                fill_price = float(oi.get("price", 0))
+                entry = sm["entry_price"]
+                pnl = (fill_price - entry) * sm["qty"]
+                p = next((x for x in positions if x["pair"] == pid), None)
+                if p:
+                    positions.remove(p)
+                    persist.save_positions(positions)
+                    log_trade("sell", fill_price, sm["qty"], fill_price * sm["qty"], status="closed", pnl=pnl, reason="sm_" + sm["state"])
+                    if config.AUTO_COMPOUND and pnl > 0:
+                        _realized_pnl_idr += pnl
+                    print(f"  SM FILLED: {pid} {sm['state']} @ Rp{fill_price:,} ({pnl:+.0f} IDR)", flush=True)
+                _sm_cleanup(pid)
+        except Exception:
+            pass
 
     try:
         print("Scanning market for viable pairs...", flush=True)
@@ -706,11 +797,26 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                      decision.get("reasoning", ""),
                      executed=len(decision.get("trades", [])) > 0)
 
+        for p in list(positions):
+            pid = p["pair"]
+            if _position_states.get(pid):
+                continue
+            atr = p.get("atr_pct") or risk.compute_atr(ohlcv_map_1h.get(pid, []))
+            if atr and p["qty"] > 0:
+                _sm_init(pid, p["entry_price"], p["qty"], atr)
+                oid = await _sm_place_tp(client, pid, p["qty"], p["entry_price"], atr)
+                if oid:
+                    print(f"  SM INIT: {pid} tp_oid={oid} entry={p['entry_price']:,.0f} atr={atr:.2f}%", flush=True)
+                else:
+                    _sm_cleanup(pid)
+
         sl_hits = []
         for p in list(positions):
             if p["pair"] in _realtime_sold:
                 continue
             if p["pair"] in _pending_sells:
+                continue
+            if _position_states.get(p["pair"]):
                 continue
             mentry = _momentum_entry_time.get(p["pair"], 0)
             if mentry > 0 and time.time() - mentry < 120:
@@ -1309,90 +1415,41 @@ async def _realtime_sltp_check(pair: str, price: float):
     _realtime_sltp_last[pair] = now_t
     if shutdown_flag:
         return
-    p = next((x for x in positions if x["pair"] == pair), None)
-    if not p:
+    sm = _position_states.get(pair)
+    if not sm:
         return
-    mentry = _momentum_entry_time.get(pair, 0)
-    if mentry > 0 and now_t - mentry < 120:
-        return
-    atr_val = p.get("atr_pct") or risk.compute_atr(_latest_ohlcv_map_1h.get(pair, []))
-    result = risk.check_sl_tp(p["entry_price"], price, p["side"], pair=pair, atr_pct=atr_val, entry_mode=p.get("entry_mode", "KONSERVATIF"))
-    if result == "PYRAMID_TRIGGER":
-        if not _daily_loss_hit_today or _greed_used_today:
-            async with httpx.AsyncClient() as _pc:
-                pyr_amt = int(max(config.MIN_ORDER_IDR, _latest_balance * config.ROTHSCHILD_PYRAMID_MULT))
-                if pyr_amt >= config.MIN_ORDER_IDR:
-                    try:
-                        pyr_price_adj = int(price * config.PYRAMID_PRICE_ADJ)
-                        pyr_order = await place_order(_pc, "buy", pyr_price_adj, pyr_amt, pair=pair, order_type="maker_first")
-                        if pyr_order.get("order_id") or pyr_order.get("receive_rp"):
-                            coin_n = pair.split("_")[0]
-                            pyr_f = float(pyr_order.get(f"receive_{coin_n}", 0)) or (pyr_amt / price)
-                            add_position(positions, pair, p["side"], price, pyr_f, pyr_amt,
-                                         p.get("atr_pct"), time.time(),
-                                         p.get("entry_mode", "KONSERVATIF"))
-                            print(f"  PYRAMID: +{pyr_f:.6f} {pair} (realtime)", flush=True)
-                            await send_message(f"🔺 PYRAMID: +{pyr_f:.6f} {pair}")
-                    except Exception as e:
-                        print(f"  Pyramid realtime error: {e}", flush=True)
-        else:
-            print(f"  PYRAMID SKIP: {pair} — daily loss hold aktif, /greed kalo mau", flush=True)
-        return
-    if not result and atr_val:
-        atr_sl = atr_val * config.ATR_SL_MULTIPLIER
-        dyn_sl = p["entry_price"] * (1 - atr_sl / 100) if p["side"] == "BUY" else p["entry_price"] * (1 + atr_sl / 100)
-        if (p["side"] == "BUY" and price <= dyn_sl) or (p["side"] == "SELL" and price >= dyn_sl):
-            result = "ATR_SL"
-    if not result:
-        return
-    dust_val = p["qty"] * price
-    pair_min = _pair_meta.get(pair, {}).get("min_base", config.MIN_ORDER_IDR)
-    if dust_val < pair_min:
-        print(f"  REALTIME SL: {pair} dust Rp{dust_val:,.0f} — hapus", flush=True)
-        positions.remove(p)
-        return
-    pnl = (price - p["entry_price"]) * p["qty"]
-    is_loss = pnl < 0
-    is_sl_type = any(w in str(result).upper() for w in ["SL", "ATR_SL", "TRAILING", "INITIAL", "CUT"])
-    if _daily_loss_hit_today and is_sl_type and is_loss:
-        print(f"  DAILY LOSS HOLD: skip {pair} {result} ({pnl:+.0f} IDR) — tahan sampai besok", flush=True)
-        return
-    print(f"  REALTIME SL: {pair} {result} ({pnl:+.0f} IDR)", flush=True)
-    try:
-        async with httpx.AsyncClient() as c:
-            coin = pair.split("_")[0]
-            rt_qty_str = f"{p['qty']:.8f}".rstrip("0").rstrip(".") or "0"
-            rt_bid = int(_latest_ticker_map.get(pair, {}).get("buy", price))
-            rt_price = int(rt_bid * (1 + config.MAKER_SLIPPAGE))
-            sp = {"method":"trade","timestamp":int(time.time()*1000),"recvWindow":"5000","pair":pair,
-                  "type":"sell", coin: rt_qty_str, "price": str(rt_price), "order_type":"limit"}
-            sb = urlencode(sp)
-            ss = hmac.new(config.INDODAX_SECRET_KEY.encode(), sb.encode(), hashlib.sha512).hexdigest()
-            sr = await c.post(config.INDODAX_TAPI_URL, headers={
-                "Key": config.INDODAX_API_KEY, "Sign": ss,
-                "Content-Type": "application/x-www-form-urlencoded",
-            }, content=sb)
-            sj = sr.json()
-            if sj.get("success") == 1:
-                coin = pair.split("_")[0]
-                remain = float(sj["return"].get(f"remain_{coin}", 0))
-                if remain > 0:
-                    print(f"  REALTIME partial sell {pair}: {remain:.6f} sisa — hapus tracking", flush=True)
-                    positions.remove(p)
-                    return
-                positions.remove(p)
-                log_trade("sell", price, p["qty"], price * p["qty"], status="closed", pnl=pnl, reason=f"realtime_{result}")
-                if config.AUTO_COMPOUND and pnl > 0:
-                    _realized_pnl_idr += pnl
-                await send_message(f"⚡ REALTIME {result}: SELL {pair}\n{pnl:+.0f} IDR ({pnl/(p['entry_price']*p['qty'])*100:+.2f}%)")
-                _cooldown[pair] = time.time()
-                _realtime_sold.add(pair)
-                if len(_realtime_sold) > 50:
-                    _realtime_sold.clear()
-            else:
-                print(f"  REALTIME sell failed {pair}: {sj.get('error','?')}", flush=True)
-    except Exception as e:
-        print(f"  REALTIME sell error {pair}: {e}", flush=True)
+    entry = sm["entry_price"]
+    atr = sm.get("atr_pct", 1.0)
+    sl_level = entry * (1 - max(atr, 0.5) * config.ATR_SL_MULTIPLIER / 100)
+    recovery_level = entry * 1.005
+
+    if sm["state"] == "TP_ACTIVE":
+        if price <= sl_level:
+            async with httpx.AsyncClient() as c:
+                if sm.get("tp_order_id"):
+                    await _sm_cancel(c, sm["tp_order_id"], pair)
+                p = next((x for x in positions if x["pair"] == pair), None)
+                if p:
+                    oid = await _sm_place_sl(c, pair, p["qty"], entry, atr)
+                    if oid:
+                        sm["sl_order_id"] = oid
+                        sm["tp_order_id"] = None
+                        sm["state"] = "SL_ACTIVE"
+                        print(f"  SM → SL: {pair} @ Rp{int(sl_level):,} (price {price:,.0f})", flush=True)
+
+    elif sm["state"] == "SL_ACTIVE":
+        if price >= recovery_level:
+            async with httpx.AsyncClient() as c:
+                if sm.get("sl_order_id"):
+                    await _sm_cancel(c, sm["sl_order_id"], pair)
+                p = next((x for x in positions if x["pair"] == pair), None)
+                if p:
+                    oid = await _sm_place_tp(c, pair, p["qty"], entry, atr)
+                    if oid:
+                        sm["tp_order_id"] = oid
+                        sm["sl_order_id"] = None
+                        sm["state"] = "TP_ACTIVE"
+                        print(f"  SM → TP: {pair} @ Rp{int(sl_level):,} (price {price:,.0f})", flush=True)
 
 async def main():
     global _latest_balance, shutdown_flag
@@ -1965,6 +2022,15 @@ async def main():
                         "Key": config.INDODAX_API_KEY, "Sign": cancel_sig,
                         "Content-Type": "application/x-www-form-urlencoded",
                     }, content=cancel_body)
+        except Exception:
+            pass
+    if _position_states:
+        try:
+            async with httpx.AsyncClient() as _sc:
+                for pid, sm in list(_position_states.items()):
+                    oid = sm.get("tp_order_id") or sm.get("sl_order_id")
+                    if oid:
+                        await _sm_cancel(_sc, oid, pid)
         except Exception:
             pass
     print("Shutdown complete.", flush=True)
