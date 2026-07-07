@@ -241,7 +241,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 continue
             if po.get("is_maker"):
                 po["cycles"] = po.get("cycles", 0) + 1
-                grace = max(1, int(config.ROTHSCHILD_LIMIT_GRACE_SEC / config.LOOP_INTERVAL_SECONDS))
+                grace = max(1, int(config.LIMIT_GRACE_CYCLE))
                 if po["cycles"] >= grace:
                     try:
                         cancel_body = urlencode({
@@ -254,22 +254,9 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                             "Key": config.INDODAX_API_KEY, "Sign": cancel_sig,
                             "Content-Type": "application/x-www-form-urlencoded",
                         }, content=cancel_body)
-                        retries = po.get("retry_count", 0)
-                        if retries < 3:
-                            better_price = int(po["price"] * (1 + config.MAKER_SLIPPAGE))
-                            print(f"  MAKER TIMEOUT: {pid} → retry limit @ {better_price} (attempt {retries+1}/3)", flush=True)
-                            po["price"] = better_price
-                            po["cycles"] = 0
-                            po["retry_count"] = retries + 1
-                            order = await place_order(client, po.get("side", "buy").lower(), better_price, po["amount_idr"], pair=pid, order_type="maker_first")
-                            if order.get("order_id"):
-                                po["order_id"] = order["order_id"]
-                                print(f"  MAKER RETRY: order_id={order['order_id']}", flush=True)
-                                continue
-                        print(f"  MAKER TIMEOUT: {pid} limit unfilled after 3 retries — cancel, skip cycle", flush=True)
-                        await send_message(f"⏰ MAKER TIMEOUT: {pid} limit gak keisi — skip siklus ini")
+                        print(f"  LIMIT UNFILLED: {pid} order_id={oid} — cancel, cari koin lain", flush=True)
                     except Exception as e:
-                        print(f"  Maker retry failed {pid}: {e}", flush=True)
+                        print(f"  Cancel unfilled order failed {pid}: {e}", flush=True)
                     del _pending_orders[pid]
         except Exception:
             po = _pending_orders.get(pid)
