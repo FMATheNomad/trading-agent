@@ -417,6 +417,9 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     log_trade("sell", fill_price, sm["qty"], fill_price * sm["qty"], status="closed", pnl=pnl, reason="sm_" + sm["state"])
                     if config.AUTO_COMPOUND and pnl > 0:
                         _realized_pnl_idr += pnl
+                    label = "TP" if sm["state"] == "TP_ACTIVE" else "SL"
+                    emoji = "🟢" if pnl >= 0 else "🔴"
+                    await send_message(f"{emoji} SM {label}: {pid}\n{pnl:+.0f} IDR @ Rp{fill_price:,}")
                     print(f"  SM FILLED: {pid} {sm['state']} @ Rp{fill_price:,} ({pnl:+.0f} IDR)", flush=True)
                 _sm_cleanup(pid)
         except Exception:
@@ -1435,6 +1438,7 @@ async def _realtime_sltp_check(pair: str, price: float):
                         sm["sl_order_id"] = oid
                         sm["tp_order_id"] = None
                         sm["state"] = "SL_ACTIVE"
+                        await send_message(f"⚡ SM SL: {pair} (cancel TP, place SL @ Rp{int(sl_level):,})")
                         print(f"  SM → SL: {pair} @ Rp{int(sl_level):,} (price {price:,.0f})", flush=True)
 
     elif sm["state"] == "SL_ACTIVE":
@@ -1449,6 +1453,7 @@ async def _realtime_sltp_check(pair: str, price: float):
                         sm["tp_order_id"] = oid
                         sm["sl_order_id"] = None
                         sm["state"] = "TP_ACTIVE"
+                        await send_message(f"⚡ SM TP: {pair} (cancel SL, place TP @ Rp{int(sl_level):,})")
                         print(f"  SM → TP: {pair} @ Rp{int(sl_level):,} (price {price:,.0f})", flush=True)
 
 async def main():
