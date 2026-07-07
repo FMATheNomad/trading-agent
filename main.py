@@ -556,9 +556,11 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             try:
                 info = await get_balance(client)
                 bal = info.get("balance", {})
+                hold = info.get("balance_hold", {})
                 actual_idr_balance = float(bal.get("idr", 0)) or config.PLAY_CAPITAL_IDR
-                for coin, raw_qty in bal.items():
-                    qty = float(raw_qty)
+                for coin in set(list(bal.keys()) + list(hold.keys())):
+                    raw_qty = bal.get(coin, 0)
+                    qty = float(raw_qty) + float(hold.get(coin, 0))
                     if qty <= 0 or coin == "idr":
                         continue
                     pair = f"{coin}_idr"
@@ -611,7 +613,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                         "entry_mode": "KONSERVATIF",
                     })
                     print(f"  {pair}: restored to positions", flush=True)
-                bal_coins = {f"{c}_idr" for c in bal if c != "idr" and float(bal[c]) > 0}
+                bal_coins = {f"{c}_idr" for c in set(bal.keys()) | set(hold.keys()) if c != "idr" and (float(bal.get(c, 0)) + float(hold.get(c, 0))) > 0}
                 for p in list(positions):
                     if p["pair"] not in bal_coins:
                         print(f"  CLEANUP: {p['pair']} gak ada di balance — hapus", flush=True)
