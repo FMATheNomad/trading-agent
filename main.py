@@ -1147,6 +1147,9 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 tp_limit_price = int(tp)
                 print(f"  ATR: {atr_pct}% | SL: {sl} | TP: {tp}", flush=True)
 
+            if action == "SELL" and _position_states.get(pid):
+                print(f"  SKIP SELL {pid}: SM aktif, exit via state machine", flush=True)
+                continue
             ot = "market"
             try:
                 order = await place_order(client, action.lower(), price, amount,
