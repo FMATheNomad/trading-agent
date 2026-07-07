@@ -849,7 +849,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     pyr_qty = pyr_amount / pyr_price
                     try:
                         pyr_price_adj = int(pyr_price * config.PYRAMID_PRICE_ADJ)
-                        pyr_order = await place_order(client, "buy", pyr_price_adj, pyr_amount, pair=p["pair"], order_type="maker_first")
+                        pyr_order = await place_order(client, "buy", pyr_price_adj, pyr_amount, pair=p["pair"], order_type="market")
                         if pyr_order.get("order_id") or pyr_order.get("receive_rp"):
                             coin_name = p["pair"].split("_")[0]
                             pyr_fill = float(pyr_order.get(f"receive_{coin_name}", 0)) or pyr_qty
@@ -1107,7 +1107,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 tp_limit_price = int(tp)
                 print(f"  ATR: {atr_pct}% | SL: {sl} | TP: {tp}", flush=True)
 
-            ot = "maker_first"
+            ot = "market"
             try:
                 order = await place_order(client, action.lower(), price, amount,
                                            pair=pid, order_type=ot,
@@ -1139,7 +1139,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 continue
 
             log_trade(action.lower(), price, qty, amount,
-                      order_type="maker",
+                      order_type="market",
                       status="simulated" if config.PAPER_TRADING else "placed",
                        reason=t.get("reason", ""))
 
@@ -1401,7 +1401,7 @@ async def _momentum_scanner():
                     continue
                 try:
                     async with httpx.AsyncClient() as _mc:
-                        order = await place_order(_mc, "buy", price, amount, pair=pid, order_type="maker_first")
+                        order = await place_order(_mc, "buy", price, amount, pair=pid, order_type="market")
                     if order.get("order_id") or order.get("receive_rp"):
                         coin_name = pid.split("_")[0]
                         actual_qty = float(order.get(f"receive_{coin_name}", 0)) or qty
