@@ -616,6 +616,9 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                         min_base = int(pm.get("min_base", config.MIN_ORDER_IDR))
                         if coin_value < min_base:
                             print(f"  {pair}: dust Rp{coin_value:,.0f} < min Rp{min_base:,} — skip restore", flush=True)
+                            if not hasattr(portfolio_cycle, "_dust_equity"):
+                                portfolio_cycle._dust_equity = 0
+                            portfolio_cycle._dust_equity += coin_value
                             continue
 
                     db_pos_pairs = {p.get("pair") for p in persist.load_positions()}
@@ -672,6 +675,10 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 price = p["entry_price"]
             paper_equity += p["qty"] * price
         total_equity = actual_idr_balance + paper_equity
+        dust_eq = getattr(portfolio_cycle, "_dust_equity", 0)
+        if dust_eq:
+            total_equity += dust_eq
+            portfolio_cycle._dust_equity = 0
         if not positions and paper_equity == 0 and total_equity < config.MIN_ORDER_IDR:
             pass
         elif _prev_equity > 0 and total_equity < _prev_equity * 0.5 and paper_equity > config.MIN_ORDER_IDR:
