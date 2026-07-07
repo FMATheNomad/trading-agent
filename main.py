@@ -667,7 +667,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     pyr_price = last
                     pyr_qty = pyr_amount / pyr_price
                     try:
-                        pyr_order = await place_order(client, "buy", pyr_price, pyr_amount, pair=p["pair"], order_type="maker_first")
+                        pyr_price_adj = int(pyr_price * config.PYRAMID_PRICE_ADJ)
+                        pyr_order = await place_order(client, "buy", pyr_price_adj, pyr_amount, pair=p["pair"], order_type="maker_first")
                         if pyr_order.get("order_id") or pyr_order.get("receive_rp"):
                             coin_name = p["pair"].split("_")[0]
                             pyr_fill = float(pyr_order.get(f"receive_{coin_name}", 0)) or pyr_qty
@@ -1256,7 +1257,8 @@ async def _realtime_sltp_check(pair: str, price: float):
                 pyr_amt = int(max(config.MIN_ORDER_IDR, _latest_balance * config.ROTHSCHILD_PYRAMID_MULT))
                 if pyr_amt >= config.MIN_ORDER_IDR:
                     try:
-                        pyr_order = await place_order(_pc, "buy", price, pyr_amt, pair=pair, order_type="maker_first")
+                        pyr_price_adj = int(price * config.PYRAMID_PRICE_ADJ)
+                        pyr_order = await place_order(_pc, "buy", pyr_price_adj, pyr_amt, pair=pair, order_type="maker_first")
                         if pyr_order.get("order_id") or pyr_order.get("receive_rp"):
                             coin_n = pair.split("_")[0]
                             pyr_f = float(pyr_order.get(f"receive_{coin_n}", 0)) or (pyr_amt / price)
