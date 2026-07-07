@@ -552,8 +552,15 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         if not positions and paper_equity == 0 and total_equity < config.MIN_ORDER_IDR:
             pass
         elif _prev_equity > 0 and total_equity < _prev_equity * 0.5 and paper_equity > config.MIN_ORDER_IDR:
-            print(f"  Equity suspicious: Rp{total_equity:,.0f} vs prev Rp{_prev_equity:,.0f} — keep prev", flush=True)
-            total_equity = _prev_equity
+            guard_count = getattr(portfolio_cycle, "_equity_guard", 0) + 1
+            portfolio_cycle._equity_guard = guard_count
+            if guard_count >= 5:
+                print(f"  Equity drop confirmed ({guard_count}x) — accept Rp{total_equity:,.0f}", flush=True)
+            else:
+                print(f"  Equity suspicious ({guard_count}/5): Rp{total_equity:,.0f} vs prev Rp{_prev_equity:,.0f} — hold", flush=True)
+                total_equity = _prev_equity
+        else:
+            portfolio_cycle._equity_guard = 0
         max_positions = config.MAX_OPEN_POSITIONS if _rothschild_active else config.max_positions_for_equity(total_equity)
         if cycle_counter == 1:
             portfolio_risk.peak_capital = total_equity
