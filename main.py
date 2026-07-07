@@ -51,6 +51,7 @@ _coin_blacklist: set[str] = set()
 _cio_stats: dict = {"total_decisions": 0, "buys": 0, "sells": 0, "wins": 0, "losses": 0}
 _tp_limit_orders: dict[str, int] = {}
 _pending_orders: dict[str, dict] = {}
+_pending_sells: dict[str, dict] = {}
 _cooldown: dict[str, float] = {}
 _latest_regime: dict = {}
 _latest_ticker_map: dict = {}
@@ -199,7 +200,7 @@ cycle_counter = 0
 async def portfolio_cycle(client: httpx.AsyncClient):
     global positions, cycle_counter, _prev_regime, _prev_equity, _report_sent_count, _latest_regime, _latest_ticker_map, _latest_all_signals, _latest_ohlcv_map_1h, _latest_balance, _realized_pnl_idr
     global _daily_loss_hit_today, _greed_used_today, _rothschild_active, _regime_bull_streak, _regime_bear_streak
-    global _cb_consecutive_loss_days, _cb_last_loss_date, _cb_triggered_at, _cb_active_until, shutdown_flag
+    global _cb_consecutive_loss_days, _cb_last_loss_date, _cb_triggered_at, _cb_active_until, shutdown_flag, _pending_sells
     cycle_counter += 1
     _t0 = time.time()
     risk.daily_loss_stopped = False
@@ -276,6 +277,59 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 except Exception:
                     pass
             del _pending_orders[pid]
+
+    for pid in list(_pending_sells.keys()):
+        try:
+            ps = _pending_sells[pid]
+            oid = ps["order_id"]
+            order_info = await get_order(client, oid, pair=pid)
+            if not order_info:
+                del _pending_sells[pid]
+                continue
+            status = order_info.get("status", "").lower()
+            remain = float(order_info.get(f"remain_{pid.split('_')[0]}", 0))
+            is_filled = status in ("filled",) or remain <= 0
+            if is_filled:
+                print(f"  PENDING SELL FILLED: {pid}", flush=True)
+                p = next((x for x in positions if x["pair"] == pid), None)
+                if p:
+                    pnl = (float(order_info.get("price", 0)) - p.get("entry_price", 0)) * p["qty"]
+                    positions.remove(p)
+                    persist.save_positions(positions)
+                    log_trade("sell", float(order_info.get("price", 0)), ps["qty"], ps["amount"], status="closed", pnl=pnl, reason="pending_sell_filled")
+                del _pending_sells[pid]
+                continue
+            if status in ("cancelled", "rejected"):
+                p = next((x for x in positions if x["pair"] == pid), None)
+                if p and pid not in [ps2["pair"] for ps2 in _pending_sells.values()]:
+                    pass
+                del _pending_sells[pid]
+                continue
+            ps["cycles"] = ps.get("cycles", 0) + 1
+            if ps["cycles"] >= config.SELL_GRACE_CYCLE:
+                try:
+                    cancel_body_s = urlencode({"method":"cancelOrder","timestamp":int(time.time()*1000),"recvWindow":"5000","pair":pid,"order_id":str(oid),"type":"sell"})
+                    cancel_sig_s = hmac.new(config.INDODAX_SECRET_KEY.encode(), cancel_body_s.encode(), hashlib.sha512).hexdigest()
+                    await client.post(config.INDODAX_TAPI_URL, headers={"Key":config.INDODAX_API_KEY,"Sign":cancel_sig_s,"Content-Type":"application/x-www-form-urlencoded"}, content=cancel_body_s)
+                except Exception:
+                    pass
+                bid = int(_latest_ticker_map.get(pid, {}).get("buy", 0))
+                if bid > 20:
+                    coin = pid.split("_")[0]
+                    qty_s = f"{ps['qty']:.8f}".rstrip("0").rstrip(".") or "0"
+                    sp_s = {"method":"trade","timestamp":int(time.time()*1000),"recvWindow":"5000","pair":pid,"type":"sell",coin: qty_s,"price":str(bid),"order_type":"limit"}
+                    sb_s = urlencode(sp_s)
+                    ss_s = hmac.new(config.INDODAX_SECRET_KEY.encode(), sb_s.encode(), hashlib.sha512).hexdigest()
+                    sr_s = await client.post(config.INDODAX_TAPI_URL, headers={"Key":config.INDODAX_API_KEY,"Sign":ss_s,"Content-Type":"application/x-www-form-urlencoded"}, content=sb_s)
+                    sj_s = sr_s.json()
+                    if sj_s.get("success") == 1:
+                        print(f"  SELL RETRY AT BID: {pid} @ {bid}", flush=True)
+                    else:
+                        print(f"  SELL RETRY FAILED: {pid} — {sj_s.get('error','?')}", flush=True)
+                del _pending_sells[pid]
+        except Exception:
+            if pid in _pending_sells:
+                del _pending_sells[pid]
 
     try:
         print("Scanning market for viable pairs...", flush=True)
@@ -649,6 +703,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         for p in list(positions):
             if p["pair"] in _realtime_sold:
                 continue
+            if p["pair"] in _pending_sells:
+                continue
             mentry = _momentum_entry_time.get(p["pair"], 0)
             if mentry > 0 and time.time() - mentry < 120:
                 continue
@@ -727,9 +783,10 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                         if sj.get("success") == 1:
                             remain = float(sj["return"].get(f"remain_{coin_name}", 0))
                             if remain > 0:
-                                print(f"  PARTIAL SELL {p['pair']}: {remain:.6f} sisa — hapus tracking", flush=True)
-                                positions.remove(p)
-                                persist.save_positions(positions)
+                                print(f"  SELL UNFILLED: {p['pair']} — track sampe keisi (max {config.SELL_GRACE_CYCLE} cycle)", flush=True)
+                                order_id = sj["return"].get("order_id")
+                                if order_id:
+                                    _pending_sells[pid] = {"order_id": order_id, "qty": sl_qty, "amount": sl_qty * last, "price": sell_price, "cycles": 0, "pair": pid}
                                 continue
                             print(f"  SOLD {p['pair']} via maker", flush=True)
                             positions.remove(p)
