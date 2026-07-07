@@ -713,8 +713,10 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                             pass
                         _ts_s = int(time.time() * 1000)
                         qty_str = f"{sl_qty:.8f}".rstrip("0").rstrip(".") or "0"
+                        sell_bid = int(ticker_map.get(p["pair"], {}).get("buy", last))
+                        sell_price = int(sell_bid * (1 + config.MAKER_SLIPPAGE))
                         sp = {"method":"trade","timestamp":_ts_s,"recvWindow":"5000","pair":p["pair"],"type":"sell",
-                              coin_name: qty_str, "order_type":"maker_first"}
+                              coin_name: qty_str, "price": str(sell_price), "order_type":"limit"}
                         sb = urlencode(sp)
                         ss = hmac.new(config.INDODAX_SECRET_KEY.encode(),sb.encode(),hashlib.sha512).hexdigest()
                         sr = await client.post(config.INDODAX_TAPI_URL, headers={
@@ -1296,8 +1298,10 @@ async def _realtime_sltp_check(pair: str, price: float):
         async with httpx.AsyncClient() as c:
             coin = pair.split("_")[0]
             rt_qty_str = f"{p['qty']:.8f}".rstrip("0").rstrip(".") or "0"
+            rt_bid = int(_latest_ticker_map.get(pair, {}).get("buy", price))
+            rt_price = int(rt_bid * (1 + config.MAKER_SLIPPAGE))
             sp = {"method":"trade","timestamp":int(time.time()*1000),"recvWindow":"5000","pair":pair,
-                  "type":"sell", coin: rt_qty_str, "order_type":"maker_first"}
+                  "type":"sell", coin: rt_qty_str, "price": str(rt_price), "order_type":"limit"}
             sb = urlencode(sp)
             ss = hmac.new(config.INDODAX_SECRET_KEY.encode(), sb.encode(), hashlib.sha512).hexdigest()
             sr = await c.post(config.INDODAX_TAPI_URL, headers={
