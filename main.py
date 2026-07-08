@@ -841,6 +841,9 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                      decision.get("reasoning", ""),
                      executed=len(decision.get("trades", [])) > 0)
 
+        max_pos_for_mode = config.ROTHSCHILD_OPEN_POSITIONS if _rothschild_active else 4
+        _sm_count = len([x for x in _position_states.values() if x.get("state") in ("TP_ACTIVE","SL_ACTIVE","TRAILING")])
+
         for p in list(positions):
             pid = p["pair"]
             sm = _position_states.get(pid)
@@ -855,6 +858,9 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 continue
             elif pid in _sm_cooldown:
                 del _sm_cooldown[pid]
+
+            if not _position_states.get(pid) and _sm_count >= max_pos_for_mode:
+                continue
             atr = p.get("atr_pct") or risk.compute_atr(ohlcv_map_1h.get(pid, []))
             if atr and p["qty"] > 0:
                 sm_mode = "TRAILING" if current_regime == "BULL" else "TP_ACTIVE"
