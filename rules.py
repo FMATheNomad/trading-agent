@@ -98,7 +98,7 @@ def _momentum_decide(all_signals, ticker_map, live_tickers, positions, actual_id
         n_bins = max(1, int(actual_idr_balance / 40000))
         n_bins = min(n_bins, slots, config.MAX_OPEN_POSITIONS)
         max_alloc = int(config.MAX_POSITION_PCT_PER_ASSET * 100)
-        per_bin = max(config.MIN_ORDER_IDR, int(actual_idr_balance * (config.MAX_POSITION_PCT_PER_ASSET * config.MAX_OPEN_POSITIONS) / max(n_bins, 1)))
+        per_bin = max(20000, int(actual_idr_balance * (config.MAX_POSITION_PCT_PER_ASSET * config.MAX_OPEN_POSITIONS) / max(n_bins, 1)))
         for c in candidates[:n_bins]:
             alloc = int(per_bin / actual_idr_balance * 100) if actual_idr_balance > 0 else 0
             alloc = min(max(alloc, 8), max_alloc)
@@ -159,7 +159,7 @@ def _mean_reversion_decide(all_signals, ticker_map, live_tickers, positions, act
     remaining = len(held_pairs - selling)
     slots = max(0, 2 - remaining)
 
-    if slots > 0 and actual_idr_balance >= config.MIN_ORDER_IDR:
+    if slots > 0 and actual_idr_balance >= 20000:
         candidates = []
         for pair, sig in all_signals.items():
             if pair in held_pairs or pair in config.STABLECOINS or pair in config.SKIP_COINS:
