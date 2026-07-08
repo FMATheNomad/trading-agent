@@ -61,6 +61,7 @@ _order_error_cooldown: dict[str, float] = {}
 _realtime_sltp_last: dict[str, float] = {}
 _realtime_sold: set[str] = set()
 _position_states: dict[str, dict] = {}
+_sm_cooldown: dict[str, float] = {}
 _momentum_entry_time: dict[str, float] = {}
 _cycle_last_end: float = 0
 _cycle_last_info: dict = {}
@@ -425,6 +426,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                         _realtime_sold.clear()
                     _realtime_sold.add(pid)
                     print(f"  SM FILLED: {pid} {sm['state']} @ Rp{fill_price:,} ({pnl:+.0f} IDR)", flush=True)
+                _sm_cooldown[pid] = time.time() + 86400
                 _sm_cleanup(pid)
         except Exception:
             pass
@@ -849,6 +851,10 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     if oid:
                         print(f"  SM RETRY OK: {pid} tp_oid={oid}", flush=True)
                 continue
+            if pid in _sm_cooldown and _sm_cooldown[pid] > time.time():
+                continue
+            elif pid in _sm_cooldown:
+                del _sm_cooldown[pid]
             atr = p.get("atr_pct") or risk.compute_atr(ohlcv_map_1h.get(pid, []))
             if atr and p["qty"] > 0:
                 sm_mode = "TRAILING" if current_regime == "BULL" else "TP_ACTIVE"
@@ -1446,7 +1452,7 @@ async def _momentum_scanner():
                         pass
                 alloc = 0.4
                 amount = int(cash_avail * alloc)
-                if amount < config.MIN_ORDER_IDR:
+                if amount < 20000:
                     continue
                 qty = amount / price
                 if not risk.is_profit_viable(price, qty, "BUY", atr_pct=atr_chk):
@@ -1497,6 +1503,7 @@ async def _realtime_sltp_check(pair: str, price: float):
             if ret and ret.get("order_id"):
                 sm["sl_order_id"] = None
                 sm["sl_price"] = 0
+                _sm_cooldown[pair] = time.time() + 86400
                 print(f"  HARD SL: {pair} force close @ Rp{bid:,} (market Rp{price:,.0f})", flush=True)
 
     if sm["state"] == "TP_ACTIVE":
