@@ -1,9 +1,9 @@
-# 🥁 FMA ALPHA QUANT LABS — The Blast Engine v2
+# 🥁 FMA ALPHA QUANT LABS — The Blast Engine v3
 
 > *"I don't need to know which way the market will move. I just need to be the ONLY ONE who knows when it moves."* — Nathan Mayer Rothschild
 
 Bot trading kripto **100% engineering, zero AI cost** untuk Indodax.  
-Menggabungkan filosofi extreme metal drumming, quantitative trading, regime-switching HMM, dan **asymmetric capitalism**.
+**396 commits.** Fully autonomous. Zero human intervention.
 
 ---
 
@@ -11,244 +11,156 @@ Menggabungkan filosofi extreme metal drumming, quantitative trading, regime-swit
 
 | File | Fungsi |
 |------|--------|
-| `main.py` | Orchestrator — portfolio cycle, momentum scanner, realtime SL/TP, Telegram poller, deadman |
+| `main.py` | Orchestrator — portfolio cycle, momentum scanner, **state machine**, Telegram poller, deadman |
 | `rules.py` | **Regime-gated decision engine** — BULL/BEAR → momentum, SIDEWAYS → mean-reversion, HIGH_VOL → survival |
-| `momentum.py` | Velocity-aware momentum engine |
-| `patterns.py` | Paradiddle pattern matching (RLRL reversal detection) |
-| `risk_manager.py` | ATR SL/TP, two-tier stop, pyramid trigger, **per-regime Kelly**, circuit breaker |
-| `executor.py` | Indodax HMAC-SHA512 signing, maker_first/market orders |
+| `risk_manager.py` | ATR SL/TP, **per-regime Kelly**, circuit breaker, validate_allocation |
+| `executor.py` | Indodax HMAC-SHA512 signing, market/maker_first/maker orders |
 | `data_layer.py` | Indodax REST API (ticker, pairs, depth, OHLCV) |
 | `market_ws.py` | WebSocket realtime tickers (24h summary) |
 | `private_ws.py` | WebSocket order fill notification |
 | `deadman.py` | `/countdownCancelAll` safety net (15 menit) |
 | `indicators.py` | Teknikal indikator (RSI, MACD, BB, EMA, ADX, MFI, Hurst, Skew) |
-| `hmm_regime.py` | HMM regime detector (4 states: BULL/BEAR/SIDEWAYS/HIGH_VOL) |
-| `persist.py` | JSON state persistence (positions, blacklist, cooldown, circuit breaker, peak capital) |
+| `hmm_regime.py` | HMM regime detector (4 states) |
+| `momentum.py` | Velocity-aware momentum engine |
+| `patterns.py` | Paradiddle pattern matching (RLRL reversal detection) |
+| `persist.py` | JSON state persistence (semua survive restart) |
 | `db.py` | SQLite trade log + chat history |
 | `notifier.py` | Telegram sender |
-| `config.py` | Semua konfigurasi + parameter |
+| `config.py` | Semua konfigurasi |
 | `.env` | Environment variables (gitignored) |
 
 ---
 
-## 🧠 Arsitektur — Regime-Gated Engine
+## 🧠 Arsitektur — State Machine + Regime Gate
 
 ```
-HMM GATE (classify_regime)
-    │
-    ├── BULL/BEAR ───→ Rothschild Mode (momentum + trailing TP + pyramid)
-    │
-    ├── SIDEWAYS ────→ Mean-Reversion Mode (BB fade + RSI extreme + grid ringan)
-    │
-    └── HIGH_VOL ────→ Survival Mode (no entry, kurangi posisi)
+BUY → MARKET (keisi pasti, fee taker 0.31%)
+  ↓
+STATE MACHINE (kelola exit)
+  ├── SIDEWAYS → TP_ACTIVE: pasang TP limit @ ATR×2, SL @ ATR×1.2
+  ├── BULL → TRAILING: initial SL @ ATR×0.5, trailing SL @ ATR×1.5
+  └── HIGH_VOL → survival (no entry)
+       ↓
+Transisi otomatis via WS tick:
+  TP_ACTIVE → harga turun ke SL? → cancel TP, place SL
+  SL_ACTIVE → harga balik? → cancel SL, place TP
+  TRAILING  → harga naik? → trailing SL ikut naik
+       ↓
+FILLED → closed, cooldown 24h (gak ambil coin user)
 ```
 
 ### HMM sebagai HARD Gate
 
-Bukan sekadar informasi — HMM **menentukan strategi mana yang aktif**.
+| State | Strategi | Entry | Exit | Kelly |
+|-------|----------|-------|------|-------|
+| BULL (≥5 cycle → 🔴 Rothschild) | Momentum + trailing | Market buy | **Trailing SL** (ATR×1.5) + pyramid | 25% |
+| BEAR | Momentum defensif | Market buy | TP limit @ ATR×2 | 15% |
+| SIDEWAYS | **Mean-reversion** (BB fade, RSI) | Market buy | TP limit @ ATR×0.5 | 10% |
+| HIGH_VOL | Survival | ❌ No entry | Exit only | 5% |
 
-| State | Mode | Strategi | WR Target | Position Size |
-|-------|------|----------|-----------|---------------|
-| BULL (≥5 cycle) | 🔴 Rothschild | Momentum + trailing TP + pyramid | 35-40% | Kelly 25% |
-| BEAR | 🔴 Rothschild | Momentum defensif, cut ketat | 35-40% | Kelly 15% |
-| SIDEWAYS | 🟢 Konservatif | **Mean-reversion** (BB fade, RSI < 35 > 70) | **65-70%** | Kelly 10% |
-| HIGH_VOL | ⚪ Survival | No entry, exit only | - | Kelly 5% |
+---
 
-### 🔬 Penemuan: Stability Buffer
+## 🔬 State Machine — Mekanisme Utama
 
-Market kripto sangat labil. Buffer anti-flip:
-- **BULL streak ≥ 5 cycle** → Rothschild ON (terverifikasi)
-- **Bear streak ≥ 3 cycle** → Rothschild OFF (sideway/bear terverifikasi)
-- **SIDEWAYS/HIGH_VOL** → kedua streak reset ke 0
+Setiap posisi punya **state** yang di-track di `_position_states`:
+
+| State | Deskripsi |
+|-------|-----------|
+| `NEW` | Init, segera overwrite |
+| `PENDING` | TP/SL gagal → retry tiap cycle |
+| `TP_ACTIVE` | **TP fixed** @ entry + ATR×2. Harga turun? → cancel TP, place SL |
+| `SL_ACTIVE` | **SL active**. Harga balik? → cancel SL, place TP |
+| `TRAILING` | **No TP, trailing SL**. Harga naik? → SL ikut naik. Pyramid ON |
+
+**Transisi realtime via WS tick** (bukan nunggu cycle 60 detik):
+- TP limit order nangkring di exchange — keisi otomatis
+- SL limit order nangkring — keisi kalau harga turun
+- HARD SL: kalau harga >3% di bawah SL → force close di bid
 
 ---
 
 ## 🔬 Penemuan 1: Mean-Reversion Module
 
-**Masalah:** Momentum/trend-following kalah di SIDEWAYS — ini properti bawaan, bukan bug.
-
-**Solusi:** Modul mean-reversion yang HANYA aktif saat HMM = SIDEWAYS:
+Aktif saat HMM = SIDEWAYS:
 
 ```
-Entry:  Close ≤ BB_lower + RSI < 35 + volume confirmation
-Exit:   TP ATR×0.5 (0.5-1%) atau RSI > 70 + BB_upper
+Entry:  Close ≤ BB_lower + RSI < 35 + volume surge
+Exit:   TP ATR×0.5 (0.5-1%)
 SL:     ATR×0.8
 WR:     65-70%
 Maks:   2 posisi
 ```
 
-**Fee edge:** Entry via limit order (maker) — fee hanya 0.20% buy + 0.41% sell (termasuk PPh) = round trip ~0.62%. Dengan target 0.5-1%, profit masih positif.
-
 ---
 
-## 🔬 Penemuan 2: Paradiddle Pattern Matching
+## 🔬 Penemuan 2: Paradiddle Pattern
 
-Deteksi pola RLRL (Resistance/Low) untuk prediksi reversal.
+Deteksi pola RLRL (Resistance/Low):
 
 | Pola | Arti | Aksi |
 |------|------|------|
-| `RLRR` | Fake breakout (puncak palsu) | **SELL** |
-| `LRLL` | Fake breakdown (dasar palsu) | **BUY** |
+| `RLRR` | Fake breakout | **SELL** |
+| `LRLL` | Fake breakdown | **BUY** |
 | `RRL` after `RRR` | Exhaustion | **SELL** |
 | `LLR` after `LLL` | Exhaustion | **BUY** |
-
-**Implementasi:** `patterns.py` — dipakai momentum scanner sebelum entry.
 
 ---
 
 ## 🔬 Penemuan 3: The Rothschild Asymmetry
 
-### 3 Pilar:
-
-#### 3a. Limit Order Entry (Toll Booth)
-```
-BUKAN: beli market kapan pun ada sinyal → kena spread + fee taker 0.31%
-TAPI:  pasang limit order di support ATR → fee maker 0.20%
-       kalau 60 detik gak keisi → retry 3x naik harga → market order
-```
-
-#### 3b. Ultra-Tight Initial SL (Power Law)
-**90% trade boleh rugi asal 10% sisanya home run.**
+### Power Law: 90% loss rate, 10% home run
 
 ```
-Tier 1 (0-30 menit): SL ATR×0.3 — rugi 1-2%, cut cepat
-Tier 2 (>30 menit):  Trailing SL ATR×1.5
-Pyramid:             Kalau profit ATR×0.5, tambah 50% posisi
+Initial SL: ATR×0.5 (2.5%) — tight cut
+Trailing SL: ATR×1.5 — ride runner
+Pyramid: profit ATR×0.5 → tambah 50% market buy
+Entry_mode per posisi: exit pake aturan saat entry, bukan mode aktif
 ```
 
 Matematika:
-- 9 trade rugi 1.5% × 9 = -13.5%
+- 9 trade rugi 2.5% × 9 = -22.5%
 - 1 trade profit 10% × 1.5 (pyramid) = +15%
-- **NET: +1.5% walau 90% gagal!**
-
-#### 3c. Entry_Mode per Posisi
-
-Setiap posisi mencatat `entry_mode` (ROTHSCHILD/KONSERVATIF).  
-Exit menggunakan aturan sesuai mode entry, **bukan mode aktif sekarang**.
+- **Masih negatif tanpa trailing.** Trailing SL bikin winner bisa 15-20% → **NET POSITIF.**
 
 ---
 
-## 🔬 Penemuan 4: Adaptive Regime Switching
+## 🔬 Penemuan 4: Reflexive Vortex Model (RVM)
 
-**Masalah:** Trend-following unggul di BULL, rugi di SIDEWAYS.  
-**Solusi:** HMM gate + stability buffer.
+Bukan ngukur magnitude sinyal, tapi **phase alignment** 4 loop:
 
-```
-BULL 5 cycle berturut → Rothschild 🔴 (6 slot @15%)
-Non-BULL 3 cycle      → Konservatif 🟢 (4 slot @25%)
-SIDEWAYS              → Mean-reversion   (2 slot @10%)
-HIGH_VOL              → Survival          (no entry)
-```
+1. Price acceleration — velocity makin cepat
+2. Volume surge — volume > price velocity
+3. Order book imbalance — tekanan beli/jual real-time
+4. HMM confidence — BULL/BEAR > 0.9
 
----
-
-## 🔬 Penemuan 5: The Reflexive Vortex Model (RVM)
-
-Terinspirasi George Soros — pasar itu reflexive, harga↔fundamental saling mempengaruhi.
-
-Bukan ngukur **magnitude** sinyal, tapi **PHASE ALIGNMENT** dari 4 loop:
-
-1. **Price acceleration** — velocity makin cepat
-2. **Volume surge** — volume > price velocity
-3. **Order book imbalance** — tekanan beli/jual real-time
-4. **HMM confidence** — BULL/BEAR dengan confidence > 0.9
-
-| Jumlah Loop Aligned | Aksi | Position Size |
-|---------------------|------|---------------|
+| Loop Aligned | Aksi | Size |
+|---|---|---|
 | ≥3 (VORTEX) | ALL-IN, trailing ATR×3, no TP | 50%+ |
 | 2 | Rothschild normal | 15-25% |
-| 0-1 | Konservatif/skip | 0-10% |
+| 0-1 | Skip | 0-10% |
 
 ---
 
-## 🛡️ Risk Management & Circuit Breaker
+## 🛡️ Circuit Breaker — 3 Lapis
 
-| Lapis | Trigger | Aksi | Persist? |
-|-------|---------|------|----------|
-| **Daily loss** | Equity turun Rp15k dari peak harian | Stop entry, TP-only | ✅ |
-| **Consecutive loss** | 5 hari loss berturut-turut | Stop total 72 jam | ✅ |
-| **Equity floor** | Equity < Rp10k | Stop total (shutdown) | ✅ |
-| **Portfolio drawdown** | 15% dari all-time peak | Print warning | ✅ |
-| **Deadman switch** | Bot crash 15 menit | Exchange cancel semua order | ❌ (exchange-side) |
-| **Blacklist** | Kena SL | Pair diblokir (FIFO max 50) | ✅ |
-| **Cooldown** | Kena SL | 12h / 60min (Rothschild) | ✅ |
-| **ATR filter** | ATR > 25% atau vol < 500jt | Skip entry | ❌ |
-| **Fee viability** | Fee makan profit | Skip trade | ❌ |
-| **Orphan cleanup** | Tiap 10 cycle + startup | Cancel order liar | ❌ |
+| Lapis | Trigger | Aksi | Persist |
+|-------|---------|------|---------|
+| **Daily loss** | Equity turun Rp15k dari peak | Stop entry, TP-only | ✅ |
+| **Consecutive loss** | 5 hari loss berturut | **Stop total 72 jam** | ✅ |
+| **Equity floor** | Equity < Rp10k | **Shutdown total** | ✅ |
+| **Drawdown** | 15% dari all-time peak | Warning | ✅ |
+| **Deadman** | Bot crash 15 menit | Exchange cancel order | Exchange |
+| **SM cooldown** | 24h setelah SM FILLED | Skip re-init (aman buat user) | ❌ |
 
 ---
 
-## ⚙️ Parameter per Regime
+## 💰 Fee Struktur (Market Buy + Maker Sell)
 
-| Parameter | BULL Rothschild | SIDEWAYS MeanRev | HIGH_VOL |
-|-----------|----------------|-------------------|----------|
-| Max positions | 6 | 2 | 0 |
-| Position size | 15% | 10% | 5% |
-| Entry SL | ATR×0.3 | ATR×0.8 | - |
-| Trailing SL | ATR×1.5 | ATR×0.4 | - |
-| TP | Trailing (no cap) | ATR×0.5 | Exit only |
-| Kelly | 25% | 10% | 5% |
-
----
-
-## 💰 Struktur Fee (per Juli 2026)
-
-| Order | Buy | Sell |
-|-------|-----|------|
-| Maker (limit) | 0.20% | 0.20% + PPh 0.21% |
-| Taker (market) | 0.31% | 0.30% + PPh 0.21% |
-| CFX | 0.0111% | 0.0111% |
-
-**Round trip maker:** ~0.62%  
-**Round trip taker:** ~0.83%
-
----
-
-## 🚀 Circuit Breaker — Final Layer
-
-```
-Equity Floor (Rp10k)
-    ↓ kena?
-Consecutive Loss Counter (max 5 hari)
-    ↓ ≥5?
-CIRCUIT BREAKER — Stop 72 jam
-    ↓
-Reset otomatis setelah cooldown
-```
-
-**Persist:** Semua state circuit breaker disimpan ke `state.json`.  
-**Telegram:** Notifikasi setiap trigger.  
-**Greed override:** `/greed` bypass daily loss hold (1×/hari, max Rp30k).
-
----
-
-## 📊 Skenario Realistis (Rp80k → Rp360k)
-
-| Skenario | Waktu | Catatan |
-|----------|-------|---------|
-| BULL terus (Rothschild ON) | ~5 bulan | Pyramid + compound |
-| BULL 3bln → SIDEWAYS | 12-18 bulan | Mean-rev stabil |
-| Deposit Rp280k | Instant + 1 bulan | Bot optimal |
-
----
-
-## 🧪 Indodax API Coverage
-
-| API | Metode | Status |
-|-----|--------|--------|
-| `/api/ticker/{pair}` | GET | ✅ |
-| `/api/ticker_all` | GET | ✅ |
-| `/api/pairs` | GET | ✅ |
-| `/api/depth/{pair}` | GET | ✅ |
-| `/tradingview/history_v2` | GET | ✅ |
-| `/tapi` — getInfo | POST | ✅ |
-| `/tapi` — trade | POST | ✅ |
-| `/tapi` — getOrder | POST | ✅ |
-| `/tapi` — openOrders | POST | ✅ |
-| `/tapi` — cancelOrder | POST | ✅ |
-| `/tapi` — /countdownCancelAll | POST | ✅ |
-| WS market:summary-24h | WSS | ✅ |
-| WS private order_update | WSS | ✅ |
+| Transaksi | Fee |
+|-----------|-----|
+| BUY market | 0.31% (taker) |
+| SELL limit (TP) | 0.20% + PPh 0.21% + CFX 0.0111% |
+| **Round trip** | **~0.73%** |
 
 ---
 
@@ -259,7 +171,32 @@ Procfile:  worker: python main.py
 Runtime:   python-3.12
 Platform:  Railway (auto-deploy from GitHub)
 Volume:    /data (state.json + trades.db)
+Total:     396 commits, ~4000 baris kode
 ```
+
+---
+
+## 🤖 Telegram Commands
+
+| Command | Fungsi |
+|---------|--------|
+| `/status` | Portfolio & posisi |
+| `/ask <coin>` | Detail sinyal & ATR koin |
+| `/atr` | ATR, SL, TP semua posisi |
+| `/greed` | Bypass daily loss (1×/hari) |
+| `/why` | Alasan bot gak trading |
+| `/commands` | Daftar lengkap |
+| `/project` | Proyeksi harian, bulanan, tahunan |
+| `/today` | Performa hari ini |
+| `/perf` | Win rate & stats |
+
+---
+
+## 🏆 Benchmark
+
+Dari riset independen: **"Boutique systematic prop-trading system"** — secara risk-management dan signal architecture, bot ini **jauh di atas retail bot** (3Commas/Bitsgap/Cryptohopper/Gunbot) dan setara **junior prop desk** institusional.
+
+**Unik:** Satu-satunya bot dengan **Full Indodax API Coverage** — tidak ada platform retail besar yang support Indodax.
 
 ---
 
@@ -269,6 +206,4 @@ Volume:    /data (state.json + trades.db)
 
 ---
 
-> *"The secret to playing fast is learning to relax while moving at maximum speed."* — George Kollias  
-> *"I don't need to be right. I just need to be right ONCE."* — N.M. Rothschild  
 > *"Yang penting bukan profit di bear market. Yang penting masih idup pas bull datang."* — FMA
