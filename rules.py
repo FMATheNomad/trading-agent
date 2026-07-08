@@ -94,9 +94,10 @@ def _momentum_decide(all_signals, ticker_map, live_tickers, positions, actual_id
             if candidates:
                 print(f"  Relaxed filter: {candidates[0]['pair']} s{candidates[0]['score']:.0f} (tf not aligned)", flush=True)
                 candidates = candidates[:1]
-        slots = min(slots, config.MAX_OPEN_POSITIONS)
+        max_slots = config.ROTHSCHILD_OPEN_POSITIONS if config.ROTHSCHILD_ACTIVE else config.max_positions_for_equity(total_equity)
+        slots = min(slots, max_slots)
         n_bins = max(1, int(actual_idr_balance / 40000))
-        n_bins = min(n_bins, slots, config.MAX_OPEN_POSITIONS)
+        n_bins = min(n_bins, slots, max_slots)
         max_alloc = int(config.MAX_POSITION_PCT_PER_ASSET * 100)
         per_bin = max(20000, int(actual_idr_balance * (config.MAX_POSITION_PCT_PER_ASSET * config.MAX_OPEN_POSITIONS) / max(n_bins, 1)))
         for c in candidates[:n_bins]:
