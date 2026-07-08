@@ -855,7 +855,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 tmode = "R" if sm_mode == "TRAILING" else "TP"
                 _sm_init(pid, p["entry_price"], p["qty"], atr, mode=sm_mode)
                 if sm_mode == "TRAILING":
-                    oid = await _sm_place_sl(client, pid, p["qty"], p["entry_price"], atr, mult=0.3)
+                    oid = await _sm_place_sl(client, pid, p["qty"], p["entry_price"], atr, mult=config.ROTHSCHILD_INITIAL_SL_ATR)
                     if oid:
                         _position_states[pid]["state"] = "TRAILING"
                         _position_states[pid]["sl_order_id"] = oid
