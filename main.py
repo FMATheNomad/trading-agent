@@ -626,6 +626,12 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                             portfolio_cycle._dust_equity += coin_value
                             continue
 
+                    if pair in _sm_cooldown and _sm_cooldown[pair] > time.time():
+                        print(f"  {pair}: SM cooldown aktif — skip restore (user coin)", flush=True)
+                        continue
+                    elif pair in _sm_cooldown:
+                        del _sm_cooldown[pair]
+
                     db_pos_pairs = {p.get("pair") for p in persist.load_positions()}
                     if pair in db_pos_pairs:
                         continue
@@ -851,10 +857,6 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     if oid:
                         print(f"  SM RETRY OK: {pid} tp_oid={oid}", flush=True)
                 continue
-            if pid in _sm_cooldown and _sm_cooldown[pid] > time.time():
-                continue
-            elif pid in _sm_cooldown:
-                del _sm_cooldown[pid]
             atr = p.get("atr_pct") or risk.compute_atr(ohlcv_map_1h.get(pid, []))
             if atr and p["qty"] > 0:
                 sm_mode = "TRAILING" if current_regime == "BULL" else "TP_ACTIVE"
