@@ -17,9 +17,9 @@ DEFAULT_PLAY_CAPITAL_PCT = 1.0
 PORTFOLIO_MODE = True
 MAX_OPEN_POSITIONS = 3
 def max_positions_for_equity(equity: float) -> int:
-    if equity >= 10_000_000: return 4
+    if equity >= 50_000_000: return 4
     if equity >= 5_000_000: return 4
-    return 4
+    return 3
 
 MIN_24H_VOLUME_IDR = 500_000_000
 MAX_SCAN_PAIRS = 40
@@ -120,7 +120,7 @@ if INSANE_MODE:
     ATR_CUT_MULT = 1.0
 
 ROTHSCHILD_INITIAL_SL_ATR = 0.5
-ROTHSCHILD_TRAILING_SL_ATR = 1.5
+ROTHSCHILD_TRAILING_SL_ATR = 2.0
 ROTHSCHILD_PYRAMID_TRIGGER = 0.5
 ROTHSCHILD_PYRAMID_MULT = 0.5
 ROTHSCHILD_LIMIT_GRACE_SEC = 15
