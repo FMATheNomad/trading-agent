@@ -236,7 +236,7 @@ async def _sm_place_tp(client: httpx.AsyncClient, pair: str, qty: float, entry: 
 
 async def _sm_place_sl(client: httpx.AsyncClient, pair: str, qty: float, entry: float, atr: float, mult: float | None = None) -> int | None:
     m = mult if mult is not None else config.ATR_SL_MULTIPLIER
-    sl_pct = max(atr * m / 100, 0.01)
+    sl_pct = max(atr * m / 100, 0.015)
     sl_price = int(entry * (1 - sl_pct))
     ret = await _sm_place_sell(client, pair, qty, sl_price)
     if ret and ret.get("order_id"):
