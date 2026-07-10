@@ -574,14 +574,14 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             config.MAX_POSITION_PCT_PER_ASSET = kelly_alloc
         print(f"  Mode: {mode_tag} (regime: {current_regime}, kelly: {kelly_alloc:.0%}, bull streak: {_regime_bull_streak}, bear: {_regime_bear_streak})", flush=True)
 
-        actual_idr_balance = config.PLAY_CAPITAL_IDR
+        actual_idr_balance = 0
 
         if config.INDODAX_API_KEY and config.INDODAX_SECRET_KEY:
             try:
                 info = await get_balance(client)
                 bal = info.get("balance", {})
                 hold = info.get("balance_hold", {})
-                actual_idr_balance = float(bal.get("idr", 0)) or config.PLAY_CAPITAL_IDR
+                actual_idr_balance = float(bal.get("idr", 0))
                 for coin in set(list(bal.keys()) + list(hold.keys())):
                     raw_qty = bal.get(coin, 0)
                     qty = float(raw_qty) + float(hold.get(coin, 0))
