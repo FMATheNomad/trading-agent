@@ -428,6 +428,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                         _realtime_sold.clear()
                     _realtime_sold.add(pid)
                     print(f"  SM FILLED: {pid} {sm['state']} @ Rp{fill_price:,} ({pnl:+.0f} IDR)", flush=True)
+                    if pnl < 0:
+                        _coin_blacklist.add(pid)
                 _sm_cooldown[pid] = time.time() + 86400
                 _sm_cleanup(pid)
         except Exception:
