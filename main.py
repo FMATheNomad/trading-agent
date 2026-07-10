@@ -735,9 +735,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             persist.save_loss_hit_date(_today_d)
             print(f"  Daily loss reset — new trading day", flush=True)
         if total_equity < config.EQUITY_FLOOR_IDR:
-            print(f"🛑 EQUITY FLOOR: Rp{total_equity:,.0f} < Rp{config.EQUITY_FLOOR_IDR:,} — stop total", flush=True)
-            await send_message(f"🛑 EQUITY FLOOR — bot stop. Equity Rp{total_equity:,.0f}")
-            shutdown_flag = True
+            print(f"🏴 EQUITY FLOOR: Rp{total_equity:,.0f} < Rp{config.EQUITY_FLOOR_IDR:,} — no cash, waiting", flush=True)
             return
 
         if daily_limit == "DAILY_LOSS_LIMIT":
