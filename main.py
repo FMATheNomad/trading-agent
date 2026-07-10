@@ -678,6 +678,24 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                         persist.save_positions(positions)
             except Exception as e:
                 print(f"Balance fetch error: {e} (using previous balance: Rp{actual_idr_balance:,.0f})", flush=True)
+                if not hasattr(portfolio_cycle, "_balance_fail_count"):
+                    portfolio_cycle._balance_fail_count = 0
+                portfolio_cycle._balance_fail_count += 1
+            else:
+                fail_count = getattr(portfolio_cycle, "_balance_fail_count", 0)
+                if fail_count > 0:
+                    portfolio_cycle._balance_fail_count = 0
+                    print(f"  Balance recovery — {fail_count} cycle down, checking positions...", flush=True)
+                    re_count = 0
+                    async with httpx.AsyncClient() as _rc:
+                        for pid_sm, sm in list(_position_states.items()):
+                            oid = sm.get("tp_order_id") or sm.get("sl_order_id")
+                            if oid:
+                                await _sm_cancel(_rc, oid, pid_sm)
+                                re_count += 1
+                    if re_count:
+                        await send_message(f"🔁 Indodax back online — {re_count} stale orders cancelled, SM will re-place")
+                        print(f"  Recovery: cancelled {re_count} stale orders", flush=True)
 
         async def _coin_price(pair: str) -> float:
             lt = LIVE_TICKERS.get(pair, {})
