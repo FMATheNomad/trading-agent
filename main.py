@@ -430,7 +430,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     print(f"  SM FILLED: {pid} {sm['state']} @ Rp{fill_price:,} ({pnl:+.0f} IDR)", flush=True)
                     if pnl < 0:
                         _coin_blacklist.add(pid)
-                elif oi and oi.get("status", "").lower() in ("cancelled", "rejected"):
+                elif oi is None or oi.get("status", "").lower() in ("cancelled", "rejected"):
                     print(f"  SM ORDER CANCELLED: {pid} {sm['state']} — re-place", flush=True)
                     p = next((x for x in positions if x["pair"] == pid), None)
                     if p:
