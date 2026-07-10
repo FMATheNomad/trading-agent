@@ -1090,9 +1090,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     if t: last_p = t.get("last", 0)
                 except Exception:
                     pass
-            if last_p <= 0:
-                pnl_est = (last_p - p["entry_price"]) / p["entry_price"] * 100 if p["entry_price"] else 0
-                print(f"  FORCE SELL {p['pair']}: harga 0 — force close", flush=True)
+            if last_p <= 0 and p["pair"] not in _realtime_sold and p["pair"] not in _position_states and p["pair"] not in _sm_cooldown:
+                print(f"  FORCE SELL {p['pair']}: harga 0 — force close (tidak SM managed)", flush=True)
                 trades.append({"pair": p["pair"], "action": "SELL", "allocation_pct": 100, "reason": "Force close no price"})
 
         selling_pairs = {t["pair"] for t in trades if t.get("action") == "SELL"}
