@@ -640,6 +640,9 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     if entry_price > 0:
                         print(f"  {pair}: entry_price={entry_price:,}", flush=True)
 
+                    if pair in _realtime_sold:
+                        print(f"  {pair}: skip restore (baru di-SM FILLED)", flush=True)
+                        continue
                     positions.append({
                         "pair": pair, "side": "BUY",
                         "entry_price": entry_price,
