@@ -73,6 +73,7 @@ FEE_CLEARANCE_RATIO = 3.0
 
 FUNDAMENTAL_COINS: set[str] = set()
 RECOVERY_TOP: set[str] = set()
+CORRELATION_PAIRS: list[tuple[str, str]] = []
 REGIME_STABILITY_CYCLES = 5
 REGIME_STABILITY_BEAR_CYCLES = 3
 STABLECOINS = {"usdt_idr", "usdc_idr", "busd_idr", "dai_idr", "tusd_idr", "fdusd_idr"}

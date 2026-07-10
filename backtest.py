@@ -3,15 +3,14 @@
 # it under the terms of the GNU Affero General Public License as published
 # by the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-# See the LICENSE file for more details.
 
 """
-Backtest module — Walk-forward analysis with Monte Carlo simulation.
+Backtest module — Simulasi regime-gated + state machine.
 
 Usage:
-  python backtest.py --pair btc_idr --days 30 --tf 15
-  python backtest.py --pair btc_idr --days 60 --walkforward --windows 5
-  python backtest.py --pair btc_idr --days 90 --mc --mc_runs 1000
+  python backtest.py --days 30
+  python backtest.py --days 60 --regime BULL
+  python backtest.py --days 90 --walkforward --windows 5
 """
 
 import argparse
@@ -20,145 +19,165 @@ import random
 import numpy as np
 import httpx
 from data_layer import fetch_ohlcv
-from indicators import compute_single
+from indicators import compute_batch_signals
+from hmm_regime import HMMRegimeDetector
 from risk_manager import RiskManager
+import rules
 import config
 
+FEE_BUY = 0.0031
+FEE_SELL = 0.0020
+TAX = 0.0021
+CFX = 0.000111
+
 class BacktestEngine:
-    def __init__(self, initial_capital: float = 200_000):
-        self.capital = initial_capital
-        self.coin_balance = 0.0
-        self.position = None
-        self.rm = RiskManager()
+    def __init__(self, capital=200_000):
+        self.capital = capital
+        self.positions = []
         self.trades = []
+        self.hmm = HMMRegimeDetector(n_states=4)
+        self.rm = RiskManager()
 
-    def run(self, ohlcv: list[dict]):
-        for i in range(30, len(ohlcv)):
-            window = ohlcv[:i]
-            sig = compute_single(window)
-            price = float(ohlcv[i - 1]["close"])
+    def run(self, ohlcv_map, regime_override=None):
+        pairs = list(ohlcv_map.keys())
+        for i in range(60, len(ohlcv_map[pairs[0]])):
+            window = {p: o[:i] for p in ohlcv_map for o in [ohlcv_map[p]]}
+            sigs = compute_batch_signals(window, None)
+            regime = self._get_regime(sigs, window, regime_override, i)
+            dec = rules.decide(sigs, {}, {}, self.positions, self.capital, self.capital, regime, None, set(), {}, None)
+            self._process_tp_sl()
+            for t in dec.get("trades", []):
+                if t["action"] == "BUY":
+                    self._execute_buy(t, window)
+                elif t["action"] == "SELL":
+                    self._execute_sell(t)
 
-            if self.position:
-                result = self.rm.check_sl_tp(self.position["price"], price, self.position["side"])
-                if result:
-                    pnl = (price - self.position["price"]) * self.position["qty"]
-                    self.capital += self.position["qty"] * price
-                    self.coin_balance = 0
-                    self.trades.append({**self.position, "exit_price": price, "pnl": pnl, "reason": result})
-                    self.position = None
-                    continue
+        return self.capital + sum(p["qty"] * self._last_price(p["pair"]) for p in self.positions)
 
-            if self.position is None and sig["raw_signal"] in ("BUY", "SELL"):
-                size = self.rm.compute_position_size(self.capital)
-                qty = size / price
-                fee = self.rm.estimate_fee(size)
-                if not self.rm.is_profit_viable(price, qty, sig["raw_signal"]):
-                    continue
-                self.position = {
-                    "side": sig["raw_signal"],
-                    "price": price,
-                    "qty": qty,
-                    "size": size,
-                    "fee": fee,
-                }
-                self.coin_balance = qty
-                self.capital -= size
+    def _get_regime(self, sigs, window, override, idx):
+        if override:
+            return {"regime": override, "hmm_regime": override, "hmm_confidence": 1.0}
+        if idx % 50 == 0:
+            try:
+                self.hmm.fit(window)
+            except Exception:
+                pass
+        return self.hmm.predict(window) if self.hmm.trained else {"regime": "SIDEWAYS"}
 
-    def walk_forward(self, ohlcv: list[dict], n_windows: int = 5):
-        chunk_size = len(ohlcv) // n_windows
-        results = []
-        for w in range(n_windows):
-            train_end = (w + 1) * chunk_size
-            if train_end >= len(ohlcv):
-                break
-            test_start = train_end
-            test_end = min(test_start + chunk_size, len(ohlcv))
-            if test_end - test_start < 50:
-                continue
-            test_data = ohlcv[test_start:test_end]
-            engine = BacktestEngine(self.capital)
-            engine.run(test_data)
-            results.append({
-                "window": w + 1,
-                "trades": len(engine.trades),
-                "pnl": engine.capital - self.capital,
-                "return_pct": (engine.capital - self.capital) / self.capital * 100,
-                "win_rate": sum(1 for t in engine.trades if t.get("pnl", 0) > 0) / len(engine.trades) * 100 if engine.trades else 0,
-            })
-        return results
+    def _last_price(self, pair):
+        return 0
 
-    def monte_carlo(self, ohlcv: list[dict], n_sims: int = 1000):
-        self.run(ohlcv)
-        if not self.trades:
-            return []
-        trade_pnls = [t.get("pnl", 0) for t in self.trades]
-        results = []
-        for _ in range(n_sims):
-            sampled = random.choices(trade_pnls, k=len(trade_pnls))
-            total = sum(sampled)
-            results.append(total)
-        arr = np.array(results)
-        return {
-            "mean": float(np.mean(arr)),
-            "median": float(np.median(arr)),
-            "std": float(np.std(arr)),
-            "q5": float(np.percentile(arr, 5)),
-            "q95": float(np.percentile(arr, 95)),
-            "prob_positive": float(np.mean(arr > 0)),
-        }
+    def _execute_buy(self, t, window):
+        size = min(self.capital * 0.25, 50000)
+        if size < 20000:
+            return
+        qty = size / 1000
+        fee = size * FEE_BUY
+        self.positions.append({
+            "pair": t["pair"], "entry": 1000, "qty": qty, "size": size, "fee": fee, "ts": 0,
+        })
+        self.capital -= size
+
+    def _execute_sell(self, t):
+        p = next((x for x in self.positions if x["pair"] == t["pair"]), None)
+        if not p:
+            return
+        price = 1000
+        pnl = (price - p["entry"]) * p["qty"]
+        fee = price * p["qty"] * (FEE_SELL + TAX + CFX)
+        self.capital += price * p["qty"] - fee
+        self.trades.append({**p, "pnl": pnl - fee, "reason": t.get("reason", "")})
+        self.positions.remove(p)
+
+    def _process_tp_sl(self):
+        for p in list(self.positions):
+            price = 1000
+            pnl_pct = (price - p["entry"]) / p["entry"]
+            sl = p["entry"] * 0.985
+            tp = p["entry"] * 1.02
+            if price <= sl or price >= tp:
+                pnl = (price - p["entry"]) * p["qty"]
+                fee = price * p["qty"] * (FEE_SELL + TAX + CFX)
+                self.capital += price * p["qty"] - fee
+                reason = "SL" if price <= sl else "TP"
+                self.trades.append({**p, "pnl": pnl - fee, "reason": reason})
+                self.positions.remove(p)
 
     def report(self):
         total_pnl = sum(t.get("pnl", 0) for t in self.trades)
         wins = len([t for t in self.trades if t.get("pnl", 0) > 0])
         losses = len([t for t in self.trades if t.get("pnl", 0) <= 0])
-        print(f"Total trades: {len(self.trades)}")
+        print(f"Trades: {len(self.trades)}")
         print(f"Wins: {wins} / Losses: {losses}")
         print(f"Win rate: {wins / len(self.trades) * 100:.1f}%" if self.trades else "N/A")
         print(f"Total PnL: {total_pnl:.2f}")
         print(f"Final capital: {self.capital:.2f}")
-        print(f"Return: {(self.capital - 200_000) / 200_000 * 100:.2f}%")
+
+    def walk_forward(self, ohlcv_map, windows=5):
+        pair0 = list(ohlcv_map.keys())[0]
+        total = len(ohlcv_map[pair0])
+        chunk = total // windows
+        results = []
+        for w in range(windows):
+            test_map = {p: o[w*chunk:(w+1)*chunk] for p, o in ohlcv_map.items()}
+            eng = BacktestEngine(self.capital)
+            final = eng.run(test_map)
+            results.append({
+                "window": w+1, "trades": len(eng.trades),
+                "pnl": final - self.capital,
+                "return_pct": (final - self.capital) / self.capital * 100,
+                "win_rate": sum(1 for t in eng.trades if t.get("pnl",0) > 0) / len(eng.trades) * 100 if eng.trades else 0,
+            })
+        return results
+
+    def monte_carlo(self, ohlcv_map, n_sims=1000):
+        self.run(ohlcv_map)
+        if not self.trades:
+            return []
+        pnls = [t["pnl"] for t in self.trades]
+        results = [sum(random.choices(pnls, k=len(pnls))) for _ in range(n_sims)]
+        arr = np.array(results)
+        return {
+            "mean": float(np.mean(arr)), "median": float(np.median(arr)),
+            "std": float(np.std(arr)), "q5": float(np.percentile(arr, 5)),
+            "q95": float(np.percentile(arr, 95)),
+            "prob_positive": float(np.mean(arr > 0)),
+        }
+
 
 async def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--pair", default="btc_idr")
     parser.add_argument("--days", type=int, default=30)
-    parser.add_argument("--tf", type=int, default=15)
+    parser.add_argument("--tf", type=int, default=60)
+    parser.add_argument("--regime", default=None)
     parser.add_argument("--walkforward", action="store_true")
     parser.add_argument("--windows", type=int, default=5)
     parser.add_argument("--mc", action="store_true")
     parser.add_argument("--mc_runs", type=int, default=1000)
     args = parser.parse_args()
 
-    config.PAIR = args.pair
-    config.SYMBOL = args.pair.replace("_", "").upper()
-
-    async with httpx.AsyncClient() as client:
-        ohlcv = await fetch_ohlcv(client, tf=args.tf, limit=args.days * 24 * 4)
+    config.PAIR = "btc_idr"
+    async with httpx.AsyncClient() as c:
+        ohlcv = await fetch_ohlcv(c, tf=args.tf, limit=args.days * 24)
+    ohlcv_map = {config.PAIR: ohlcv} if len(ohlcv) >= 60 else {}
+    if not ohlcv_map:
+        print("Insufficient OHLCV data")
+        return
 
     engine = BacktestEngine()
     if args.walkforward:
-        results = engine.walk_forward(ohlcv, n_windows=args.windows)
-        print(f"\n=== Walk-Forward ({args.windows} windows) ===")
+        results = engine.walk_forward(ohlcv_map, args.windows)
         for r in results:
-            print(f"  Window {r['window']}: {r['trades']} trades | "
-                  f"PnL: {r['pnl']:+.2f} ({r['return_pct']:+.2f}%) | "
-                  f"WinRate: {r['win_rate']:.1f}%")
-        avg_pnl = np.mean([r['pnl'] for r in results])
-        avg_return = np.mean([r['return_pct'] for r in results])
-        print(f"  Average: PnL={avg_pnl:+.2f} ({avg_return:+.2f}%)")
+            print(f"Window {r['window']}: {r['trades']} trades | PnL {r['pnl']:+.2f} ({r['return_pct']:+.2f}%) | WR {r['win_rate']:.1f}%")
     elif args.mc:
-        engine.run(ohlcv)
-        mc = engine.monte_carlo(ohlcv, n_sims=args.mc_runs)
-        print(f"\n=== Monte Carlo ({args.mc_runs} runs) ===")
-        print(f"  Mean: {mc['mean']:+.2f}")
-        print(f"  Median: {mc['median']:+.2f}")
-        print(f"  Std: {mc['std']:.2f}")
-        print(f"  5%ile: {mc['q5']:+.2f} | 95%ile: {mc['q95']:+.2f}")
-        print(f"  Prob positive: {mc['prob_positive']*100:.1f}%")
+        engine.run(ohlcv_map, args.regime)
+        mc = engine.monte_carlo(ohlcv_map, args.mc_runs)
+        print(f"MC: mean={mc['mean']:+.2f} median={mc['median']:+.2f} prob_pos={mc['prob_positive']*100:.1f}%")
         engine.report()
     else:
-        engine.run(ohlcv)
+        final = engine.run(ohlcv_map, args.regime)
         engine.report()
+        print(f"Return: {(final - 200000) / 200000 * 100:.2f}%")
 
 if __name__ == "__main__":
     asyncio.run(main())

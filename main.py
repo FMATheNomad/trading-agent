@@ -31,6 +31,7 @@ from private_ws import private_ws_loop, stop as pws_stop
 from momentum import MomentumEngine
 import rules
 import patterns
+import pairs
 
 risk = RiskManager()
 portfolio_risk = PortfolioRiskManager()
@@ -817,6 +818,13 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             actual_idr_balance, total_equity, regime_info, ohlcv_map_1h,
             _coin_blacklist, _pair_meta, book_pressure_map=book_pressure_map,
         )
+
+        pair_sigs = pairs.compute_all_pairs(ohlcv_map_1h) if config.CORRELATION_PAIRS else []
+        if pair_sigs:
+            pair_trades = pairs.pair_signals_to_trades(pair_sigs, ticker_map, LIVE_TICKERS)
+            decision["trades"].extend(pair_trades)
+            if pair_trades:
+                print(f"  Pair trades added: {len(pair_trades)} ({pair_sigs[0]['reason'][:40]})", flush=True)
         print(f"Decision: {decision['decision']} | {decision['reasoning'][:80]}", flush=True)
 
         if actual_idr_balance < config.MIN_ORDER_IDR:
