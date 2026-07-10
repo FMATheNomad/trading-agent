@@ -724,6 +724,11 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             risk.today_peak = saved_peak
             print(f"  Restored today_peak: Rp{risk.today_peak:,.0f}", flush=True)
 
+        if risk.today_peak > total_equity * 2:
+            risk.today_peak = total_equity
+            persist.save_today_peak(total_equity)
+            print(f"  Today peak reset — WD/deposit detected: Rp{total_equity:,.0f}", flush=True)
+
         daily_limit = risk.check_daily_limits(total_equity)
         persist.save_today_peak(risk.today_peak)
 
