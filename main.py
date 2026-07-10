@@ -563,7 +563,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             config.MAX_POSITION_PCT_PER_ASSET = config.ROTHSCHILD_POSITION_PCT
             print(f"  🚀 ROTHSCHILD AKTIF — {config.ROTHSCHILD_OPEN_POSITIONS} slot @{config.ROTHSCHILD_POSITION_PCT*100:.0f}%", flush=True)
             await send_message(f"🚀 ROTHSCHILD MODE — {config.ROTHSCHILD_OPEN_POSITIONS} slot, pyramid ON")
-        elif current_regime != "BULL" and _rothschild_active and _regime_bear_streak >= config.REGIME_STABILITY_BEAR_CYCLES:
+        elif current_regime != "BULL" and _rothschild_active and (_regime_bear_streak >= config.REGIME_STABILITY_BEAR_CYCLES or current_regime == "SIDEWAYS"):
             _rothschild_active = False
             config.ROTHSCHILD_ACTIVE = False
             config.MAX_OPEN_POSITIONS = 4
