@@ -874,26 +874,13 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 del _sm_cooldown[pid]
             atr = p.get("atr_pct") or risk.compute_atr(ohlcv_map_1h.get(pid, []))
             if atr and p["qty"] > 0:
-                sm_mode = "TRAILING" if current_regime == "BULL" else "TP_ACTIVE"
-                tmode = "R" if sm_mode == "TRAILING" else "TP"
-                _sm_init(pid, p["entry_price"], p["qty"], atr, mode=sm_mode)
-                if sm_mode == "TRAILING":
-                    oid = await _sm_place_sl(client, pid, p["qty"], p["entry_price"], atr, mult=config.ROTHSCHILD_INITIAL_SL_ATR)
-                    if oid:
-                        _position_states[pid]["state"] = "TRAILING"
-                        _position_states[pid]["sl_order_id"] = oid
-                        _position_states[pid]["trailing_high"] = p["entry_price"]
-                        print(f"  SM TRAILING: {pid} initial_sl_oid={oid} entry={p['entry_price']:,.0f} atr={atr:.2f}%", flush=True)
-                    else:
-                        _position_states[pid]["state"] = "PENDING"
-                        print(f"  SM PENDING: {pid} — initial SL fail, retry next cycle", flush=True)
+                _sm_init(pid, p["entry_price"], p["qty"], atr, mode="TP_ACTIVE")
+                oid = await _sm_place_tp(client, pid, p["qty"], p["entry_price"], atr)
+                if oid:
+                    print(f"  SM INIT: {pid} tp_oid={oid} entry={p['entry_price']:,.0f} atr={atr:.2f}%", flush=True)
                 else:
-                    oid = await _sm_place_tp(client, pid, p["qty"], p["entry_price"], atr)
-                    if oid:
-                        print(f"  SM INIT: {pid} tp_oid={oid} entry={p['entry_price']:,.0f} atr={atr:.2f}%", flush=True)
-                    else:
-                        _position_states[pid]["state"] = "PENDING"
-                        print(f"  SM PENDING: {pid} — TP fail, retry next cycle", flush=True)
+                    _position_states[pid]["state"] = "PENDING"
+                    print(f"  SM PENDING: {pid} — TP fail, retry next cycle", flush=True)
 
         sl_hits = []
         for p in list(positions):
@@ -1518,6 +1505,20 @@ async def _realtime_sltp_check(pair: str, price: float):
     recovery_level = entry * 1.005
 
     if sm["state"] == "TP_ACTIVE":
+        if price >= entry * 1.025 and _latest_regime.get("regime") == "BULL":
+            async with httpx.AsyncClient() as c:
+                if sm.get("tp_order_id"):
+                    await _sm_cancel(c, sm["tp_order_id"], pair)
+                p = next((x for x in positions if x["pair"] == pair), None)
+                if p:
+                    oid = await _sm_place_sl(c, pair, p["qty"], price, atr, mult=config.ROTHSCHILD_TRAILING_SL_ATR)
+                    if oid:
+                        sm["sl_order_id"] = oid
+                        sm["tp_order_id"] = None
+                        sm["state"] = "TRAILING"
+                        sm["trailing_high"] = price
+                        await send_message(f"🚀 SM TRAIL: {pair} profit {((price/entry)-1)*100:.1f}% — trailing ON")
+                        print(f"  SM → TRAILING: {pair} @ {price:,} ({(price/entry-1)*100:.1f}%)", flush=True)
         if price <= sl_level:
             async with httpx.AsyncClient() as c:
                 if sm.get("tp_order_id"):
