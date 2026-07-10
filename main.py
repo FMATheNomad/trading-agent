@@ -430,6 +430,21 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     print(f"  SM FILLED: {pid} {sm['state']} @ Rp{fill_price:,} ({pnl:+.0f} IDR)", flush=True)
                     if pnl < 0:
                         _coin_blacklist.add(pid)
+                elif oi and oi.get("status", "").lower() in ("cancelled", "rejected"):
+                    print(f"  SM ORDER CANCELLED: {pid} {sm['state']} — re-place", flush=True)
+                    p = next((x for x in positions if x["pair"] == pid), None)
+                    if p:
+                        atr = p.get("atr_pct") or risk.compute_atr(_latest_ohlcv_map_1h.get(pid, []))
+                        sm["tp_order_id"] = None
+                        sm["sl_order_id"] = None
+                        if sm["state"] in ("TP_ACTIVE", "SL_ACTIVE"):
+                            oid = await _sm_place_tp(client, pid, p["qty"], sm["entry_price"], atr)
+                            if oid:
+                                print(f"  SM TP RE-PLACED: {pid} oid={oid}", flush=True)
+                        elif sm["state"] == "TRAILING":
+                            oid = await _sm_place_sl(client, pid, p["qty"], sm["entry_price"], atr, mult=config.ROTHSCHILD_TRAILING_SL_ATR)
+                            if oid:
+                                print(f"  SM SL RE-PLACED: {pid} oid={oid}", flush=True)
                 _sm_cooldown[pid] = time.time() + 86400
                 _sm_cleanup(pid)
         except Exception:
