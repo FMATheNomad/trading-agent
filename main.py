@@ -1237,6 +1237,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                              atr_pct if ohlcv else None, time.time(),
                              "ROTHSCHILD" if _rothschild_active else "KONSERVATIF")
                 persist.save_positions(positions)
+                _sm_cooldown.pop(pid, None)
             elif action == "SELL":
                 actual_received = float(order.get("receive_rp", 0)) or amount
                 actual_qty = float(order.get(f"spend_{coin_name}", 0)) or qty
@@ -1494,6 +1495,7 @@ async def _momentum_scanner():
                                      actual_qty, actual_spend, None, time.time(),
                                      "ROTHSCHILD" if _rothschild_active else "KONSERVATIF")
                         persist.save_positions(positions)
+                        _sm_cooldown.pop(pid, None)
                         cash_avail -= actual_spend
                         await send_message(f"⚡ MOMENTUM {signal}: BUY {pid}\nRp{actual_spend:,.0f} @ {price:,.0f}")
                         _momentum_entry_time[pid] = time.time()
