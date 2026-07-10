@@ -86,11 +86,12 @@ def _momentum_decide(all_signals, ticker_map, live_tickers, positions, actual_id
             and r["score"] >= min_score
             and r["vol_idr"] >= 500_000_000
             and r["price"] >= 50
+            and (r["atr"] or 0) >= 1.5
             and (r["atr"] or 0) <= 15.0
             and (r.get("ema50") is None or r["price"] > r["ema50"])
         ]
         if not candidates:
-            candidates = [r for r in ranked if r["pair"] not in held_pairs and r["pair"] not in config.STABLECOINS and r["pair"] not in config.SKIP_COINS and (not config.FUNDAMENTAL_COINS or r["pair"] in config.FUNDAMENTAL_COINS) and (not config.RECOVERY_TOP or r["pair"] in config.RECOVERY_TOP) and r["pair"] not in coin_blacklist and r["signal"] in ("BUY", "HOLD") and r["score"] >= 3 and r["vol_idr"] >= 200_000_000 and r["price"] >= 50]
+            candidates = [r for r in ranked if r["pair"] not in held_pairs and r["pair"] not in config.STABLECOINS and r["pair"] not in config.SKIP_COINS and (not config.FUNDAMENTAL_COINS or r["pair"] in config.FUNDAMENTAL_COINS) and (not config.RECOVERY_TOP or r["pair"] in config.RECOVERY_TOP) and r["pair"] not in coin_blacklist and r["signal"] in ("BUY", "HOLD") and r["score"] >= 3 and r["vol_idr"] >= 200_000_000 and r["price"] >= 50 and (r["atr"] or 0) >= 1.5]
             if candidates:
                 print(f"  Relaxed filter: {candidates[0]['pair']} s{candidates[0]['score']:.0f} (tf not aligned)", flush=True)
                 candidates = candidates[:1]
