@@ -1495,18 +1495,6 @@ async def _realtime_sltp_check(pair: str, price: float):
     sl_level = entry * (1 - max(atr, 0.5) * config.ATR_SL_MULTIPLIER / 100)
     recovery_level = entry * 1.005
 
-    sl_px = sm.get("sl_price", 0)
-    if sl_px > 0 and price < sl_px * 0.97 and sm.get("sl_order_id"):
-        async with httpx.AsyncClient() as _hc:
-            await _sm_cancel(_hc, sm["sl_order_id"], pair)
-            bid = int(_latest_ticker_map.get(pair, {}).get("buy", price * 0.99))
-            ret = await _sm_place_sell(_hc, pair, sm["qty"], bid)
-            if ret and ret.get("order_id"):
-                sm["sl_order_id"] = None
-                sm["sl_price"] = 0
-                _sm_cooldown[pair] = time.time() + 86400
-                print(f"  HARD SL: {pair} force close @ Rp{bid:,} (market Rp{price:,.0f})", flush=True)
-
     if sm["state"] == "TP_ACTIVE":
         if price <= sl_level:
             async with httpx.AsyncClient() as c:
