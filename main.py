@@ -915,6 +915,33 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     _position_states[pid]["state"] = "PENDING"
                     print(f"  SM PENDING: {pid} — TP fail, retry next cycle", flush=True)
 
+        for pid_sm, sm in list(_position_states.items()):
+            if sm["state"] != "TP_ACTIVE":
+                continue
+            lp_sm = ticker_map.get(pid_sm, {}).get("last") or LIVE_TICKERS.get(pid_sm, {}).get("last", 0)
+            if lp_sm <= 0:
+                continue
+            p_sm = next((x for x in positions if x["pair"] == pid_sm), None)
+            if not p_sm:
+                continue
+            entry_sm = sm["entry_price"]
+            atr_sm = sm.get("atr_pct", 1.0)
+            if atr_sm > 10 and _latest_ohlcv_map_1h.get(pid_sm):
+                recalc = risk.compute_atr(_latest_ohlcv_map_1h[pid_sm])
+                if recalc < atr_sm:
+                    atr_sm = recalc
+            sl_level_sm = entry_sm * (1 - max(atr_sm, 0.5) * config.ATR_SL_MULTIPLIER / 100)
+            if lp_sm <= sl_level_sm:
+                async with httpx.AsyncClient() as _tc:
+                    if sm.get("tp_order_id"):
+                        await _sm_cancel(_tc, sm["tp_order_id"], pid_sm)
+                    oid = await _sm_place_sl(_tc, pid_sm, p_sm["qty"], entry_sm, atr_sm)
+                    if oid:
+                        sm["sl_order_id"] = oid
+                        sm["tp_order_id"] = None
+                        sm["state"] = "SL_ACTIVE"
+                        print(f"  SM CYCLE → SL: {pid_sm} @ Rp{int(sl_level_sm):,} (price {lp_sm:,.0f})", flush=True)
+
         sl_hits = []
         for p in list(positions):
             if p["pair"] in _realtime_sold:
