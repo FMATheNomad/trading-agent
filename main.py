@@ -701,10 +701,11 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                             oid = sm.get("tp_order_id") or sm.get("sl_order_id")
                             if oid:
                                 await _sm_cancel(_rc, oid, pid_sm)
+                                sm["state"] = "PENDING"
                                 re_count += 1
                     if re_count:
-                        await send_message(f"🔁 Gap recovery — {re_count} stale orders cancelled, SM will re-place")
-                        print(f"  Recovery: cancelled {re_count} stale orders", flush=True)
+                        await send_message(f"🔁 Gap recovery — {re_count} stale orders reset ke PENDING, SM re-init")
+                        print(f"  Recovery: {re_count} stale orders cancelled, state reset", flush=True)
 
         async def _coin_price(pair: str) -> float:
             lt = LIVE_TICKERS.get(pair, {})
