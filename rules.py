@@ -11,12 +11,13 @@ import config
 
 def decide(all_signals, ticker_map, live_tickers, positions, actual_idr_balance,
            total_equity, regime_info, ohlcv_map_1h, coin_blacklist, pair_meta,
-           book_pressure_map=None):
+           book_pressure_map=None, sm_cooldown=None):
     regime = regime_info.get("regime", "SIDEWAYS")
     if regime in ("BULL", "BEAR"):
         return _momentum_decide(all_signals, ticker_map, live_tickers, positions,
                                 actual_idr_balance, total_equity, regime_info,
-                                ohlcv_map_1h, coin_blacklist, pair_meta, book_pressure_map)
+                                ohlcv_map_1h, coin_blacklist, pair_meta, book_pressure_map,
+                                sm_cooldown=sm_cooldown)
     elif regime == "SIDEWAYS" or regime == "SIDEWAYS_LOW_VOL":
         return _mean_reversion_decide(all_signals, ticker_map, live_tickers, positions,
                                       actual_idr_balance, total_equity, regime_info,
@@ -26,9 +27,19 @@ def decide(all_signals, ticker_map, live_tickers, positions, actual_idr_balance,
                 "trades": [], "play_capital_pct": 0}
 
 
+def _price_pos(highs, lows, price):
+    if len(highs) < 5 or len(lows) < 5:
+        return 50
+    h = max(highs)
+    l = min(lows)
+    r = h - l
+    if r <= 0:
+        return 50
+    return (price - l) / r * 100
+
 def _momentum_decide(all_signals, ticker_map, live_tickers, positions, actual_idr_balance,
                      total_equity, regime_info, ohlcv_map_1h, coin_blacklist, pair_meta,
-                     book_pressure_map=None):
+                     book_pressure_map=None, sm_cooldown=None):
     ranked = _score_all_pairs(all_signals, ticker_map, live_tickers, book_pressure_map)
     trades = []
     held_pairs = {p["pair"] for p in positions}
@@ -95,6 +106,22 @@ def _momentum_decide(all_signals, ticker_map, live_tickers, positions, actual_id
             if candidates:
                 print(f"  Relaxed filter: {candidates[0]['pair']} s{candidates[0]['score']:.0f} (tf not aligned)", flush=True)
                 candidates = candidates[:1]
+        if candidates and sm_cooldown and ohlcv_map_1h:
+            final = []
+            for c in candidates:
+                ohlcv_p = ohlcv_map_1h.get(c["pair"])
+                if ohlcv_p and len(ohlcv_p) >= 5:
+                    hs = [float(x["high"]) for x in ohlcv_p[-14:]]
+                    ls = [float(x["low"]) for x in ohlcv_p[-14:]]
+                    pp = _price_pos(hs, ls, c["price"])
+                    if pp > 70:
+                        print(f"  Range filter: {c['pair']} pp={pp:.0f}% > 70 — skip", flush=True)
+                        continue
+                if c["pair"] in sm_cooldown and (c.get("score") or 0) < 90:
+                    print(f"  Cooldown: {c['pair']} — skip (score {c['score']:.0f})", flush=True)
+                    continue
+                final.append(c)
+            candidates = final
         max_slots = config.ROTHSCHILD_OPEN_POSITIONS if config.ROTHSCHILD_ACTIVE else config.max_positions_for_equity(total_equity)
         slots = min(slots, max_slots)
         n_bins = max(1, int(actual_idr_balance / 40000))

@@ -858,6 +858,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             all_signals, ticker_map, LIVE_TICKERS, positions,
             actual_idr_balance, total_equity, regime_info, ohlcv_map_1h,
             _coin_blacklist, _pair_meta, book_pressure_map=book_pressure_map,
+            sm_cooldown=_sm_cooldown,
         )
 
         pair_sigs = pairs.compute_all_pairs(ohlcv_map_1h) if config.CORRELATION_PAIRS else []
@@ -1281,7 +1282,6 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                              atr_pct if ohlcv else None, time.time(),
                              "ROTHSCHILD" if _rothschild_active else "KONSERVATIF")
                 persist.save_positions(positions)
-                _sm_cooldown.pop(pid, None)
             elif action == "SELL":
                 actual_received = float(order.get("receive_rp", 0)) or amount
                 actual_qty = float(order.get(f"spend_{coin_name}", 0)) or qty
@@ -1520,6 +1520,18 @@ async def _momentum_scanner():
                             continue
                     except Exception:
                         pass
+                if pid in _sm_cooldown and _sm_cooldown[pid] > time.time():
+                    print(f"    Cooldown: {pid} — skip", flush=True)
+                    continue
+                if len(ohlcv) >= 5:
+                    hs_m = [float(x["high"]) for x in ohlcv[-14:]]
+                    ls_m = [float(x["low"]) for x in ohlcv[-14:]]
+                    r_m = max(hs_m) - min(ls_m)
+                    if r_m > 0:
+                        pp_m = (price - min(ls_m)) / r_m * 100
+                        if pp_m > 70:
+                            print(f"    Range {pp_m:.0f}% > 70 — skip", flush=True)
+                            continue
                 alloc = 0.4
                 amount = int(cash_avail * alloc)
                 if amount < 20000:
@@ -1539,7 +1551,6 @@ async def _momentum_scanner():
                                      actual_qty, actual_spend, None, time.time(),
                                      "ROTHSCHILD" if _rothschild_active else "KONSERVATIF")
                         persist.save_positions(positions)
-                        _sm_cooldown.pop(pid, None)
                         cash_avail -= actual_spend
                         await send_message(f"⚡ MOMENTUM {signal}: BUY {pid}\nRp{actual_spend:,.0f} @ {price:,.0f}")
                         _momentum_entry_time[pid] = time.time()
