@@ -1535,6 +1535,10 @@ async def _realtime_sltp_check(pair: str, price: float):
         return
     entry = sm["entry_price"]
     atr = sm.get("atr_pct", 1.0)
+    if atr > 10 and _latest_ohlcv_map_1h.get(pair):
+        recalc = risk.compute_atr(_latest_ohlcv_map_1h[pair])
+        if recalc < atr:
+            atr = recalc
     sl_level = entry * (1 - max(atr, 0.5) * config.ATR_SL_MULTIPLIER / 100)
     recovery_level = entry * 1.005
 
