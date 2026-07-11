@@ -567,9 +567,11 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         elif current_regime == "BEAR":
             _regime_bear_streak += 1
             _regime_bull_streak = 0
-        else:
+        elif current_regime in ("SIDEWAYS", "SIDEWAYS_LOW_VOL"):
             _regime_bull_streak = 0
             _regime_bear_streak = 0
+        else:
+            pass
 
         if _regime_bull_streak >= config.REGIME_STABILITY_CYCLES and not _rothschild_active:
             _rothschild_active = True
