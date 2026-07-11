@@ -683,9 +683,18 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 portfolio_cycle._balance_fail_count += 1
             else:
                 fail_count = getattr(portfolio_cycle, "_balance_fail_count", 0)
+                gap_re = False
                 if fail_count > 0:
                     portfolio_cycle._balance_fail_count = 0
-                    print(f"  Balance recovery — {fail_count} cycle down, checking positions...", flush=True)
+                    gap_re = True
+                else:
+                    gap_count = sum(1 for p in positions if abs(
+                        (ticker_map.get(p["pair"], {}).get("last") or LIVE_TICKERS.get(p["pair"], {}).get("last") or p["entry_price"]) / max(p["entry_price"], 1) - 1
+                    ) > 0.05)
+                    if gap_count:
+                        gap_re = True
+                if gap_re:
+                    print(f"  Gap recovery — checking positions...", flush=True)
                     re_count = 0
                     async with httpx.AsyncClient() as _rc:
                         for pid_sm, sm in list(_position_states.items()):
@@ -694,7 +703,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                                 await _sm_cancel(_rc, oid, pid_sm)
                                 re_count += 1
                     if re_count:
-                        await send_message(f"🔁 Indodax back online — {re_count} stale orders cancelled, SM will re-place")
+                        await send_message(f"🔁 Gap recovery — {re_count} stale orders cancelled, SM will re-place")
                         print(f"  Recovery: cancelled {re_count} stale orders", flush=True)
 
         async def _coin_price(pair: str) -> float:
