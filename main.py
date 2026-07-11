@@ -445,7 +445,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                             oid = await _sm_place_sl(client, pid, p["qty"], sm["entry_price"], atr, mult=config.ROTHSCHILD_TRAILING_SL_ATR)
                             if oid:
                                 print(f"  SM SL RE-PLACED: {pid} oid={oid}", flush=True)
-                _sm_cooldown[pid] = time.time() + 86400
+                cd_time = 21600 if pnl >= 0 else 86400
+                _sm_cooldown[pid] = time.time() + cd_time
                 _sm_cleanup(pid)
         except Exception:
             pass
