@@ -1532,8 +1532,9 @@ async def _momentum_scanner():
                     if r_m > 0:
                         pp_m = (price - min(ls_m)) / r_m * 100
                         if pp_m > 70:
-                            print(f"    Range {pp_m:.0f}% > 70 — skip", flush=True)
+                            print(f"    Range filter: {pid} pp={pp_m:.0f}% > 70 — skip", flush=True)
                             continue
+                        print(f"    Range filter: {pid} pp={pp_m:.0f}% < 70 — OK", flush=True)
                 alloc = 0.4
                 amount = int(cash_avail * alloc)
                 if amount < 20000:

@@ -117,6 +117,9 @@ def _momentum_decide(all_signals, ticker_map, live_tickers, positions, actual_id
                     if pp > 70:
                         print(f"  Range filter: {c['pair']} pp={pp:.0f}% > 70 — skip", flush=True)
                         continue
+                    print(f"  Range filter: {c['pair']} pp={pp:.0f}% < 70 — OK", flush=True)
+                else:
+                    print(f"  Range filter: {c['pair']} data OHLCV kosong — skip filter", flush=True)
                 if c["pair"] in sm_cooldown and (c.get("score") or 0) < 90:
                     print(f"  Cooldown: {c['pair']} — skip (score {c['score']:.0f})", flush=True)
                     continue
