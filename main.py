@@ -1300,8 +1300,15 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 print(f"  ATR: {atr_pct}% | SL: {sl} | TP: {tp}", flush=True)
 
             if action == "SELL" and _position_states.get(pid):
-                print(f"  SKIP SELL {pid}: SM aktif, exit via state machine", flush=True)
-                continue
+                sm_exit = _position_states[pid]
+                regime_exit = _latest_regime.get("regime", "")
+                if regime_exit in ("BEAR",) and sm_exit.get("tp_order_id"):
+                    print(f"  BEAR EXIT: {pid} — cancel SM TP, sell via market", flush=True)
+                    await _sm_cancel(client, sm_exit["tp_order_id"], pid)
+                    _sm_cleanup(pid)
+                else:
+                    print(f"  SKIP SELL {pid}: SM aktif, exit via state machine", flush=True)
+                    continue
             ot = "market"
             try:
                 order = await place_order(client, action.lower(), price, amount,
@@ -1570,6 +1577,10 @@ async def _momentum_scanner():
                 continue
             if _daily_loss_hit_today:
                 print(f"  Momentum scanner: daily loss hit — skip entry", flush=True)
+                continue
+            regime_now = _latest_regime.get("regime", "")
+            if regime_now in ("BEAR", "HIGH_VOL"):
+                print(f"  Momentum scanner: {regime_now} — skip entry", flush=True)
                 continue
             from db import get_trade_count_today
             if get_trade_count_today() >= config.MAX_DAILY_TRADES:

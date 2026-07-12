@@ -61,7 +61,7 @@ def _momentum_decide(all_signals, ticker_map, live_tickers, positions, actual_id
 
         cut_thresh = -max(atr * config.ATR_CUT_MULT, 4)
         if is_bear:
-            cut_thresh = -max(atr * config.ATR_CUT_MULT, 3)
+            cut_thresh = -max(atr * config.ATR_CUT_MULT, 2)
         if pnl < cut_thresh:
             sell_reason = f"Cut {pnl:.1f}% (ATR x {config.ATR_CUT_MULT})"
 
@@ -73,9 +73,14 @@ def _momentum_decide(all_signals, ticker_map, live_tickers, positions, actual_id
 
         elif pnl >= atr * config.ATR_PROFIT_SELL_MULT and config.ATR_PROFIT_SELL_MULT < 20:
             sell_reason = f"Profit {pnl:.1f}% (ATR x {config.ATR_PROFIT_SELL_MULT})"
+            if is_bear:
+                sell_reason += " — BEAR, ambil profit"
 
         elif hold > 14400 and pnl > 0:
             sell_reason = f"Time TP {pnl:.1f}% ({int(hold/60)}m)"
+
+        elif is_bear and pnl > 0:
+            sell_reason = f"BEAR: exit profit {pnl:.1f}%"
 
         if sell_reason:
             trades.append({"pair": pair, "action": "SELL", "allocation_pct": 100, "reason": sell_reason})
@@ -85,8 +90,7 @@ def _momentum_decide(all_signals, ticker_map, live_tickers, positions, actual_id
     max_pos = config.max_positions_for_equity(total_equity)
     slots = max_pos - remaining
 
-    if slots > 0 and actual_idr_balance >= config.MIN_ORDER_IDR * 1.5:
-        min_score = 5 if is_bear else 8
+    if slots > 0 and actual_idr_balance >= config.MIN_ORDER_IDR * 1.5 and not is_bear:
         candidates = [
             r for r in ranked
             if r["pair"] not in held_pairs
@@ -94,18 +98,14 @@ def _momentum_decide(all_signals, ticker_map, live_tickers, positions, actual_id
             and r["pair"] not in config.SKIP_COINS
             and r["pair"] not in coin_blacklist
             and r["signal"] == "BUY"
-            and r["score"] >= min_score
+            and r["score"] >= 8
             and r["vol_idr"] >= 500_000_000
             and r["price"] >= 50
             and (r["atr"] or 0) >= 1.5
             and (r["atr"] or 0) <= 15.0
             and (r.get("ema50") is None or r["price"] > r["ema50"])
+            and r["atr"] is not None
         ]
-        if not candidates:
-            candidates = [r for r in ranked if r["pair"] not in held_pairs and r["pair"] not in config.STABLECOINS and r["pair"] not in config.SKIP_COINS and (not config.FUNDAMENTAL_COINS or r["pair"] in config.FUNDAMENTAL_COINS) and (not config.RECOVERY_TOP or r["pair"] in config.RECOVERY_TOP) and r["pair"] not in coin_blacklist and r["signal"] in ("BUY", "HOLD") and r["score"] >= 3 and r["vol_idr"] >= 200_000_000 and r["price"] >= 50 and (r["atr"] or 0) >= 1.5]
-            if candidates:
-                print(f"  Relaxed filter: {candidates[0]['pair']} s{candidates[0]['score']:.0f} (tf not aligned)", flush=True)
-                candidates = candidates[:1]
         if candidates:
             final = []
             for c in candidates:
@@ -173,7 +173,7 @@ def _momentum_decide(all_signals, ticker_map, live_tickers, positions, actual_id
              "Wait — no data"
 
     cash_low = actual_idr_balance < 200_000
-    play_pct = 90 if config.INSANE_MODE else (50 if is_bear else (65 if cash_low else 55))
+    play_pct = 90 if config.INSANE_MODE else (0 if is_bear else (65 if cash_low else 55))
 
     return {
         "decision": decision,
