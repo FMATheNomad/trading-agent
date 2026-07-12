@@ -162,8 +162,8 @@ class AIOptimizer:
                         {"role": "system", "content": SYSTEM_PROMPT},
                         {"role": "user", "content": f"Data performa dan konfigurasi saat ini:\n\n{context}"},
                     ],
-                    temperature=0.3,
-                    max_tokens=1000,
+                    temperature=0.1,
+                    max_tokens=500,
                 )
 
             resp = await asyncio.wait_for(
@@ -173,7 +173,8 @@ class AIOptimizer:
 
             raw = resp.choices[0].message.content
             if not raw:
-                print(f"AI Optimizer: empty response from API", flush=True)
+                full_resp = resp.choices[0].message.model_dump() if hasattr(resp.choices[0].message, 'model_dump') else str(resp.choices[0])
+                print(f"AI Optimizer: empty content — full response: {str(full_resp)[:200]}", flush=True)
                 return None
 
             cleaned = raw.strip()
