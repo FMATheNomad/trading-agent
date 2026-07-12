@@ -1,12 +1,12 @@
 # FMA Alpha Quant Labs — Onboarding Brief
 
-**Jangan edit file ini tanpa persetujuan.** Ini adalah dokumen konteks untuk sesi AI baru.
+**Jangan edit file ini tanpa persetujuan.** Ini adalah dokumen konteks untuk sesi AI baru. Jika ada perubahan signifikan, tanyakan ke user apakah perlu diupdate.
 
 ---
 
 ## Ringkasan
 
-Bot trading kripto sistematis untuk Indodax (exchange Indonesia). Fully autonomous. 430+ commits. Arsitektur:
+Bot trading kripto sistematis untuk Indodax (exchange Indonesia). Fully autonomous. 436+ commits. Arsitektur:
 
 ```
 HMM Regime Gate → Strategi per Regime → State Machine → Market Buy + Limit Sell
@@ -51,11 +51,12 @@ HMM sebagai **hard gate** — menentukan strategi mana yang aktif.
 | HIGH_VOL | Survival | ❌ No entry | Exit only |
 
 ### Rothschild
-- **Aktivasi:** 5 cycle BULL berturut-turut
+- **Aktivasi:** 5 cycle BULL berturut-turut (HIGH_VOL tidak reset streak)
 - **Deaktivasi:** SIDEWAYS terdeteksi, atau 3 cycle BEAR
 - **Mode:** 6 slot, Kelly 25%, pyramid ON
 - **Initial SL:** ATR×0.5 (config: `ROTHSCHILD_INITIAL_SL_ATR`)
 - **Trailing SL:** ATR×2.0 (config: `ROTHSCHILD_TRAILING_SL_ATR`)
+- **TRAILING aktif:** hanya jika profit >2.5% DAN harga masih >0.5% dari TP level (cegah cancel TP di detik terakhir)
 
 ### State Machine — Exit Management
 Set posisi memiliki 6 state: `NEW → PENDING → TP_ACTIVE ↔ SL_ACTIVE → closed`
@@ -76,8 +77,8 @@ SM INIT → TP first @ ATR×2
 ### Entry
 - Market buy (keisi pasti, fee 0.31%)
 - Minimum entry: Rp20.000
-- **Cooldown:** 24 jam setelah SM FILLED, entry diblokir (kecuali score > 90)
-- **Range filter:** harga >70% dari 14-candle range → skip (cegah FOMO)
+- **Cooldown:** setelah SM FILLED, entry diblokir. TP (profit) → 6 jam. SL (loss) → 24 jam. Absolut, tidak ada pengecualian.
+- **Range filter:** harga >70% dari 14-candle range → skip (cegah FOMO). Selalu log hasilnya.
 - **ATR minimum filter:** ATR pair < 1.5% → skip
 
 ### Circuit Breaker (3 lapis)
