@@ -64,7 +64,6 @@ _realtime_sold: set[str] = set()
 _position_states: dict[str, dict] = {}
 _sm_cooldown: dict[str, float] = {}
 _momentum_entry_time: dict[str, float] = {}
-_maker_first_failed: dict[str, float] = {}
 _cycle_last_end: float = 0
 _cycle_last_info: dict = {}
 _recent_actions: list[dict] = []
@@ -328,12 +327,10 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                             "Key": config.INDODAX_API_KEY, "Sign": cancel_sig,
                             "Content-Type": "application/x-www-form-urlencoded",
                         }, content=cancel_body)
-                        print(f"  LIMIT UNFILLED: {pid} — cancel, retry market", flush=True)
+                        print(f"  LIMIT UNFILLED: {pid} order_id={oid} — cancel, cari koin lain", flush=True)
                     except Exception as e:
                         print(f"  Cancel unfilled order failed {pid}: {e}", flush=True)
                     del _pending_orders[pid]
-                    _maker_first_failed[pid] = time.time() + 600
-                    print(f"  MAKER FIRST GAGAL: {pid} — next entry via market", flush=True)
         except Exception:
             po = _pending_orders.get(pid)
             if po and po.get("order_id"):
@@ -1163,9 +1160,6 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 await refresh_deadman(client, pair_str)
             return
 
-        for pid_mf in list(_maker_first_failed):
-            if _maker_first_failed[pid_mf] < time.time():
-                del _maker_first_failed[pid_mf]
         valid_trades = portfolio_risk.validate_allocation(trades, current_positions_info, balance_idr)
         if not valid_trades:
             print("No valid trades after risk checks.", flush=True)
@@ -1243,9 +1237,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             if action == "SELL" and _position_states.get(pid):
                 print(f"  SKIP SELL {pid}: SM aktif, exit via state machine", flush=True)
                 continue
-            ot = "market"
-            if action == "BUY" and config.MAKER_FIRST and pid not in _maker_first_failed:
-                ot = "maker_first"
+            ot = "maker_first" if (action == "BUY" and config.MAKER_FIRST) else "market"
             try:
                 order = await place_order(client, action.lower(), price, amount,
                                            pair=pid, order_type=ot,
