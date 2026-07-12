@@ -1597,7 +1597,7 @@ async def _realtime_sltp_check(pair: str, price: float):
                         sm["tp_order_id"] = None
                         sm["state"] = "TRAILING"
                         sm["trailing_high"] = price
-                        await send_message(f"🚀 SM TRAIL: {pair} profit {((price/entry)-1)*100:.1f}% — trailing ON")
+                        await send_message(f"🚀 SM TRAILING ON: {pair}")
                         print(f"  SM → TRAILING: {pair} @ {price:,} ({(price/entry-1)*100:.1f}%)", flush=True)
         if price <= sl_level:
             async with httpx.AsyncClient() as c:
