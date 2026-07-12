@@ -430,6 +430,9 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     print(f"  SM FILLED: {pid} {sm['state']} @ Rp{fill_price:,} ({pnl:+.0f} IDR)", flush=True)
                     if pnl < 0:
                         _coin_blacklist.add(pid)
+                    cd_time = 21600 if pnl >= 0 else 86400
+                    _sm_cooldown[pid] = time.time() + cd_time
+                    _sm_cleanup(pid)
                 elif oi is None or oi.get("status", "").lower() in ("cancelled", "rejected"):
                     print(f"  SM ORDER CANCELLED: {pid} {sm['state']} — re-place", flush=True)
                     p = next((x for x in positions if x["pair"] == pid), None)
@@ -445,9 +448,6 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                             oid = await _sm_place_sl(client, pid, p["qty"], sm["entry_price"], atr, mult=config.ROTHSCHILD_TRAILING_SL_ATR)
                             if oid:
                                 print(f"  SM SL RE-PLACED: {pid} oid={oid}", flush=True)
-                cd_time = 21600 if pnl >= 0 else 86400
-                _sm_cooldown[pid] = time.time() + cd_time
-                _sm_cleanup(pid)
         except Exception:
             pass
 
