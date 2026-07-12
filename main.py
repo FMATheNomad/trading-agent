@@ -296,10 +296,11 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 del _pending_orders[pid]
                 continue
             status = order_info.get("status", "").lower()
-            remain = float(order_info.get("remain_rp", order_info.get("remain_idr", 0)) or 0)
+            remain_coin = pid.split("_")[0]
+            remain = float(order_info.get(f"remain_{remain_coin}", order_info.get("remain_rp", order_info.get("remain_idr", 0))) or 0)
             is_filled = status in ("filled",) or remain == 0
             if is_filled and po.get("is_maker"):
-                qty_filled = float(order_info.get(f"receive_{po.get('side', 'buy').lower()}", po["qty"]))
+                qty_filled = float(order_info.get(f"receive_{remain_coin}", po["qty"]))
                 add_position(positions, pid, po.get("side", "BUY"), po["price"], po["qty"],
                              po["amount_idr"], po.get("atr_pct"), time.time(),
                              "ROTHSCHILD" if _rothschild_active else "KONSERVATIF")
@@ -1236,7 +1237,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             if action == "SELL" and _position_states.get(pid):
                 print(f"  SKIP SELL {pid}: SM aktif, exit via state machine", flush=True)
                 continue
-            ot = "market"
+            ot = "maker_first" if (action == "BUY" and config.MAKER_FIRST) else "market"
             try:
                 order = await place_order(client, action.lower(), price, amount,
                                            pair=pid, order_type=ot,
