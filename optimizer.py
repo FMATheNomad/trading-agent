@@ -187,8 +187,9 @@ class AIOptimizer:
                 cleaned = cleaned[7:].rsplit("```", 1)[0].strip()
             else:
                 json_start = cleaned.find("{")
-                if json_start > 0:
-                    cleaned = cleaned[json_start:]
+                json_end = cleaned.rfind("}")
+                if json_start >= 0 and json_end > json_start:
+                    cleaned = cleaned[json_start:json_end+1]
 
             result = json.loads(cleaned)
             self.last_recommendations = result.get("recommendations", [])
