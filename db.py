@@ -139,6 +139,21 @@ def get_trade_count_today() -> int:
         ).fetchone()
     return row[0] if row else 0
 
+def get_recent_completed_sells(limit: int = 100) -> list[dict]:
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM trades WHERE side='sell' AND pnl IS NOT NULL ORDER BY id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    result = []
+    for r in rows:
+        result.append({
+            "id": r[0], "timestamp": r[1], "side": r[2], "price": r[3],
+            "qty": r[4], "amount_idr": r[5], "order_type": r[6],
+            "status": r[7], "pnl": r[8], "reason": r[9], "paper_trade": r[10],
+        })
+    return result
+
 def get_trades_by_period(period: str = "day") -> list[dict]:
     now = datetime.now(WIB)
     if period == "day":

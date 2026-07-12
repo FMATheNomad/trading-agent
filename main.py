@@ -24,7 +24,7 @@ from risk_manager import RiskManager, PortfolioRiskManager
 from executor import place_order, get_balance, get_order
 from deadman import refresh_deadman, cancel_deadman
 from notifier import send_message
-from db import init_db, log_trade, log_decision, get_recent_trades, get_trade_count_today, get_trades_by_period, save_chat, get_chat_history, init_chat_db
+from db import init_db, log_trade, log_decision, get_recent_trades, get_trade_count_today, get_trades_by_period, get_recent_completed_sells, save_chat, get_chat_history, init_chat_db
 import persist
 from market_ws import market_ws_loop, LIVE_TICKERS, stop as mws_stop, set_on_tick
 from private_ws import private_ws_loop, stop as pws_stop
@@ -1549,10 +1549,10 @@ async def _optimizer_loop():
             continue
         last_opt_cycle = cycle_counter
         try:
-            all_trades_db = get_trades_by_period("year")
+            recent_sells = get_recent_completed_sells(100)
             eq_curve = persist.load_equity_curve()
-            print(f"  AI Optimizer: cycle #{cycle_counter} — {len(all_trades_db)} total trades in DB", flush=True)
-            msg = await optimizer.run(all_trades_db, eq_curve, regime_history)
+            print(f"  AI Optimizer: cycle #{cycle_counter} — {len(recent_sells)} completed sells (last 100)", flush=True)
+            msg = await optimizer.run(recent_sells, eq_curve, regime_history)
             if msg:
                 await send_message(msg)
         except Exception as opt_e:
