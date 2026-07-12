@@ -32,6 +32,7 @@ from momentum import MomentumEngine
 import rules
 import patterns
 import pairs
+from optimizer import AIOptimizer
 
 risk = RiskManager()
 portfolio_risk = PortfolioRiskManager()
@@ -39,6 +40,7 @@ hmm_detector = HMMRegimeDetector(n_states=config.HMM_N_STATES)
 positions: list[dict] = []
 shutdown_flag = False
 momentum_engine = MomentumEngine()
+optimizer = AIOptimizer()
 
 regime_history: list[str] = []
 known_pairs: set[str] = set()
@@ -892,6 +894,12 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         _prev_equity = total_equity
         _prev_regime = regime_info["regime"]
 
+        saved_curve = persist.load_equity_curve()
+        saved_curve.append(total_equity)
+        if len(saved_curve) > 200:
+            saved_curve = saved_curve[-200:]
+        persist.save_equity_curve(saved_curve)
+
         book_pressure_map = {}
         top_sigs = sorted(all_signals.items(), key=lambda x: abs(x[1].get("score", 0)), reverse=True)[:5]
         for pid, _ in top_sigs:
@@ -1490,6 +1498,16 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             sign = "+" if _realized_pnl_idr >= 0 else ""
             print(f"COMPOUND: {sign}Rp{_realized_pnl_idr:,.0f} (Rp{old_cap:,.0f} → Rp{config.PLAY_CAPITAL_IDR:,.0f})", flush=True)
             _realized_pnl_idr = 0.0
+
+        if config.DEEPSEEK_API_KEY and cycle_counter % config.AI_OPTIMIZER_INTERVAL_CYCLES == 0:
+            try:
+                all_trades_db = get_trades_by_period("year")
+                eq_curve = persist.load_equity_curve() or [total_equity]
+                msg = await optimizer.run(all_trades_db, eq_curve, regime_history)
+                if msg:
+                    await send_message(msg)
+            except Exception as opt_e:
+                print(f"AI Optimizer error: {opt_e}", flush=True)
 
     except Exception as e:
         print(f"Portfolio cycle error: {e}", flush=True)

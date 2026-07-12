@@ -141,6 +141,18 @@ def save_sm_cooldown(data: dict[str, float]):
     state["sm_cooldown"] = {k: v for k, v in data.items() if isinstance(v, (int, float)) and v > now}
     _save(state)
 
+def load_equity_curve() -> list[float]:
+    raw = _load().get("equity_curve", [])
+    if not isinstance(raw, list):
+        return []
+    return [float(v) for v in raw if isinstance(v, (int, float)) and v > 0]
+
+def save_equity_curve(curve: list[float]):
+    state = _load()
+    trimmed = [float(v) for v in curve[-200:] if isinstance(v, (int, float)) and v > 0]
+    state["equity_curve"] = trimmed
+    _save(state)
+
 def load_circuit_breaker() -> dict:
     return _load().get("circuit_breaker", {
         "consecutive_loss_days": 0,
