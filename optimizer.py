@@ -157,7 +157,7 @@ class AIOptimizer:
             def _call_api():
                 client = OpenAI(api_key=config.DEEPSEEK_API_KEY, base_url=config.DEEPSEEK_BASE_URL, timeout=30)
                 return client.chat.completions.create(
-                    model=config.DEEPSEEK_MODEL,
+                    model="deepseek-chat",
                     messages=[
                         {"role": "system", "content": SYSTEM_PROMPT},
                         {"role": "user", "content": f"Data performa dan konfigurasi saat ini:\n\n{context}"},
@@ -174,12 +174,10 @@ class AIOptimizer:
             msg = resp.choices[0].message
             raw = msg.content
             if not raw:
-                raw = getattr(msg, 'reasoning_content', None)
-            if not raw:
-                print(f"AI Optimizer: empty content and reasoning", flush=True)
+                print(f"AI Optimizer: empty response from API", flush=True)
                 return None
             finish = resp.choices[0].finish_reason
-            print(f"  AI Optimizer: API response received ({len(raw)} chars, finish={finish})", flush=True)
+            print(f"  AI Optimizer: API response ({len(raw)} chars, finish={finish})", flush=True)
 
             cleaned = raw.strip()
             if cleaned.startswith("```"):
@@ -187,13 +185,10 @@ class AIOptimizer:
             elif cleaned.startswith("```json"):
                 cleaned = cleaned[7:].rsplit("```", 1)[0].strip()
             else:
-                json_start = cleaned.rfind("{")
+                json_start = cleaned.find("{")
                 json_end = cleaned.rfind("}")
                 if json_start >= 0 and json_end > json_start:
                     cleaned = cleaned[json_start:json_end+1]
-                    print(f"  AI Optimizer: extracted JSON ({len(cleaned)} chars): {cleaned[:300]}", flush=True)
-                else:
-                    print(f"  AI Optimizer: no JSON braces found in response", flush=True)
 
             result = json.loads(cleaned)
             self.last_recommendations = result.get("recommendations", [])
