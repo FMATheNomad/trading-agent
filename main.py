@@ -465,7 +465,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 "precision": v.get("price_precision", 1000),
                 "vol_precision": v.get("vol_precision", 0),
                 "min_traded": v.get("trade_min_traded_currency", 0.0001),
-                "min_base": int(v.get("trade_min_base_currency", config.MIN_ORDER_IDR)),
+                "min_base": int(v.get("trade_min_base_currency", 10000)),
             }
 
         live = LIVE_TICKERS.copy()
@@ -640,7 +640,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                             print(f"  {pair}: dust Rp{coin_value:,.0f} < Rp5rb — skip", flush=True)
                             continue
                         pm = _pair_meta.get(pair, {})
-                        min_base = int(pm.get("min_base", config.MIN_ORDER_IDR))
+                        min_base = int(pm.get("min_base", 10000))
                         if coin_value < min_base:
                             print(f"  {pair}: dust Rp{coin_value:,.0f} < min Rp{min_base:,} — skip restore", flush=True)
                             if not hasattr(portfolio_cycle, "_dust_equity"):
