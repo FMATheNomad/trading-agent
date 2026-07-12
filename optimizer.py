@@ -1,3 +1,4 @@
+import asyncio
 import json
 import time
 import numpy as np
@@ -153,19 +154,26 @@ class AIOptimizer:
         context += f"\n\nregime_history (last 25): {regime_history[-25:]}"
 
         try:
-            client = OpenAI(api_key=config.DEEPSEEK_API_KEY, base_url=config.DEEPSEEK_BASE_URL)
-            resp = client.chat.completions.create(
-                model=config.DEEPSEEK_MODEL,
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": f"Data performa dan konfigurasi saat ini:\n\n{context}"},
-                ],
-                temperature=0.3,
-                max_tokens=1000,
+            def _call_api():
+                client = OpenAI(api_key=config.DEEPSEEK_API_KEY, base_url=config.DEEPSEEK_BASE_URL, timeout=30)
+                return client.chat.completions.create(
+                    model=config.DEEPSEEK_MODEL,
+                    messages=[
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user", "content": f"Data performa dan konfigurasi saat ini:\n\n{context}"},
+                    ],
+                    temperature=0.3,
+                    max_tokens=1000,
+                )
+
+            resp = await asyncio.wait_for(
+                asyncio.to_thread(_call_api),
+                timeout=35
             )
 
             raw = resp.choices[0].message.content
             if not raw:
+                print(f"AI Optimizer: empty response from API", flush=True)
                 return None
 
             cleaned = raw.strip()
