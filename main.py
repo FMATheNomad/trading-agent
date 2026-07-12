@@ -616,7 +616,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     if old:
                         if last_price > 0:
                             coin_value = qty * last_price
-                            pair_min = _pair_meta.get(pair, {}).get("min_base", config.MIN_ORDER_IDR)
+                            pair_min = _pair_meta.get(pair, {}).get("min_base", 10000)
                             if coin_value < pair_min and pair_min > 0:
                                 if _position_states.get(pair):
                                     oid = _position_states[pair].get("tp_order_id") or _position_states[pair].get("sl_order_id")
@@ -628,6 +628,10 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                                 positions.remove(old)
                                 persist.save_positions(positions)
                                 continue
+                            old_entry = old.get("entry_price", 0)
+                            if last_price < old_entry * 0.9 and old_entry > 0:
+                                old["entry_price"] = last_price
+                                print(f"  {pair}: entry_price {old_entry:,.0f}→{last_price:,.0f}", flush=True)
                         old["qty"] = qty
                         old["amount_idr"] = qty * (old.get("entry_price") or 1)
                         continue
