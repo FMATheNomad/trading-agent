@@ -178,6 +178,7 @@ class AIOptimizer:
                 return None
             finish = resp.choices[0].finish_reason
             print(f"  AI Optimizer: API response ({len(raw)} chars, finish={finish})", flush=True)
+            print(f"  AI Optimizer: raw content: {raw[:200]}", flush=True)
 
             cleaned = raw.strip()
             if cleaned.startswith("```"):
