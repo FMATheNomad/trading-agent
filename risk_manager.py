@@ -222,7 +222,9 @@ class PortfolioRiskManager:
         self.kelly.update(trades)
 
     def kelly_for_regime(self, regime: str) -> float:
-        return PER_REGIME_KELLY.get(regime, 0.10)
+        base = PER_REGIME_KELLY.get(regime, 0.10)
+        scale = config.KELLY_FRACTION / 0.10
+        return min(base * scale, config.MAX_KELLY_ALLOC)
 
     def check_portfolio_stop(self, total_equity: float) -> bool:
         if total_equity > self.peak_capital:
