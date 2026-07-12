@@ -163,7 +163,7 @@ class AIOptimizer:
                         {"role": "user", "content": f"Data performa dan konfigurasi saat ini:\n\n{context}"},
                     ],
                     temperature=0.1,
-                    max_tokens=500,
+                    max_tokens=2000,
                 )
 
             resp = await asyncio.wait_for(
@@ -178,7 +178,8 @@ class AIOptimizer:
             if not raw:
                 print(f"AI Optimizer: empty content and reasoning", flush=True)
                 return None
-            print(f"  AI Optimizer: API response received ({len(raw)} chars)", flush=True)
+            finish = resp.choices[0].finish_reason
+            print(f"  AI Optimizer: API response received ({len(raw)} chars, finish={finish})", flush=True)
 
             cleaned = raw.strip()
             if cleaned.startswith("```"):
@@ -186,10 +187,13 @@ class AIOptimizer:
             elif cleaned.startswith("```json"):
                 cleaned = cleaned[7:].rsplit("```", 1)[0].strip()
             else:
-                json_start = cleaned.find("{")
+                json_start = cleaned.rfind("{")
                 json_end = cleaned.rfind("}")
                 if json_start >= 0 and json_end > json_start:
                     cleaned = cleaned[json_start:json_end+1]
+                    print(f"  AI Optimizer: extracted JSON ({len(cleaned)} chars)", flush=True)
+                else:
+                    print(f"  AI Optimizer: no JSON braces found in response", flush=True)
 
             result = json.loads(cleaned)
             self.last_recommendations = result.get("recommendations", [])
