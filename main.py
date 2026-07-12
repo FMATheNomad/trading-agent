@@ -628,10 +628,6 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                                 positions.remove(old)
                                 persist.save_positions(positions)
                                 continue
-                            old_entry = old.get("entry_price", 0)
-                            if last_price < old_entry * 0.9 and old_entry > 0:
-                                old["entry_price"] = last_price
-                                print(f"  {pair}: entry_price {old_entry:,.0f}→{last_price:,.0f}", flush=True)
                         old["qty"] = qty
                         old["amount_idr"] = qty * (old.get("entry_price") or 1)
                         continue
@@ -656,7 +652,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     if pair in db_pos_pairs:
                         continue
 
-                    entry_price = last_price if last_price else _ext_entry_prices.get(pair, 0)
+                    _saved = _ext_entry_prices.get(pair, 0)
+                    entry_price = _saved if _saved > 0 and last_price > 0 and abs(_saved - last_price) / last_price < 0.2 else (last_price if last_price else _saved)
                     if entry_price > 0:
                         _ext_entry_prices[pair] = entry_price
                         persist.save_entry_prices(_ext_entry_prices)
