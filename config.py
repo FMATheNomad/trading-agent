@@ -146,7 +146,7 @@ WS_MARKET_URL = "wss://ws3.indodax.com/ws/"
 WS_MARKET_TOKEN = os.getenv("WS_MARKET_TOKEN", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE5NDY2MTg0MTV9.UR1lBM6Eqh0yWz-PVirw1uPCxe60FdchR8eNVdsskeo")
 WS_PRIVATE_URL = "wss://pws.indodax.com/ws/?cf_ws_frame_ping_pong=true"
 
-AI_OPTIMIZER_INTERVAL_CYCLES = int(os.getenv("AI_OPTIMIZER_INTERVAL_CYCLES", "50"))
+AI_OPTIMIZER_INTERVAL_CYCLES = int(os.getenv("AI_OPTIMIZER_INTERVAL_CYCLES", "10"))
 AI_OPTIMIZER_AUTO_APPLY = os.getenv("AI_OPTIMIZER_AUTO_APPLY", "true").strip().lower() == "true"
 AI_OPTIMIZER_KELLY_MIN = 0.05
 AI_OPTIMIZER_KELLY_MAX = 0.35
