@@ -967,7 +967,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     result = "ATR_SL"
             if result == "PYRAMID_TRIGGER":
                 cash = actual_idr_balance
-                pyr_amount = int(cash * config.ROTHSCHILD_PYRAMID_MULT * 100 / max(len(positions), 1))
+                pyr_amount = int(max(config.MIN_ORDER_IDR, cash * config.ROTHSCHILD_PYRAMID_MULT))
                 if pyr_amount >= config.MIN_ORDER_IDR:
                     pyr_price = last
                     pyr_qty = pyr_amount / pyr_price
