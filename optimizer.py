@@ -191,7 +191,7 @@ class AIOptimizer:
                 json_end = cleaned.rfind("}")
                 if json_start >= 0 and json_end > json_start:
                     cleaned = cleaned[json_start:json_end+1]
-                    print(f"  AI Optimizer: extracted JSON ({len(cleaned)} chars)", flush=True)
+                    print(f"  AI Optimizer: extracted JSON ({len(cleaned)} chars): {cleaned[:300]}", flush=True)
                 else:
                     print(f"  AI Optimizer: no JSON braces found in response", flush=True)
 
