@@ -1502,6 +1502,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         if config.DEEPSEEK_API_KEY and cycle_counter % config.AI_OPTIMIZER_INTERVAL_CYCLES == 0:
             try:
                 all_trades_db = get_trades_by_period("year")
+                print(f"AI Optimizer: cycle #{cycle_counter} — {len(all_trades_db)} total trades in DB", flush=True)
                 eq_curve = persist.load_equity_curve() or [total_equity]
                 msg = await optimizer.run(all_trades_db, eq_curve, regime_history)
                 if msg:

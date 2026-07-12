@@ -146,6 +146,7 @@ class AIOptimizer:
 
         metrics = self._build_metrics(trades, equity_curve)
         if metrics.get("skip"):
+            print(f"AI Optimizer: skip — hanya {metrics.get('trade_count', 0)} completed sell trades (min 5)", flush=True)
             return None
 
         context = self._build_context(metrics)
