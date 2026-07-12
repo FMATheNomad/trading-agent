@@ -108,12 +108,16 @@ def save_today_peak(value: float):
     _save(state)
 
 def load_cooldown() -> dict[str, float]:
-    return _load().get("cooldown", {})
+    raw = _load().get("cooldown", {})
+    if not isinstance(raw, dict):
+        return {}
+    now = __import__("time").time()
+    return {k: float(v) for k, v in raw.items() if isinstance(v, (int, float)) and v > now}
 
 def save_cooldown(data: dict[str, float]):
     state = _load()
     now = __import__("time").time()
-    state["cooldown"] = {k: v for k, v in data.items() if v > now}
+    state["cooldown"] = {k: v for k, v in data.items() if isinstance(v, (int, float)) and v > now}
     _save(state)
 
 def load_blacklist() -> list[str]:
@@ -125,12 +129,16 @@ def save_blacklist(data: set[str]):
     _save(state)
 
 def load_sm_cooldown() -> dict[str, float]:
-    return _load().get("sm_cooldown", {})
+    raw = _load().get("sm_cooldown", {})
+    if not isinstance(raw, dict):
+        return {}
+    now = __import__("time").time()
+    return {k: float(v) for k, v in raw.items() if isinstance(v, (int, float)) and v > now}
 
 def save_sm_cooldown(data: dict[str, float]):
     state = _load()
     now = __import__("time").time()
-    state["sm_cooldown"] = {k: v for k, v in data.items() if v > now}
+    state["sm_cooldown"] = {k: v for k, v in data.items() if isinstance(v, (int, float)) and v > now}
     _save(state)
 
 def load_circuit_breaker() -> dict:

@@ -272,7 +272,7 @@ def _sm_get(pair: str) -> dict | None:
 cycle_counter = 0
 
 async def portfolio_cycle(client: httpx.AsyncClient):
-    global positions, cycle_counter, _prev_regime, _prev_equity, _report_sent_count, _latest_regime, _latest_ticker_map, _latest_all_signals, _latest_ohlcv_map_1h, _latest_balance, _realized_pnl_idr
+    global positions, cycle_counter, _prev_regime, _prev_equity, _report_sent_count, _latest_regime, _latest_ticker_map, _latest_all_signals, _latest_ohlcv_map_1h, _latest_balance, _realized_pnl_idr, _realtime_sold, _realtime_sold_time
     global _daily_loss_hit_today, _greed_used_today, _rothschild_active, _regime_bull_streak, _regime_bear_streak
     global _cb_consecutive_loss_days, _cb_last_loss_date, _cb_triggered_at, _cb_active_until, shutdown_flag, _pending_sells
     cycle_counter += 1
@@ -1637,7 +1637,7 @@ async def _momentum_scanner():
             print(f"Momentum scanner error: {e}", flush=True)
 
 async def _realtime_sltp_check(pair: str, price: float):
-    global _realized_pnl_idr
+    global _realized_pnl_idr, _latest_balance, _pyramid_cooldown
     now_t = time.time()
     if now_t - _realtime_sltp_last.get(pair, 0) < 10:
         return
