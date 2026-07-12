@@ -157,7 +157,7 @@ class AIOptimizer:
             def _call_api():
                 client = OpenAI(api_key=config.DEEPSEEK_API_KEY, base_url=config.DEEPSEEK_BASE_URL, timeout=30)
                 return client.chat.completions.create(
-                    model="deepseek-chat",
+                    model="deepseek-v4-flash",
                     messages=[
                         {"role": "system", "content": SYSTEM_PROMPT},
                         {"role": "user", "content": f"Data performa dan konfigurasi saat ini:\n\n{context}"},
@@ -185,10 +185,21 @@ class AIOptimizer:
             elif cleaned.startswith("```json"):
                 cleaned = cleaned[7:].rsplit("```", 1)[0].strip()
             else:
-                json_start = cleaned.find("{")
-                json_end = cleaned.rfind("}")
-                if json_start >= 0 and json_end > json_start:
-                    cleaned = cleaned[json_start:json_end+1]
+                quote_json = cleaned.find('{"')
+                if quote_json >= 0:
+                    depth = 0
+                    in_str = False
+                    for i in range(quote_json, len(cleaned)):
+                        ch = cleaned[i]
+                        if ch == '"' and (i == 0 or cleaned[i-1] != '\\'):
+                            in_str = not in_str
+                        elif ch == '{' and not in_str:
+                            depth += 1
+                        elif ch == '}' and not in_str:
+                            depth -= 1
+                            if depth == 0:
+                                cleaned = cleaned[quote_json:i+1]
+                                break
 
             result = json.loads(cleaned)
             self.last_recommendations = result.get("recommendations", [])
