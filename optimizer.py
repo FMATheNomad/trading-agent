@@ -174,7 +174,7 @@ class AIOptimizer:
             msg = resp.choices[0].message
             raw = msg.content
             if not raw:
-                raw = getattr(msg, 'reasoning_content', None) or msg.content
+                raw = getattr(msg, 'reasoning_content', None)
             if not raw:
                 print(f"AI Optimizer: empty content and reasoning", flush=True)
                 return None
@@ -185,6 +185,10 @@ class AIOptimizer:
                 cleaned = cleaned.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
             elif cleaned.startswith("```json"):
                 cleaned = cleaned[7:].rsplit("```", 1)[0].strip()
+            else:
+                json_start = cleaned.find("{")
+                if json_start > 0:
+                    cleaned = cleaned[json_start:]
 
             result = json.loads(cleaned)
             self.last_recommendations = result.get("recommendations", [])
