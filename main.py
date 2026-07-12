@@ -1526,9 +1526,15 @@ _latest_balance: float = 0
 
 async def _optimizer_loop():
     last_opt_cycle = 0
+    _warned_no_key = False
     while not shutdown_flag:
         await asyncio.sleep(15)
-        if not config.DEEPSEEK_API_KEY or cycle_counter == 0:
+        if not config.DEEPSEEK_API_KEY:
+            if not _warned_no_key and cycle_counter > 0:
+                _warned_no_key = True
+                await send_message("⚠️ AI OPTIMIZER: DeepSeek API key tidak terisi/balance habis — optimasi nonaktif. Bot tetap jalan dengan parameter terakhir.")
+            continue
+        if cycle_counter == 0:
             continue
         if cycle_counter % config.AI_OPTIMIZER_INTERVAL_CYCLES != 0:
             continue
