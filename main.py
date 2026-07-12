@@ -1499,16 +1499,17 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             print(f"COMPOUND: {sign}Rp{_realized_pnl_idr:,.0f} (Rp{old_cap:,.0f} → Rp{config.PLAY_CAPITAL_IDR:,.0f})", flush=True)
             _realized_pnl_idr = 0.0
 
+        print(f"  OPTIMIZER_DEBUG: cycle={cycle_counter} api_key={'YES' if config.DEEPSEEK_API_KEY else 'NO'} interval={config.AI_OPTIMIZER_INTERVAL_CYCLES} mod={cycle_counter % config.AI_OPTIMIZER_INTERVAL_CYCLES}", flush=True)
         if config.DEEPSEEK_API_KEY and cycle_counter % config.AI_OPTIMIZER_INTERVAL_CYCLES == 0:
             try:
                 all_trades_db = get_trades_by_period("year")
-                print(f"AI Optimizer: cycle #{cycle_counter} — {len(all_trades_db)} total trades in DB", flush=True)
+                print(f"  AI Optimizer: cycle #{cycle_counter} — {len(all_trades_db)} total trades in DB", flush=True)
                 eq_curve = persist.load_equity_curve() or [total_equity]
                 msg = await optimizer.run(all_trades_db, eq_curve, regime_history)
                 if msg:
                     await send_message(msg)
             except Exception as opt_e:
-                print(f"AI Optimizer error: {opt_e}", flush=True)
+                print(f"  AI Optimizer error: {opt_e}", flush=True)
 
     except Exception as e:
         print(f"Portfolio cycle error: {e}", flush=True)
