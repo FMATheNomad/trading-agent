@@ -244,12 +244,12 @@ class PortfolioRiskManager:
             if pct > config.MAX_POSITION_PCT_PER_ASSET * 100:
                 pct = config.MAX_POSITION_PCT_PER_ASSET * 100
             amount = balance_idr * (pct / 100)
-            if amount < 25000:
-                if balance_idr >= 25000:
-                    min_pct = 25000 / balance_idr * 100
+            if amount < 20000:
+                if balance_idr >= 20000:
+                    min_pct = 20000 / balance_idr * 100
                     pct = min(min_pct, 100)
                     amount = balance_idr * (pct / 100)
-                    if amount >= 25000:
+                    if amount >= 20000:
                         t["allocation_pct"] = pct
                         valid.append(t)
                 continue
