@@ -61,9 +61,11 @@ _latest_ohlcv_map_1h: dict = {}
 _order_error_cooldown: dict[str, float] = {}
 _realtime_sltp_last: dict[str, float] = {}
 _realtime_sold: set[str] = set()
+_realtime_sold_time: dict[str, float] = {}
 _position_states: dict[str, dict] = {}
 _sm_cooldown: dict[str, float] = {}
 _momentum_entry_time: dict[str, float] = {}
+_pyramid_cooldown: dict[str, float] = {}
 _cycle_last_end: float = 0
 _cycle_last_info: dict = {}
 _recent_actions: list[dict] = []
@@ -222,8 +224,9 @@ async def _sm_place_sell(client: httpx.AsyncClient, pair: str, qty: float, price
         pass
     return None
 
-async def _sm_place_tp(client: httpx.AsyncClient, pair: str, qty: float, entry: float, atr: float) -> int | None:
-    tp_price = int(entry * (1 + max(atr, 0.5) * config.ATR_TP_MULTIPLIER / 100))
+async def _sm_place_tp(client: httpx.AsyncClient, pair: str, qty: float, entry: float, atr: float, mult: float | None = None) -> int | None:
+    m = mult if mult is not None else config.ATR_TP_MULTIPLIER
+    tp_price = int(entry * (1 + max(atr, 0.5) * m / 100))
     ret = await _sm_place_sell(client, pair, qty, tp_price)
     if ret and ret.get("order_id"):
         oid = int(ret["order_id"])
@@ -419,35 +422,77 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     positions.remove(p)
                     persist.save_positions(positions)
                     log_trade("sell", fill_price, sm["qty"], fill_price * sm["qty"], status="closed", pnl=pnl, reason="sm_" + sm["state"])
-                    if config.AUTO_COMPOUND and pnl > 0:
+                    if config.AUTO_COMPOUND:
                         _realized_pnl_idr += pnl
                     label = "TP" if sm["state"] == "TP_ACTIVE" else "SL"
                     emoji = "🟢" if pnl >= 0 else "🔴"
                     await send_message(f"{emoji} SM {label}: {pid}\n{pnl:+.0f} IDR @ Rp{fill_price:,}")
-                    if len(_realtime_sold) > 50:
-                        _realtime_sold.clear()
+                    now_rs = time.time()
+                    _realtime_sold_time[pid] = now_rs
                     _realtime_sold.add(pid)
+                    stale_rs = {p for p in _realtime_sold if now_rs - _realtime_sold_time.get(p, 0) > 300}
+                    _realtime_sold -= stale_rs
                     print(f"  SM FILLED: {pid} {sm['state']} @ Rp{fill_price:,} ({pnl:+.0f} IDR)", flush=True)
                     if pnl < 0:
                         _coin_blacklist.add(pid)
                     cd_time = 21600 if pnl >= 0 else 86400
                     _sm_cooldown[pid] = time.time() + cd_time
+                    persist.save_sm_cooldown(_sm_cooldown)
                     _sm_cleanup(pid)
-                elif oi is None or oi.get("status", "").lower() in ("cancelled", "rejected"):
-                    print(f"  SM ORDER CANCELLED: {pid} {sm['state']} — re-place", flush=True)
+                continue
+            if oi is None:
+                print(f"  SM ORDER UNKNOWN: {pid} {sm['state']} oid={oid} — skip (network error)", flush=True)
+                continue
+            status = oi.get("status", "").lower()
+            if status in ("cancelled", "rejected"):
+                print(f"  SM ORDER CANCELLED: {pid} {sm['state']} — re-place", flush=True)
+                p = next((x for x in positions if x["pair"] == pid), None)
+                if p:
+                    atr = p.get("atr_pct") or risk.compute_atr(_latest_ohlcv_map_1h.get(pid, []))
+                    sm["tp_order_id"] = None
+                    sm["sl_order_id"] = None
+                    if sm["state"] in ("TP_ACTIVE", "SL_ACTIVE"):
+                        oid = await _sm_place_tp(client, pid, p["qty"], sm["entry_price"], atr)
+                        if oid:
+                            print(f"  SM TP RE-PLACED: {pid} oid={oid}", flush=True)
+                    elif sm["state"] == "TRAILING":
+                        oid = await _sm_place_sl(client, pid, p["qty"], sm["entry_price"], atr, mult=config.ROTHSCHILD_TRAILING_SL_ATR)
+                        if oid:
+                            print(f"  SM SL RE-PLACED: {pid} oid={oid}", flush=True)
+                continue
+            if sm["state"] == "SL_ACTIVE" and sm.get("sl_price", 0) > 0:
+                lp = LIVE_TICKERS.get(pid, {}).get("last") or _latest_ticker_map.get(pid, {}).get("last", 0)
+                if lp > 0 and lp < sm["sl_price"] * 0.97:
+                    print(f"  SM HARD SL: {pid} price Rp{lp:,.0f} < 97% of SL Rp{sm['sl_price']:,} — force market sell", flush=True)
                     p = next((x for x in positions if x["pair"] == pid), None)
                     if p:
-                        atr = p.get("atr_pct") or risk.compute_atr(_latest_ohlcv_map_1h.get(pid, []))
-                        sm["tp_order_id"] = None
-                        sm["sl_order_id"] = None
-                        if sm["state"] in ("TP_ACTIVE", "SL_ACTIVE"):
-                            oid = await _sm_place_tp(client, pid, p["qty"], sm["entry_price"], atr)
-                            if oid:
-                                print(f"  SM TP RE-PLACED: {pid} oid={oid}", flush=True)
-                        elif sm["state"] == "TRAILING":
-                            oid = await _sm_place_sl(client, pid, p["qty"], sm["entry_price"], atr, mult=config.ROTHSCHILD_TRAILING_SL_ATR)
-                            if oid:
-                                print(f"  SM SL RE-PLACED: {pid} oid={oid}", flush=True)
+                        try:
+                            await _sm_cancel(client, oid, pid)
+                            coin_name = pid.split("_")[0]
+                            qty_s = f"{p['qty']:.8f}".rstrip("0").rstrip(".") or "0"
+                            bid = int(_latest_ticker_map.get(pid, {}).get("buy", lp))
+                            sp_h = {"method":"trade","timestamp":int(time.time()*1000),"recvWindow":"5000","pair":pid,"type":"sell",coin_name: qty_s,"price":str(bid),"order_type":"limit"}
+                            sb_h = urlencode(sp_h)
+                            ss_h = hmac.new(config.INDODAX_SECRET_KEY.encode(), sb_h.encode(), hashlib.sha512).hexdigest()
+                            sr_h = await client.post(config.INDODAX_TAPI_URL, headers={"Key":config.INDODAX_API_KEY,"Sign":ss_h,"Content-Type":"application/x-www-form-urlencoded"}, content=sb_h)
+                            sj_h = sr_h.json()
+                            if sj_h.get("success") == 1:
+                                fill_p = float(sj_h["return"].get("price", bid))
+                                pnl_h = (fill_p - sm["entry_price"]) * sm["qty"]
+                                positions.remove(p)
+                                persist.save_positions(positions)
+                                log_trade("sell", fill_p, sm["qty"], fill_p * sm["qty"], status="closed", pnl=pnl_h, reason="sm_hard_sl")
+                                if config.AUTO_COMPOUND:
+                                    _realized_pnl_idr += pnl_h
+                                await send_message(f"🔴 SM HARD SL: {pid}\n{pnl_h:+.0f} IDR @ Rp{fill_p:,}")
+                                _coin_blacklist.add(pid)
+                                cd_time = 86400
+                                _sm_cooldown[pid] = time.time() + cd_time
+                                persist.save_sm_cooldown(_sm_cooldown)
+                                _sm_cleanup(pid)
+                                print(f"  SM HARD SL EXECUTED: {pid} @ Rp{fill_p:,} ({pnl_h:+.0f} IDR)", flush=True)
+                        except Exception as e:
+                            print(f"  SM HARD SL failed {pid}: {e}", flush=True)
         except Exception:
             pass
 
@@ -889,7 +934,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             session_tag = "🇺🇸 US"
             session_mult = 1.3
         balance_idr = int(balance_idr * session_mult)
-        print(f"Session: {session_tag} ({hour_wib:02d} WIB) — size: {session_mult:.1f}x", flush=True)
+        balance_idr = min(balance_idr, max(actual_idr_balance, 0))
+        print(f"Session: {session_tag} ({hour_wib:02d} WIB) — size: {session_mult:.1f}x (capped Rp{balance_idr:,})", flush=True)
 
         log_decision("PORTFOLIO", decision.get("decision", "HOLD"),
                      decision.get("reasoning", ""),
@@ -912,9 +958,10 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             atr = p.get("atr_pct") or risk.compute_atr(ohlcv_map_1h.get(pid, []))
             if atr and p["qty"] > 0:
                 _sm_init(pid, p["entry_price"], p["qty"], atr, mode="TP_ACTIVE")
-                oid = await _sm_place_tp(client, pid, p["qty"], p["entry_price"], atr)
+                tp_mult = 0.5 if current_regime in ("SIDEWAYS", "SIDEWAYS_LOW_VOL") else config.ATR_TP_MULTIPLIER
+                oid = await _sm_place_tp(client, pid, p["qty"], p["entry_price"], atr, mult=tp_mult)
                 if oid:
-                    print(f"  SM INIT: {pid} tp_oid={oid} entry={p['entry_price']:,.0f} atr={atr:.2f}%", flush=True)
+                    print(f"  SM INIT: {pid} tp_oid={oid} entry={p['entry_price']:,.0f} atr={atr:.2f}% tp_mult={tp_mult:.1f}", flush=True)
                 else:
                     _position_states[pid]["state"] = "PENDING"
                     print(f"  SM PENDING: {pid} — TP fail, retry next cycle", flush=True)
@@ -1043,7 +1090,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                             sell_value = last * p["qty"]
                             log_trade("sell", last, p["qty"], sell_value,
                                       status="closed", pnl=pnl, reason=result)
-                            if config.AUTO_COMPOUND and pnl > 0:
+                            if config.AUTO_COMPOUND:
                                 _realized_pnl_idr += pnl
                         else:
                             err_msg = sj.get('error', 'unknown')
@@ -1083,13 +1130,24 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             _coin_blacklist.discard(oldest)
         persist.save_blacklist(_coin_blacklist)
         persist.save_cooldown(_cooldown)
+        persist.save_sm_cooldown(_sm_cooldown)
+        now_rs = time.time()
+        _realtime_sold -= {p for p in _realtime_sold if now_rs - _realtime_sold_time.get(p, 0) > 300}
 
         if sl_hits:
             await send_message("SL/TP triggered:\n" + "\n".join(sl_hits))
 
         trades_today = get_trade_count_today()
         if trades_today >= config.MAX_DAILY_TRADES:
-            print(f"MAX TRADES/DAY ({config.MAX_DAILY_TRADES}) reached.", flush=True)
+            print(f"MAX TRADES/DAY ({config.MAX_DAILY_TRADES}) reached. Skipping buys.", flush=True)
+            trades = [t for t in trades if t.get("action") != "BUY"]
+            if not trades:
+                print(f"Max trades/day — no sells to execute. Sleeping.", flush=True)
+                persist.save_initial_equity(total_equity)
+                if positions and config.INDODAX_API_KEY:
+                    pair_str = ",".join(p["pair"] for p in positions[:5])
+                    await refresh_deadman(client, pair_str)
+                return
 
         today_str = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=7))).strftime("%Y-%m-%d")
         if getattr(portfolio_cycle, "_last_report_date", "") != today_str:
@@ -1124,7 +1182,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             if any(t.get("action") == "SELL" for t in decision.get("trades", [])):
                 print("STARTUP GUARD: blocked CIO sells (positions restored from balance)", flush=True)
             trades = [t for t in trades if t.get("action") != "SELL"]
-        trades = [t for t in trades if t.get("action") != "BUY" or (t["pair"] not in _coin_blacklist and (t["pair"] not in _cooldown or time.time() >= _cooldown.get(t["pair"], 0)))]
+        trades = [t for t in trades if t.get("action") != "BUY" or (t["pair"] not in _coin_blacklist and (t["pair"] not in _cooldown or time.time() >= _cooldown.get(t["pair"], 0)) and (t["pair"] not in _sm_cooldown or time.time() >= _sm_cooldown.get(t["pair"], 0)))]
         if config.SKIP_COINS:
             trades = [t for t in trades if t.get("action") != "BUY" or t["pair"] not in config.SKIP_COINS]
         if _coin_blacklist:
@@ -1303,7 +1361,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     _cio_stats["wins"] += 1
                 else:
                     _cio_stats["losses"] += 1
-                if config.AUTO_COMPOUND and sell_pnl_idr > 0:
+                if config.AUTO_COMPOUND:
                     _realized_pnl_idr += sell_pnl_idr
             pnl_trade = (t.get("exec_price", 0) - t.get("entry_price", 0)) / t.get("entry_price", 1) * 100 if t.get("entry_price") else 0
             _recent_actions.append({
@@ -1421,13 +1479,16 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         _latest_ohlcv_map_1h = ohlcv_map_1h
         _latest_balance = actual_idr_balance
 
-        if config.AUTO_COMPOUND and _realized_pnl_idr > 0:
+        if config.AUTO_COMPOUND and _realized_pnl_idr != 0:
             old_cap = config.PLAY_CAPITAL_IDR
-            config.PLAY_CAPITAL_IDR = min(
+            config.PLAY_CAPITAL_IDR = max(
                 config.PLAY_CAPITAL_IDR + _realized_pnl_idr,
-                config.COMPOUND_CAP_IDR
+                config.MIN_ORDER_IDR
             )
-            print(f"COMPOUND: +Rp{_realized_pnl_idr:,.0f} (Rp{old_cap:,.0f} → Rp{config.PLAY_CAPITAL_IDR:,.0f})", flush=True)
+            if config.COMPOUND_CAP_IDR > 0:
+                config.PLAY_CAPITAL_IDR = min(config.PLAY_CAPITAL_IDR, config.COMPOUND_CAP_IDR)
+            sign = "+" if _realized_pnl_idr >= 0 else ""
+            print(f"COMPOUND: {sign}Rp{_realized_pnl_idr:,.0f} (Rp{old_cap:,.0f} → Rp{config.PLAY_CAPITAL_IDR:,.0f})", flush=True)
             _realized_pnl_idr = 0.0
 
     except Exception as e:
@@ -1471,6 +1532,13 @@ async def _momentum_scanner():
         try:
             await asyncio.sleep(config.MOMENTUM_SCAN_INTERVAL)
             if not _latest_ohlcv_map_1h:
+                continue
+            if _daily_loss_hit_today:
+                print(f"  Momentum scanner: daily loss hit — skip entry", flush=True)
+                continue
+            from db import get_trade_count_today
+            if get_trade_count_today() >= config.MAX_DAILY_TRADES:
+                print(f"  Momentum scanner: max trades/day ({config.MAX_DAILY_TRADES}) — skip", flush=True)
                 continue
             cash_avail = _latest_balance
             if cash_avail < config.MIN_ORDER_IDR:
@@ -1649,17 +1717,41 @@ async def _realtime_sltp_check(pair: str, price: float):
                             sm["sl_price"] = trail_price
                             print(f"  SM TRAIL: {pair} trailing_high={price:,.0f} sl={trail_price:,} (oid={oid})", flush=True)
         if pnl_pct >= max(atr, 0.5) * config.ROTHSCHILD_PYRAMID_TRIGGER / 100:
-            if not _daily_loss_hit_today or _greed_used_today:
+            now_pyr = time.time()
+            if now_pyr - _pyramid_cooldown.get(pair, 0) < 300:
+                print(f"  SM PYRAMID SKIP: {pair} cooldown ({int(now_pyr - _pyramid_cooldown.get(pair, 0))}s)", flush=True)
+            elif not _daily_loss_hit_today or _greed_used_today:
                 pyr_amt = int(max(config.MIN_ORDER_IDR, _latest_balance * config.ROTHSCHILD_PYRAMID_MULT))
-                if pyr_amt >= config.MIN_ORDER_IDR:
+                if pyr_amt >= config.MIN_ORDER_IDR and pyr_amt <= _latest_balance:
                     async with httpx.AsyncClient() as _pc:
                         try:
                             pyr_order = await place_order(_pc, "buy", price, pyr_amt, pair=pair, order_type="market")
                             if pyr_order.get("order_id") or pyr_order.get("receive_rp"):
                                 coin_n = pair.split("_")[0]
                                 pyr_f = float(pyr_order.get(f"receive_{coin_n}", 0)) or (pyr_amt / price)
-                                add_position(positions, pair, "BUY", price, pyr_f, pyr_amt, atr, time.time(), "TRAILING")
-                                print(f"  SM PYRAMID: {pair} +{pyr_f:.6f} @ {price:,.0f}", flush=True)
+                                pyr_spend = float(pyr_order.get("spend_rp", 0)) or pyr_amt
+                                _latest_balance -= pyr_spend
+                                old_qty = sm["qty"]
+                                old_entry = sm["entry_price"]
+                                total_qty = old_qty + pyr_f
+                                new_entry = (old_entry * old_qty + price * pyr_f) / total_qty if total_qty > 0 else price
+                                sm["entry_price"] = new_entry
+                                sm["qty"] = total_qty
+                                add_position(positions, pair, "BUY", price, pyr_f, pyr_spend, atr, time.time(), "TRAILING")
+                                _pyramid_cooldown[pair] = now_pyr
+                                if sm.get("sl_order_id"):
+                                    oid = sm["sl_order_id"]
+                                    cb_p = urlencode({"method":"cancelOrder","timestamp":int(time.time()*1000),"recvWindow":"5000","pair":pair,"order_id":str(oid),"type":"sell"})
+                                    cs_p = hmac.new(config.INDODAX_SECRET_KEY.encode(), cb_p.encode(), hashlib.sha512).hexdigest()
+                                    await _pc.post(config.INDODAX_TAPI_URL, headers={"Key":config.INDODAX_API_KEY,"Sign":cs_p,"Content-Type":"application/x-www-form-urlencoded"}, content=cb_p)
+                                    sm["sl_order_id"] = None
+                                p_sm = next((x for x in positions if x["pair"] == pair), None)
+                                if p_sm:
+                                    new_oid = await _sm_place_sl(_pc, pair, p_sm["qty"], new_entry, atr, mult=config.ROTHSCHILD_TRAILING_SL_ATR)
+                                    if new_oid:
+                                        sm["sl_order_id"] = new_oid
+                                print(f"  SM PYRAMID: {pair} +{pyr_f:.6f} @ {price:,.0f} avg_entry={new_entry:,.0f}", flush=True)
+                                await send_message(f"🔺 SM PYRAMID: {pair} +{pyr_f:.6f} @ Rp{price:,.0f}")
                         except Exception as e:
                             print(f"  SM pyramid fail {pair}: {e}", flush=True)
 
@@ -1722,6 +1814,11 @@ async def main():
             now = time.time()
             _cooldown.update({k: v for k, v in saved_cooldown.items() if v > now})
             print(f"Restored {len(_cooldown)} active cooldowns", flush=True)
+        saved_sm_cd = persist.load_sm_cooldown()
+        if saved_sm_cd:
+            now = time.time()
+            _sm_cooldown.update({k: v for k, v in saved_sm_cd.items() if v > now})
+            print(f"Restored {len(_sm_cooldown)} active SM cooldowns", flush=True)
         cb = persist.load_circuit_breaker()
         _cb_consecutive_loss_days = cb.get("consecutive_loss_days", 0)
         _cb_last_loss_date = cb.get("last_loss_date", "")

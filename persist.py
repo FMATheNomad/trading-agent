@@ -20,8 +20,12 @@ def _load() -> dict:
 
 def _save(state: dict):
     try:
-        with open(STATE_FILE, "w") as f:
+        tmp = STATE_FILE + ".tmp"
+        with open(tmp, "w") as f:
             json.dump(state, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, STATE_FILE)
     except Exception as e:
         print(f"Persist save error: {e}", flush=True)
 
@@ -118,6 +122,15 @@ def load_blacklist() -> list[str]:
 def save_blacklist(data: set[str]):
     state = _load()
     state["blacklist"] = list(data)[:50]
+    _save(state)
+
+def load_sm_cooldown() -> dict[str, float]:
+    return _load().get("sm_cooldown", {})
+
+def save_sm_cooldown(data: dict[str, float]):
+    state = _load()
+    now = __import__("time").time()
+    state["sm_cooldown"] = {k: v for k, v in data.items() if v > now}
     _save(state)
 
 def load_circuit_breaker() -> dict:
