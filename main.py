@@ -1499,18 +1499,6 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             print(f"COMPOUND: {sign}Rp{_realized_pnl_idr:,.0f} (Rp{old_cap:,.0f} → Rp{config.PLAY_CAPITAL_IDR:,.0f})", flush=True)
             _realized_pnl_idr = 0.0
 
-        print(f"  OPTIMIZER_DEBUG: cycle={cycle_counter} api_key={'YES' if config.DEEPSEEK_API_KEY else 'NO'} interval={config.AI_OPTIMIZER_INTERVAL_CYCLES} mod={cycle_counter % config.AI_OPTIMIZER_INTERVAL_CYCLES}", flush=True)
-        if config.DEEPSEEK_API_KEY and cycle_counter % config.AI_OPTIMIZER_INTERVAL_CYCLES == 0:
-            try:
-                all_trades_db = get_trades_by_period("year")
-                print(f"  AI Optimizer: cycle #{cycle_counter} — {len(all_trades_db)} total trades in DB", flush=True)
-                eq_curve = persist.load_equity_curve() or [total_equity]
-                msg = await optimizer.run(all_trades_db, eq_curve, regime_history)
-                if msg:
-                    await send_message(msg)
-            except Exception as opt_e:
-                print(f"  AI Optimizer error: {opt_e}", flush=True)
-
     except Exception as e:
         print(f"Portfolio cycle error: {e}", flush=True)
         import traceback
@@ -1535,6 +1523,27 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         print(f"⏱ Cycle #{cycle_counter} finished in {int(time.time() - _t0)}s", flush=True)
 
 _latest_balance: float = 0
+
+async def _optimizer_loop():
+    last_opt_cycle = 0
+    while not shutdown_flag:
+        await asyncio.sleep(15)
+        if not config.DEEPSEEK_API_KEY or cycle_counter == 0:
+            continue
+        if cycle_counter % config.AI_OPTIMIZER_INTERVAL_CYCLES != 0:
+            continue
+        if cycle_counter == last_opt_cycle:
+            continue
+        last_opt_cycle = cycle_counter
+        try:
+            all_trades_db = get_trades_by_period("year")
+            eq_curve = persist.load_equity_curve()
+            print(f"  AI Optimizer: cycle #{cycle_counter} — {len(all_trades_db)} total trades in DB", flush=True)
+            msg = await optimizer.run(all_trades_db, eq_curve, regime_history)
+            if msg:
+                await send_message(msg)
+        except Exception as opt_e:
+            print(f"  AI Optimizer error: {opt_e}", flush=True)
 
 async def _balance_poller(client: httpx.AsyncClient):
     global _latest_balance
@@ -2310,6 +2319,7 @@ async def main():
     ws_task = asyncio.create_task(market_ws_loop())
     pws_task = asyncio.create_task(private_ws_loop())
     momentum_task = asyncio.create_task(_momentum_scanner())
+    opt_task = asyncio.create_task(_optimizer_loop())
     for _ in range(6):
         await asyncio.sleep(0.5)
 
