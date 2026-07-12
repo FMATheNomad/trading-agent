@@ -1585,7 +1585,7 @@ async def _realtime_sltp_check(pair: str, price: float):
     recovery_level = entry * 1.005
 
     if sm["state"] == "TP_ACTIVE":
-        if price >= entry * 1.025 and _latest_regime.get("regime") == "BULL":
+        if price >= entry * 1.025 and _latest_regime.get("regime") == "BULL" and (sm.get("tp_price", 0) == 0 or price < sm["tp_price"] * 0.995):
             async with httpx.AsyncClient() as c:
                 if sm.get("tp_order_id"):
                     await _sm_cancel(c, sm["tp_order_id"], pair)
