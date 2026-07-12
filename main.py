@@ -1538,7 +1538,7 @@ async def _momentum_scanner():
                         print(f"    Range filter: {pid} pp={pp_m:.0f}% < 70 — OK", flush=True)
                 alloc = 0.4
                 amount = int(cash_avail * alloc)
-                if amount < 20000:
+                if amount < 25000:
                     continue
                 qty = amount / price
                 if not risk.is_profit_viable(price, qty, "BUY", atr_pct=atr_chk):
