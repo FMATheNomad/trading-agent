@@ -171,11 +171,14 @@ class AIOptimizer:
                 timeout=35
             )
 
-            raw = resp.choices[0].message.content
+            msg = resp.choices[0].message
+            raw = msg.content
             if not raw:
-                full_resp = resp.choices[0].message.model_dump() if hasattr(resp.choices[0].message, 'model_dump') else str(resp.choices[0])
-                print(f"AI Optimizer: empty content — full response: {str(full_resp)[:200]}", flush=True)
+                raw = getattr(msg, 'reasoning_content', None) or msg.content
+            if not raw:
+                print(f"AI Optimizer: empty content and reasoning", flush=True)
                 return None
+            print(f"  AI Optimizer: API response received ({len(raw)} chars)", flush=True)
 
             cleaned = raw.strip()
             if cleaned.startswith("```"):
