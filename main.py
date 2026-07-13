@@ -989,6 +989,20 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 recalc = risk.compute_atr(_latest_ohlcv_map_1h[pid_sm])
                 if recalc < atr_sm:
                     atr_sm = recalc
+            bear_regime = _latest_regime.get("regime", "") in ("BEAR",)
+            if bear_regime and sm["state"] == "TP_ACTIVE" and sm.get("tp_order_id"):
+                bear_bid = int(ticker_map.get(pid_sm, {}).get("buy", 0) or lp_sm)
+                sm_tp = sm.get("tp_price", 0)
+                if sm_tp > bear_bid * 1.005:
+                    print(f"  SM BEAR TP: {pid_sm} — tighten TP (was Rp{sm_tp:,} → bid Rp{bear_bid:,})", flush=True)
+                    async with httpx.AsyncClient() as _tc:
+                        await _sm_cancel(_tc, sm["tp_order_id"], pid_sm)
+                        sm["tp_order_id"] = None
+                        sm["tp_price"] = 0
+                        new_oid = await _sm_place_sell(_tc, pid_sm, p_sm["qty"], bear_bid)
+                        if new_oid:
+                            sm["tp_order_id"] = new_oid
+                            sm["tp_price"] = bear_bid
             sl_level_sm = entry_sm * (1 - max(atr_sm, 0.5) * config.ATR_SL_MULTIPLIER / 100)
             if lp_sm <= sl_level_sm:
                 async with httpx.AsyncClient() as _tc:
@@ -1300,16 +1314,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 print(f"  ATR: {atr_pct}% | SL: {sl} | TP: {tp}", flush=True)
 
             if action == "SELL" and _position_states.get(pid):
-                sm_exit = _position_states[pid]
-                regime_exit = _latest_regime.get("regime", "")
-                if regime_exit in ("BEAR",) and sm_exit.get("tp_order_id"):
-                    print(f"  BEAR EXIT: {pid} — cancel SM TP, sell maker at bid", flush=True)
-                    await _sm_cancel(client, sm_exit["tp_order_id"], pid)
-                    _sm_cleanup(pid)
-                    ot = "maker"
-                else:
-                    print(f"  SKIP SELL {pid}: SM aktif, exit via state machine", flush=True)
-                    continue
+                print(f"  SKIP SELL {pid}: SM aktif, exit via state machine", flush=True)
+                continue
             else:
                 ot = "maker_first" if config.MAKER_FIRST and action == "BUY" else "market"
             try:
