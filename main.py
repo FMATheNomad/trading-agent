@@ -1303,13 +1303,15 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 sm_exit = _position_states[pid]
                 regime_exit = _latest_regime.get("regime", "")
                 if regime_exit in ("BEAR",) and sm_exit.get("tp_order_id"):
-                    print(f"  BEAR EXIT: {pid} — cancel SM TP, sell via market", flush=True)
+                    print(f"  BEAR EXIT: {pid} — cancel SM TP, sell maker at bid", flush=True)
                     await _sm_cancel(client, sm_exit["tp_order_id"], pid)
                     _sm_cleanup(pid)
+                    ot = "maker"
                 else:
                     print(f"  SKIP SELL {pid}: SM aktif, exit via state machine", flush=True)
                     continue
-            ot = "market"
+            else:
+                ot = "maker_first" if config.MAKER_FIRST and action == "BUY" else "market"
             try:
                 order = await place_order(client, action.lower(), price, amount,
                                            pair=pid, order_type=ot,
