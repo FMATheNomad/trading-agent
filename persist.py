@@ -141,7 +141,7 @@ def save_optimizer_state(state: dict):
     s = _load()
     s["optimizer_state"] = {
         "last_trade_id": int(state.get("last_trade_id", 0)),
-        "last_run_time": float(state.get("last_run_time", time.time())),
+        "last_run_time": float(state.get("last_run_time", __import__("time").time())),
     }
     _save(s)
 
