@@ -24,7 +24,7 @@ from risk_manager import RiskManager, PortfolioRiskManager
 from executor import place_order, get_balance, get_order
 from deadman import refresh_deadman, cancel_deadman
 from notifier import send_message
-from db import init_db, log_trade, log_decision, get_recent_trades, get_trade_count_today, get_trades_by_period, get_recent_completed_sells, save_chat, get_chat_history, init_chat_db
+from db import init_db, log_trade, log_decision, get_recent_trades, get_trade_count_today, get_trades_by_period, get_recent_completed_sells, count_new_completed_sells, get_max_trade_id, save_chat, get_chat_history, init_chat_db
 import persist
 from market_ws import market_ws_loop, LIVE_TICKERS, stop as mws_stop, set_on_tick
 from private_ws import private_ws_loop, stop as pws_stop
@@ -1532,7 +1532,6 @@ async def portfolio_cycle(client: httpx.AsyncClient):
 _latest_balance: float = 0
 
 async def _optimizer_loop():
-    last_opt_cycle = 0
     _warned_no_key = False
     while not shutdown_flag:
         await asyncio.sleep(15)
@@ -1543,18 +1542,22 @@ async def _optimizer_loop():
             continue
         if cycle_counter == 0:
             continue
-        if cycle_counter % config.AI_OPTIMIZER_INTERVAL_CYCLES != 0:
+        opt_state = persist.load_optimizer_state()
+        last_id = opt_state.get("last_trade_id", 0)
+        last_run = opt_state.get("last_run_time", 0)
+        new_count = count_new_completed_sells(last_id)
+        seven_days = 7 * 86400
+        if new_count < 50 and (time.time() - last_run) < seven_days:
             continue
-        if cycle_counter == last_opt_cycle:
-            continue
-        last_opt_cycle = cycle_counter
         try:
             recent_sells = get_recent_completed_sells(100)
             eq_curve = persist.load_equity_curve()
-            print(f"  AI Optimizer: cycle #{cycle_counter} — {len(recent_sells)} completed sells (last 100)", flush=True)
+            print(f"  AI Optimizer: {new_count} new sells since last run — running analysis ({len(recent_sells)} total)", flush=True)
             msg = await optimizer.run(recent_sells, eq_curve, regime_history)
             if msg:
                 await send_message(msg)
+            latest_id = get_max_trade_id()
+            persist.save_optimizer_state({"last_trade_id": latest_id, "last_run_time": time.time()})
         except Exception as opt_e:
             print(f"  AI Optimizer error: {opt_e}", flush=True)
 

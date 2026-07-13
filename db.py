@@ -139,6 +139,19 @@ def get_trade_count_today() -> int:
         ).fetchone()
     return row[0] if row else 0
 
+def count_new_completed_sells(since_id: int = 0) -> int:
+    with _conn() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM trades WHERE side='sell' AND pnl IS NOT NULL AND id > ?",
+            (since_id,),
+        ).fetchone()
+    return row[0] if row else 0
+
+def get_max_trade_id() -> int:
+    with _conn() as conn:
+        row = conn.execute("SELECT MAX(id) FROM trades").fetchone()
+    return row[0] if row and row[0] else 0
+
 def get_recent_completed_sells(limit: int = 100) -> list[dict]:
     with _conn() as conn:
         rows = conn.execute(

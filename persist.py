@@ -128,6 +128,23 @@ def save_blacklist(data: set[str]):
     state["blacklist"] = list(data)[:50]
     _save(state)
 
+def load_optimizer_state() -> dict:
+    raw = _load().get("optimizer_state", {})
+    if not isinstance(raw, dict):
+        return {"last_trade_id": 0, "last_run_time": 0}
+    return {
+        "last_trade_id": int(raw.get("last_trade_id", 0)),
+        "last_run_time": float(raw.get("last_run_time", 0)),
+    }
+
+def save_optimizer_state(state: dict):
+    s = _load()
+    s["optimizer_state"] = {
+        "last_trade_id": int(state.get("last_trade_id", 0)),
+        "last_run_time": float(state.get("last_run_time", time.time())),
+    }
+    _save(s)
+
 def load_sm_cooldown() -> dict[str, float]:
     raw = _load().get("sm_cooldown", {})
     if not isinstance(raw, dict):
