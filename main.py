@@ -1145,18 +1145,6 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         if sl_hits:
             await send_message("SL/TP triggered:\n" + "\n".join(sl_hits))
 
-        trades_today = get_trade_count_today()
-        if trades_today >= config.MAX_DAILY_TRADES:
-            print(f"MAX TRADES/DAY ({config.MAX_DAILY_TRADES}) reached. Skipping buys.", flush=True)
-            trades = [t for t in trades if t.get("action") != "BUY"]
-            if not trades:
-                print(f"Max trades/day — no sells to execute. Sleeping.", flush=True)
-                persist.save_initial_equity(total_equity)
-                if positions and config.INDODAX_API_KEY:
-                    pair_str = ",".join(p["pair"] for p in positions[:5])
-                    await refresh_deadman(client, pair_str)
-                return
-
         today_str = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=7))).strftime("%Y-%m-%d")
         if getattr(portfolio_cycle, "_last_report_date", "") != today_str:
             portfolio_cycle._last_report_date = today_str
@@ -1174,6 +1162,18 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             )
 
         trades = decision.get("trades", [])
+        trades_today = get_trade_count_today()
+        if trades_today >= config.MAX_DAILY_TRADES:
+            print(f"MAX TRADES/DAY ({config.MAX_DAILY_TRADES}) reached. Skipping buys.", flush=True)
+            trades = [t for t in trades if t.get("action") != "BUY"]
+            if not trades:
+                print(f"Max trades/day — no sells to execute. Sleeping.", flush=True)
+                persist.save_initial_equity(total_equity)
+                if positions and config.INDODAX_API_KEY:
+                    pair_str = ",".join(p["pair"] for p in positions[:5])
+                    await refresh_deadman(client, pair_str)
+                return
+
         all_held = {p["pair"] for p in positions}
         bot_pair_set = {p["pair"] for p in positions}
         trades = [t for t in trades if t.get("action") != "SELL" or t["pair"] in all_held]
