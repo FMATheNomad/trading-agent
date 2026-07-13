@@ -73,14 +73,20 @@ class HMMRegimeDetector:
         X = self._build_feature_matrix(ohlcv_map)
         if X.shape[0] == 0:
             return {"regime": "UNKNOWN", "confidence": 0.0, "probabilities": {}}
-        state = self.model.predict(X)[-1]
+        states = self.model.predict(X)
+        from collections import Counter
+        state_counts = Counter(states)
+        state = state_counts.most_common(1)[0][0]
+        state_ratio = state_counts[state] / len(states)
         probs = self.model.predict_proba(X)
-        probs_flat = {self.state_names.get(i, f"STATE_{i}"): float(probs[-1, i]) for i in range(self.model.n_components)}
+        avg_probs = np.mean(probs, axis=0)
+        probs_flat = {self.state_names.get(i, f"STATE_{i}"): float(avg_probs[i]) for i in range(self.model.n_components)}
         name = self.state_names.get(state, "UNKNOWN")
-        confidence = float(probs[-1].max())
+        confidence = float(avg_probs[state])
         return {
             "regime": name,
             "confidence": round(confidence, 3),
             "probabilities": probs_flat,
             "state": int(state),
+            "state_ratio": round(state_ratio, 3),
         }
