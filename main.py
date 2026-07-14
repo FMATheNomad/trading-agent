@@ -483,10 +483,16 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     hs_lp = LIVE_TICKERS.get(pid, {}).get("last") or _latest_ticker_map.get(pid, {}).get("last", 0)
                     hs_pos = next((x for x in positions if x["pair"] == pid), None)
                     hs_hold = time.time() - hs_pos["entry_time"] if hs_pos else 0
+                    hs_sig = _latest_all_signals.get(pid, {})
+                    hs_raw = hs_sig.get("raw_signal", "HOLD")
+                    hs_ema21 = hs_sig.get("ema21")
+                    hs_ema50 = hs_sig.get("ema50")
+                    hs_bearish = (hs_raw == "SELL") or (hs_ema21 and hs_ema50 and hs_lp < hs_ema21 and hs_lp < hs_ema50)
                     if (hs_lp > 0 and hs_lp < sm["sl_price"] * 0.97
                             and hs_hold > 21600
-                            and hs_lp < sm["entry_price"]):
-                        print(f"  CONDITIONAL HARD SL: {pid} — hold {int(hs_hold/3600)}h, force sell", flush=True)
+                            and hs_lp < sm["entry_price"]
+                            and hs_bearish):
+                        print(f"  CONDITIONAL HARD SL: {pid} — hold {int(hs_hold/3600)}h, signal={hs_raw}, force sell", flush=True)
                         if hs_pos:
                             try:
                                 await _sm_cancel(client, oid, pid)
