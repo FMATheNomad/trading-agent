@@ -15,6 +15,11 @@ from urllib.parse import urlencode
 import config
 
 _shutdown = False
+_on_fill_callback = None
+
+def set_on_fill(callback):
+    global _on_fill_callback
+    _on_fill_callback = callback
 
 async def _generate_token() -> tuple[str, str] | None:
     if not config.INDODAX_API_KEY or not config.INDODAX_SECRET_KEY:
@@ -67,8 +72,13 @@ async def private_ws_loop():
                             order = event.get("order", {})
                             status = order.get("status", "")
                             if status in ("FILL", "DONE", "CANCELLED", "REJECTED"):
-                                print(f"PWS: {order.get('symbol')} {order.get('side')} "
-                                      f"{order.get('executedQty')} @ {order.get('price')} → {status}", flush=True)
+                                symbol = order.get('symbol', '?')
+                                side = order.get('side', '?')
+                                qty = order.get('executedQty', '?')
+                                price = order.get('price', '?')
+                                print(f"PWS: {symbol} {side} {qty} @ {price} → {status}", flush=True)
+                                if _on_fill_callback:
+                                    asyncio.ensure_future(_on_fill_callback(symbol, side, status))
                     except Exception:
                         pass
         except Exception as e:

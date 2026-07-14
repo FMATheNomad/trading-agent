@@ -27,7 +27,7 @@ from notifier import send_message
 from db import init_db, log_trade, log_decision, get_recent_trades, get_trade_count_today, get_trades_by_period, get_recent_completed_sells, count_new_completed_sells, get_max_trade_id, init_chat_db
 import persist
 from market_ws import market_ws_loop, LIVE_TICKERS, stop as mws_stop, set_on_tick
-from private_ws import private_ws_loop, stop as pws_stop
+from private_ws import private_ws_loop, stop as pws_stop, set_on_fill
 from momentum import MomentumEngine
 import rules
 import patterns
@@ -2308,7 +2308,17 @@ async def main():
                 pass
             await asyncio.sleep(5)
 
+    async def _on_pws_fill(symbol: str, side: str, status: str):
+        pair = symbol.replace("idr", "_idr") if not symbol.endswith("_idr") else symbol
+        if status in ("FILL", "DONE") and side == "sell":
+            sm = _position_states.get(pair)
+            if sm:
+                print(f"  PWS FILL TRIGGER: {pair} — SM aware", flush=True)
+        elif status in ("CANCELLED", "REJECTED"):
+            print(f"  PWS CANCELLED: {pair} — SM akan re-place di cycle berikutnya", flush=True)
+
     set_on_tick(_realtime_sltp_check)
+    set_on_fill(_on_pws_fill)
     ws_task = asyncio.create_task(market_ws_loop())
     pws_task = asyncio.create_task(private_ws_loop())
     momentum_task = asyncio.create_task(_momentum_scanner())
