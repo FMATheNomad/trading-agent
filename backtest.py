@@ -229,7 +229,7 @@ class Backtest:
             return {"regime": self.regime_override, "hmm_regime": self.regime_override, "hmm_confidence": 1.0,
                     "buy_ratio": 0.3, "sell_ratio": 0.1, "avg_score": 0.5, "high_conviction_count": 2, "avg_volatility": 1.5, "total_signals": 20}
         self.hmm_train_counter += 1
-        if self.hmm_train_counter % 50 == 0 and not self.hmm_trained:
+        if not self.hmm_trained or self.hmm_train_counter % 50 == 0:
             try:
                 self.hmm.fit(window)
                 self.hmm_trained = self.hmm.trained

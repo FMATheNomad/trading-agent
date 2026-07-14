@@ -13,6 +13,7 @@ import config
 LIVE_TICKERS: dict[str, dict] = {}
 _ws = None
 _on_tick_callback = None
+_shutdown = False
 
 def set_on_tick(callback):
     global _on_tick_callback
@@ -62,8 +63,6 @@ async def market_ws_loop():
         except Exception as e:
             print(f"Market WS error: {e}, reconnecting in 5s...", flush=True)
             await asyncio.sleep(5)
-
-_shutdown = False
 
 def stop():
     global _shutdown
