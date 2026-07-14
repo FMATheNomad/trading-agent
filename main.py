@@ -283,6 +283,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
     _t0 = time.time()
     risk.daily_loss_stopped = False
     actual_idr_balance = 0
+    _idr_held = 0
 
     if _cb_active_until > time.time():
         print(f"🛑 CIRCUIT BREAKER ACTIVE — cooling down until {datetime.datetime.fromtimestamp(_cb_active_until).strftime('%Y-%m-%d %H:%M')} WIB", flush=True)
@@ -657,6 +658,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 bal = info.get("balance", {})
                 hold = info.get("balance_hold", {})
                 actual_idr_balance = float(bal.get("idr", 0))
+                _idr_held = float(hold.get("idr", 0))
                 for coin in set(list(bal.keys()) + list(hold.keys())):
                     raw_qty = bal.get(coin, 0)
                     qty = float(raw_qty) + float(hold.get(coin, 0))
@@ -777,7 +779,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             if price <= 0 and p.get("entry_price"):
                 price = p["entry_price"]
             paper_equity += p["qty"] * price
-        total_equity = actual_idr_balance + paper_equity
+        total_equity = actual_idr_balance + _idr_held + paper_equity
         dust_eq = getattr(portfolio_cycle, "_dust_equity", 0)
         if dust_eq:
             total_equity += dust_eq
