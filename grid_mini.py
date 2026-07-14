@@ -35,7 +35,9 @@ class GridMini:
         self.scan_interval = 30
         self._pair_blacklist: set[str] = set()
 
-    async def scan_and_place(self, ticker_map: dict, ohlcv_map: dict, regime: str, balance_idr: float):
+    async def scan_and_place(self, ticker_map: dict, ohlcv_map: dict, regime: str, balance_idr: float,
+                              existing_positions: set[str] | None = None, blacklisted: set[str] | None = None,
+                              cooldown_set: set[str] | None = None):
         now = time.time()
         if now - self.last_scan < self.scan_interval:
             return
@@ -55,6 +57,12 @@ class GridMini:
             if pair in active_pairs or pair in self._pair_blacklist:
                 continue
             if pair in config.STABLECOINS or pair in config.SKIP_COINS:
+                continue
+            if existing_positions and pair in existing_positions:
+                continue
+            if blacklisted and pair in blacklisted:
+                continue
+            if cooldown_set and pair in cooldown_set:
                 continue
             vol = float(t.get("vol_idr", 0))
             if vol < self.min_volume_idr:

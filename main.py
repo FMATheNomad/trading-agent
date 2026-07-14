@@ -1521,7 +1521,12 @@ async def portfolio_cycle(client: httpx.AsyncClient):
 
         await grid_mini.check_sell_fills(client)
         await grid_mini.check_fills_and_place_tp(client, ticker_map)
-        await grid_mini.scan_and_place(ticker_map, ohlcv_map_1h, current_regime, actual_idr_balance)
+        grid_positions = {p["pair"] for p in positions}
+        grid_blacklist = _coin_blacklist | set(config.SKIP_COINS)
+        grid_cooldown = {k for k in _sm_cooldown if _sm_cooldown[k] > time.time()} | {k for k in _cooldown if _cooldown[k] > time.time()}
+        await grid_mini.scan_and_place(ticker_map, ohlcv_map_1h, current_regime, actual_idr_balance,
+                                        existing_positions=grid_positions, blacklisted=grid_blacklist,
+                                        cooldown_set=grid_cooldown)
         grid_mini.cleanup_stale()
 
         if config.AUTO_COMPOUND and _realized_pnl_idr != 0:
