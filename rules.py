@@ -142,10 +142,10 @@ def _momentum_decide(all_signals, ticker_map, live_tickers, positions, actual_id
                     hs = [float(x["high"]) for x in ohlcv_p[-14:]]
                     ls = [float(x["low"]) for x in ohlcv_p[-14:]]
                     pp = _price_pos(hs, ls, c["price"])
-                    if pp > 70:
-                        print(f"  Range filter: {c['pair']} pp={pp:.0f}% > 70 — skip", flush=True)
+                    if pp > 70 or pp < 30:
+                        print(f"  Range filter: {c['pair']} pp={pp:.0f}% {'>70 (puncak)' if pp > 70 else '<30 (jatuh)'} — skip", flush=True)
                         continue
-                    print(f"  Range filter: {c['pair']} pp={pp:.0f}% < 70 — OK", flush=True)
+                    print(f"  Range filter: {c['pair']} pp={pp:.0f}% (30-70) — OK", flush=True)
                 else:
                     print(f"  Range filter: {c['pair']} data OHLCV kosong — skip filter", flush=True)
                 if c["pair"] in sm_cooldown:

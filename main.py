@@ -1667,10 +1667,10 @@ async def _momentum_scanner():
                     r_m = max(hs_m) - min(ls_m)
                     if r_m > 0:
                         pp_m = (price - min(ls_m)) / r_m * 100
-                        if pp_m > 70:
-                            print(f"    Range filter: {pid} pp={pp_m:.0f}% > 70 — skip", flush=True)
+                        if pp_m > 70 or pp_m < 30:
+                            print(f"    Range filter: {pid} pp={pp_m:.0f}% {'>70 (puncak)' if pp_m > 70 else '<30 (jatuh)'} — skip", flush=True)
                             continue
-                        print(f"    Range filter: {pid} pp={pp_m:.0f}% < 70 — OK", flush=True)
+                        print(f"    Range filter: {pid} pp={pp_m:.0f}% (30-70) — OK", flush=True)
                 alloc = 0.4
                 amount = int(cash_avail * alloc)
                 if amount < 25000:
