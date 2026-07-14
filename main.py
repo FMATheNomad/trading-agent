@@ -2020,11 +2020,16 @@ async def main():
         return "\n".join(lines) or f"{pid}: tidak ditemukan"
 
     async def _reply(cid: int, text: str):
-        async with httpx.AsyncClient() as cc:
-            await cc.post(
-                f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
-                json={"chat_id": cid, "text": text},
-            )
+        try:
+            async with httpx.AsyncClient() as cc:
+                r = await cc.post(
+                    f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
+                    json={"chat_id": cid, "text": text},
+                )
+                if r.status_code != 200:
+                    print(f"Telegram reply error: {r.status_code} {r.text[:100]}", flush=True)
+        except Exception as e:
+            print(f"Telegram reply exception: {e}", flush=True)
 
     async def telegram_poller():
         global _latest_regime
@@ -2186,13 +2191,19 @@ async def main():
                                 continue
 
                             if txt == "/log":
+                                all_recent = get_recent_trades(10)
                                 buf = "📋 LOG AKTIVITAS\n"
-                                if not _recent_actions:
-                                    buf += "Belum ada aktivitas."
-                                else:
+                                if all_recent:
+                                    for t in reversed(all_recent):
+                                        ts = t.get("timestamp", "")[11:16] if t.get("timestamp") else "?"
+                                        pnl_str = f" ({t['pnl']:+.0f})" if t.get("pnl") is not None else ""
+                                        buf += f"[{ts}] {t['side']} {t.get('reason','')[:20]}{pnl_str}\n"
+                                elif _recent_actions:
                                     for a in reversed(_recent_actions[-10:]):
                                         t_str = f"{int((time.time()-a['time'])/60)}m" if a['time'] else "?"
                                         buf += f"[{t_str}] {a['action']} {a['pair']} ({a['pnl']:+.1f}%)\n"
+                                else:
+                                    buf += "Belum ada aktivitas."
                                 await _reply(cid, buf)
                                 continue
 
