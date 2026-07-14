@@ -30,7 +30,7 @@ class GridMini:
         self.instances: list[GridInstance] = []
         self.max_instances = 2
         self.min_volume_idr = 500_000_000
-        self.grid_step_pct = 0.005
+        self.grid_step_pct = 0.01
         self.tp_pct = 0.01
         self.last_scan = 0
         self.scan_interval = 30
@@ -46,6 +46,18 @@ class GridMini:
         self.last_scan = now
 
         if regime not in ("SIDEWAYS", "SIDEWAYS_LOW_VOL", "BULL"):
+            cancelled = 0
+            for gi in list(self.instances):
+                if gi.state == GRID_STATE_BUY_PLACED and gi.buy_order_id:
+                    async with httpx.AsyncClient() as _gc:
+                        try:
+                            await cancel_order(_gc, gi.buy_order_id, pair=gi.pair, side="buy")
+                            cancelled += 1
+                        except Exception:
+                            pass
+                    self.instances.remove(gi)
+            if cancelled:
+                print(f"  GRID MINI: regime {regime} — cancelled {cancelled} pending buy orders", flush=True)
             return
         if daily_loss_hit or max_trades_reached:
             print(f"  GRID MINI SKIP: daily_loss={daily_loss_hit} max_trades={max_trades_reached}", flush=True)

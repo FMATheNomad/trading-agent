@@ -975,7 +975,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             if bear_regime and sm["state"] == "TP_ACTIVE" and sm.get("tp_order_id"):
                 bear_bid = int(ticker_map.get(pid_sm, {}).get("buy", 0) or lp_sm)
                 sm_tp = sm.get("tp_price", 0)
-                if sm_tp > bear_bid * 1.005:
+                if bear_bid > entry_sm and sm_tp > bear_bid * 1.005:
                     print(f"  SM BEAR TP: {pid_sm} — tighten TP (was Rp{sm_tp:,} → bid Rp{bear_bid:,})", flush=True)
                     async with httpx.AsyncClient() as _tc:
                         await _sm_cancel(_tc, sm["tp_order_id"], pid_sm)
