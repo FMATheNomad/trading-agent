@@ -1514,8 +1514,9 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         _latest_ohlcv_map_1h = ohlcv_map_1h
         _latest_balance = actual_idr_balance
 
-        await grid_mini.scan_and_place(ticker_map, ohlcv_map_1h, current_regime, actual_idr_balance)
+        await grid_mini.check_sell_fills(client)
         await grid_mini.check_fills_and_place_tp(client, ticker_map)
+        await grid_mini.scan_and_place(ticker_map, ohlcv_map_1h, current_regime, actual_idr_balance)
         grid_mini.cleanup_stale()
 
         if config.AUTO_COMPOUND and _realized_pnl_idr != 0:
