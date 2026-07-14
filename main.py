@@ -1954,26 +1954,29 @@ async def main():
                 }, content=oo_body)
                 oo_data = oo_r.json()
                 if oo_data.get("success") == 1:
-                    tracked_pairs = {p["pair"] for p in positions}
                     orders_data = oo_data["return"].get("orders", {})
                     orders_by_pair = orders_data if isinstance(orders_data, dict) else {}
+                    cancel_count = 0
                     for opair, olist in orders_by_pair.items():
                         if isinstance(olist, list):
                             for o in olist:
-                                if o.get("type") == "sell" and opair not in tracked_pairs:
-                                    oid = o.get("order_id")
-                                    cancel_params = {
-                                        "method": "cancelOrder", "timestamp": str(int(time.time() * 1000)),
-                                        "recvWindow": "5000", "pair": opair,
-                                        "order_id": str(oid), "type": "sell",
-                                    }
-                                    cancel_body = urlencode(cancel_params)
-                                    cancel_sig = hmac.new(config.INDODAX_SECRET_KEY.encode(), cancel_body.encode(), hashlib.sha512).hexdigest()
-                                    await _cc.post(config.INDODAX_TAPI_URL, headers={
-                                        "Key": config.INDODAX_API_KEY, "Sign": cancel_sig,
-                                        "Content-Type": "application/x-www-form-urlencoded",
-                                    }, content=cancel_body)
-                                    print(f"CLEANUP: cancelled orphan sell {opair} (order_id={oid})", flush=True)
+                                oid = o.get("order_id")
+                                if not oid:
+                                    continue
+                                cancel_params = {
+                                    "method": "cancelOrder", "timestamp": str(int(time.time() * 1000)),
+                                    "recvWindow": "5000", "pair": opair,
+                                    "order_id": str(oid), "type": o.get("type", "buy"),
+                                }
+                                cancel_body = urlencode(cancel_params)
+                                cancel_sig = hmac.new(config.INDODAX_SECRET_KEY.encode(), cancel_body.encode(), hashlib.sha512).hexdigest()
+                                await _cc.post(config.INDODAX_TAPI_URL, headers={
+                                    "Key": config.INDODAX_API_KEY, "Sign": cancel_sig,
+                                    "Content-Type": "application/x-www-form-urlencoded",
+                                }, content=cancel_body)
+                                cancel_count += 1
+                    if cancel_count:
+                        print(f"CLEANUP: cancelled {cancel_count} stale orders — fresh start for SM & Grid", flush=True)
         except Exception as e:
             print(f"Order cleanup: {e}", flush=True)
 
