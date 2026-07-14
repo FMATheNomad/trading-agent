@@ -137,8 +137,8 @@ def _momentum_decide(all_signals, ticker_map, live_tickers, positions, actual_id
                     print(f"  Entry score: {c['pair']} s{score}/6 — skip (kualitas rendah)", flush=True)
                     continue
                 print(f"  Entry score: {c['pair']} s{score}/6 — OK", flush=True)
-                if sm_cooldown and ohlcv_map_1h:
-                    ohlcv_p = ohlcv_map_1h.get(c["pair"])
+                ohlcv_p = ohlcv_map_1h.get(c["pair"]) if ohlcv_map_1h else []
+                if len(ohlcv_p) >= 15:
                     hs = [float(x["high"]) for x in ohlcv_p[-14:]]
                     ls = [float(x["low"]) for x in ohlcv_p[-14:]]
                     pp = _price_pos(hs, ls, c["price"])
@@ -147,7 +147,8 @@ def _momentum_decide(all_signals, ticker_map, live_tickers, positions, actual_id
                         continue
                     print(f"  Range filter: {c['pair']} pp={pp:.0f}% (25-75) — OK", flush=True)
                 else:
-                    print(f"  Range filter: {c['pair']} data OHLCV kosong — skip filter", flush=True)
+                    print(f"  Range filter: {c['pair']} data OHLCV < 15 candle — skip entry", flush=True)
+                    continue
                 if c["pair"] in sm_cooldown:
                     print(f"  Cooldown: {c['pair']} — skip (cooldown aktif)", flush=True)
                     continue
