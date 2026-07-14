@@ -1005,7 +1005,9 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                         sm["sl_order_id"] = oid
                         sm["tp_order_id"] = None
                         sm["state"] = "SL_ACTIVE"
+                        msg = f"⚡ SM → SL: {pid_sm}\nPrice Rp{lp_sm:,.0f} hit SL Rp{int(sl_level_sm):,}"
                         print(f"  SM CYCLE → SL: {pid_sm} @ Rp{int(sl_level_sm):,} (price {lp_sm:,.0f})", flush=True)
+                        await send_message(msg)
 
         sl_hits = []
         for p in list(positions):
@@ -1511,7 +1513,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                                         existing_positions=grid_positions, blacklisted=grid_blacklist,
                                         cooldown_set=grid_cooldown,
                                         daily_loss_hit=_daily_loss_hit_today, max_trades_reached=grid_max_trades)
-        grid_mini.cleanup_stale()
+        await grid_mini.cleanup_stale()
         grid_mini.save_instances()
 
         if config.AUTO_COMPOUND and _realized_pnl_idr != 0:
