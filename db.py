@@ -80,10 +80,12 @@ def log_decision(raw_signal: str, llm_decision: str, llm_reasoning: str, execute
 def get_recent_trades(limit: int = 3) -> list[dict]:
     with _conn() as conn:
         rows = conn.execute(
-            "SELECT side, price, qty, status, pnl, reason FROM trades ORDER BY id DESC LIMIT ?", (limit,)
+            "SELECT id, timestamp, side, price, qty, amount_idr, order_type, status, pnl, reason, paper_trade FROM trades ORDER BY id DESC LIMIT ?", (limit,)
         ).fetchall()
     return [
-        {"side": r[0], "price": r[1], "qty": r[2], "status": r[3], "pnl": r[4], "reason": r[5]}
+        {"id": r[0], "timestamp": r[1], "side": r[2], "price": r[3],
+         "qty": r[4], "amount_idr": r[5], "order_type": r[6],
+         "status": r[7], "pnl": r[8], "reason": r[9], "paper_trade": r[10]}
         for r in rows
     ]
 

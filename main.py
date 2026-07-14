@@ -2192,16 +2192,29 @@ async def main():
 
                             if txt == "/log":
                                 all_recent = get_recent_trades(10)
-                                buf = "📋 LOG AKTIVITAS\n"
+                                buf = "📋 RIWAYAT TRANSAKSI\n"
                                 if all_recent:
                                     for t in reversed(all_recent):
-                                        ts = t.get("timestamp", "")[11:16] if t.get("timestamp") else "?"
-                                        pnl_str = f" ({t['pnl']:+.0f})" if t.get("pnl") is not None else ""
-                                        buf += f"[{ts}] {t['side']} {t.get('reason','')[:20]}{pnl_str}\n"
+                                        ts = t.get("timestamp", "")[11:19] if t.get("timestamp") else "??:??"
+                                        side = t.get("side", "?").upper()
+                                        price = t.get("price", 0) or 0
+                                        qty = t.get("qty", 0) or 0
+                                        amount = t.get("amount_idr", 0) or 0
+                                        pnl = t.get("pnl")
+                                        reason = (t.get("reason") or "")[:25]
+                                        emoji = "🟢" if pnl and pnl > 0 else "🔴" if pnl and pnl <= 0 else "⚪"
+                                        buf += f"{emoji} {ts} {side} "
+                                        if side == "SELL" and pnl is not None:
+                                            coin = t.get("reason", "").split("_")[0] or "?"
+                                            buf += f"Rp{price:,.0f} × {qty:.4f} | PnL: {pnl:+,.0f} | {reason}\n"
+                                        else:
+                                            pair = t.get("reason", "")[:15] or "?"
+                                            buf += f"Rp{price:,.0f} × {qty:.4f} (Rp{amount:,.0f}) | {reason}\n"
                                 elif _recent_actions:
                                     for a in reversed(_recent_actions[-10:]):
                                         t_str = f"{int((time.time()-a['time'])/60)}m" if a['time'] else "?"
-                                        buf += f"[{t_str}] {a['action']} {a['pair']} ({a['pnl']:+.1f}%)\n"
+                                        emoji = "🟢" if a.get("pnl", 0) > 0 else "🔴" if a.get("pnl", 0) < 0 else "⚪"
+                                        buf += f"{emoji} [{t_str}] {a['action']} {a['pair']} ({a['pnl']:+.1f}%)\n"
                                 else:
                                     buf += "Belum ada aktivitas."
                                 await _reply(cid, buf)
