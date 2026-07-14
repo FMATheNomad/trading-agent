@@ -1608,7 +1608,7 @@ async def _momentum_scanner():
             cash_avail = _latest_balance
             if cash_avail < config.MIN_ORDER_IDR:
                 continue
-            max_pos = 4 if not _rothschild_active else config.ROTHSCHILD_OPEN_POSITIONS
+            max_pos = config.MAX_OPEN_POSITIONS if not _rothschild_active else config.ROTHSCHILD_OPEN_POSITIONS
             if len(positions) >= max_pos:
                 continue
             for pid, ohlcv in list(_latest_ohlcv_map_1h.items()):
@@ -1847,7 +1847,7 @@ async def main():
     print(f"  Mode: {'PAPER' if config.PAPER_TRADING else 'LIVE'}", flush=True)
     print(f"  Rules Engine manages play capital dynamically", flush=True)
     print(f"  Model: {config.DEEPSEEK_MODEL}", flush=True)
-    print(f"  Max positions: {config.MAX_OPEN_POSITIONS} (dynamic: {config.max_positions_for_equity(config.PLAY_CAPITAL_IDR)}-6)", flush=True)
+    print(f"  Max positions: {config.MAX_OPEN_POSITIONS} (Rothschild: {config.ROTHSCHILD_OPEN_POSITIONS})", flush=True)
     print(f"  Rules Engine scans top {config.MAX_SCAN_PAIRS} by volume", flush=True)
     mode_label = "ALPHA" if config.ALPHA_MODE else ("INSANE" if config.INSANE_MODE else "STANDARD")
     print(f"  Mode: {'🔴' if config.ALPHA_MODE or config.INSANE_MODE else ''} {mode_label} | SL ATR×{config.ATR_SL_MULTIPLIER:.0f} | TP ATR×{config.ATR_TP_MULTIPLIER:.0f}", flush=True)

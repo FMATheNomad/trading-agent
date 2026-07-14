@@ -87,7 +87,7 @@ def _momentum_decide(all_signals, ticker_map, live_tickers, positions, actual_id
 
     selling = {t["pair"] for t in trades if t["action"] == "SELL"}
     remaining = len(held_pairs - selling)
-    max_pos = config.max_positions_for_equity(total_equity)
+    max_pos = config.ROTHSCHILD_OPEN_POSITIONS if config.ROTHSCHILD_ACTIVE else config.MAX_OPEN_POSITIONS
     slots = max_pos - remaining
 
     if slots > 0 and actual_idr_balance >= config.MIN_ORDER_IDR * 1.5 and not is_bear:
@@ -153,7 +153,7 @@ def _momentum_decide(all_signals, ticker_map, live_tickers, positions, actual_id
                     continue
                 final.append(c)
             candidates = final
-        max_slots = config.ROTHSCHILD_OPEN_POSITIONS if config.ROTHSCHILD_ACTIVE else config.max_positions_for_equity(total_equity)
+        max_slots = config.ROTHSCHILD_OPEN_POSITIONS if config.ROTHSCHILD_ACTIVE else config.MAX_OPEN_POSITIONS
         slots = min(slots, max_slots)
         n_bins = max(1, int(actual_idr_balance / 40000))
         n_bins = min(n_bins, slots, max_slots)
