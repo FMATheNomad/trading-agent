@@ -2200,14 +2200,15 @@ async def main():
                                 continue
 
                             if txt == "/risk":
-                                max_pos = config.ROTHSCHILD_OPEN_POSITIONS if config.ROTHSCHILD_ACTIVE else config.max_positions_for_equity(_latest_balance)
+                                total_eq = _latest_balance + sum(p["qty"] * (LIVE_TICKERS.get(p["pair"], {}).get("last") or _latest_ticker_map.get(p["pair"], {}).get("last") or p.get("entry_price", 0)) for p in positions)
+                                max_pos_runtime = config.ROTHSCHILD_OPEN_POSITIONS if config.ROTHSCHILD_ACTIVE else config.max_positions_for_equity(total_eq)
                                 kelly_r = portfolio_risk.kelly_for_regime(_latest_regime.get("regime", "?"))
                                 buf = "⚠️ RISK STATUS\n"
                                 buf += f"Regime: {_latest_regime.get('regime', '?')}\n"
                                 buf += f"Mode: {'🔴 ROTHSCHILD' if config.ROTHSCHILD_ACTIVE else '🟢 KONSERVATIF'}\n"
                                 buf += f"Kelly: {kelly_r*100:.0f}%\n"
                                 buf += f"ATR SL: {config.ATR_SL_MULTIPLIER:.1f}x | TP: {config.ATR_TP_MULTIPLIER:.1f}x\n"
-                                buf += f"Max pos: {max_pos} | Max trade/hari: {config.MAX_DAILY_TRADES}\n"
+                                buf += f"Max pos: {max_pos_runtime} | Max trade/hari: {config.MAX_DAILY_TRADES}\n"
                                 buf += f"Daily loss: Rp{config.DAILY_LOSS_FLOOR_IDR:,} | Drawdown: {abs(config.PORTFOLIO_STOP_LOSS_PCT)*100:.0f}%\n"
                                 for p in positions[:5]:
                                     last_p = LIVE_TICKERS.get(p["pair"], {}).get("last") or _latest_ticker_map.get(p["pair"], {}).get("last") or p.get("entry_price", 0)
