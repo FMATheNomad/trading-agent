@@ -478,6 +478,44 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                             print(f"  SM SL RE-PLACE FAILED: {pid} — PENDING, retry next cycle", flush=True)
                             sm["state"] = "PENDING"
                 continue
+            if sm["state"] == "SL_ACTIVE" and sm.get("sl_price", 0) > 0:
+                try:
+                    hs_lp = LIVE_TICKERS.get(pid, {}).get("last") or _latest_ticker_map.get(pid, {}).get("last", 0)
+                    hs_pos = next((x for x in positions if x["pair"] == pid), None)
+                    hs_hold = time.time() - hs_pos["entry_time"] if hs_pos else 0
+                    if (hs_lp > 0 and hs_lp < sm["sl_price"] * 0.97
+                            and hs_hold > 21600
+                            and hs_lp < sm["entry_price"]):
+                        print(f"  CONDITIONAL HARD SL: {pid} — hold {int(hs_hold/3600)}h, force sell", flush=True)
+                        if hs_pos:
+                            try:
+                                await _sm_cancel(client, oid, pid)
+                                coin_n = pid.split("_")[0]
+                                qty_s = f"{hs_pos['qty']:.8f}".rstrip("0").rstrip(".") or "0"
+                                bid_h = int(_latest_ticker_map.get(pid, {}).get("buy", hs_lp))
+                                sp_h = {"method":"trade","timestamp":int(time.time()*1000),"recvWindow":"5000","pair":pid,"type":"sell",coin_n: qty_s,"price":str(bid_h),"order_type":"limit"}
+                                sb_h = urlencode(sp_h)
+                                ss_h = hmac.new(config.INDODAX_SECRET_KEY.encode(), sb_h.encode(), hashlib.sha512).hexdigest()
+                                sr_h = await client.post(config.INDODAX_TAPI_URL, headers={"Key":config.INDODAX_API_KEY,"Sign":ss_h,"Content-Type":"application/x-www-form-urlencoded"}, content=sb_h)
+                                sj_h = sr_h.json()
+                                if sj_h.get("success") == 1:
+                                    fill_h = float(sj_h["return"].get("price", bid_h))
+                                    pnl_h = (fill_h - sm["entry_price"]) * sm["qty"]
+                                    positions.remove(hs_pos)
+                                    persist.save_positions(positions)
+                                    log_trade("sell", fill_h, sm["qty"], fill_h * sm["qty"], status="closed", pnl=pnl_h, reason=f"sm_hard_sl {pid}")
+                                    if config.AUTO_COMPOUND:
+                                        _realized_pnl_idr += pnl_h
+                                    await send_message(f"🔴 HARD SL: {pid}\nHold {int(hs_hold/3600)}h, exit Rp{fill_h:,.0f} ({pnl_h:+.0f})")
+                                    _coin_blacklist.add(pid)
+                                    cd_h = 86400
+                                    _sm_cooldown[pid] = time.time() + cd_h
+                                    persist.save_sm_cooldown(_sm_cooldown)
+                                    _sm_cleanup(pid)
+                            except Exception as e:
+                                print(f"  HARD SL failed {pid}: {e}", flush=True)
+                except Exception:
+                    pass
         except Exception:
             pass
 
