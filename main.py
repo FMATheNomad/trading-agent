@@ -1704,6 +1704,10 @@ async def _realtime_sltp_check(pair: str, price: float):
     sm = _position_states.get(pair)
     if not sm:
         return
+    pos_check = next((x for x in positions if x["pair"] == pair), None)
+    if not pos_check:
+        _sm_cleanup(pair)
+        return
     entry = sm["entry_price"]
     atr = sm.get("atr_pct", 1.0)
     if atr > 10 and _latest_ohlcv_map_1h.get(pair):
@@ -1777,7 +1781,13 @@ async def _realtime_sltp_check(pair: str, price: float):
             now_pyr = time.time()
             if now_pyr - _pyramid_cooldown.get(pair, 0) < 300:
                 print(f"  SM PYRAMID SKIP: {pair} cooldown ({int(now_pyr - _pyramid_cooldown.get(pair, 0))}s)", flush=True)
-            elif not _daily_loss_hit_today or _greed_used_today:
+                return
+            pyr_pos = next((x for x in positions if x["pair"] == pair), None)
+            if not pyr_pos:
+                print(f"  SM PYRAMID SKIP: {pair} posisi tidak ditemukan (mungkin sudah kejual)", flush=True)
+                _sm_cleanup(pair)
+                return
+            if not _daily_loss_hit_today or _greed_used_today:
                 pyr_amt = int(max(config.MIN_ORDER_IDR, _latest_balance * config.ROTHSCHILD_PYRAMID_MULT))
                 if pyr_amt >= config.MIN_ORDER_IDR and pyr_amt <= _latest_balance:
                     async with httpx.AsyncClient() as _pc:
