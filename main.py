@@ -473,12 +473,15 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 continue
             if sm["state"] == "SL_ACTIVE" and sm.get("sl_price", 0) > 0:
                 lp = LIVE_TICKERS.get(pid, {}).get("last") or _latest_ticker_map.get(pid, {}).get("last", 0)
-                if lp > 0 and lp < sm["sl_price"] * 0.97:
+                hs_p = next((x for x in positions if x["pair"] == pid), None)
+                if hs_p and hs_p.get("entry_time", 0) > 0 and time.time() - hs_p["entry_time"] < 1800:
+                    continue
+                if hs_p and lp > 0 and lp < sm["sl_price"] * 0.97:
                     print(f"  SM HARD SL: {pid} price Rp{lp:,.0f} < 97% of SL Rp{sm['sl_price']:,} — force market sell", flush=True)
-                    p = next((x for x in positions if x["pair"] == pid), None)
-                    if p:
+                    if hs_p:
                         try:
                             await _sm_cancel(client, oid, pid)
+                            p = hs_p
                             coin_name = pid.split("_")[0]
                             qty_s = f"{p['qty']:.8f}".rstrip("0").rstrip(".") or "0"
                             bid = int(_latest_ticker_map.get(pid, {}).get("buy", lp))

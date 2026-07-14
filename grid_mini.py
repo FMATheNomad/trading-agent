@@ -30,7 +30,7 @@ class GridMini:
         self.instances: list[GridInstance] = []
         self.max_instances = 2
         self.min_volume_idr = 500_000_000
-        self.grid_step_pct = 0.01
+        self.grid_step_pct = 0.005
         self.tp_pct = 0.01
         self.last_scan = 0
         self.scan_interval = 30
