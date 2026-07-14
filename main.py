@@ -1665,6 +1665,20 @@ async def _momentum_scanner():
                 if pid in _sm_cooldown and _sm_cooldown[pid] > time.time():
                     print(f"    Cooldown: {pid} — skip", flush=True)
                     continue
+                sig_m = _latest_all_signals.get(pid, {})
+                m_score = 0
+                rsi_m = sig_m.get("rsi")
+                if rsi_m is not None and rsi_m < 55: m_score += 1
+                vr_m = sig_m.get("volume_ratio")
+                if vr_m is not None and 0.5 <= vr_m <= 3.0: m_score += 1
+                atr_m = sig_m.get("atr_pct")
+                if atr_m is not None and atr_m < 8: m_score += 1
+                streak_m = sig_m.get("momentum_streak")
+                if streak_m is not None and abs(streak_m) < 3: m_score += 1
+                if m_score < 3:
+                    print(f"    Entry score: {pid} s{m_score}/4 — skip (kualitas rendah)", flush=True)
+                    continue
+                print(f"    Entry score: {pid} s{m_score}/4 — OK", flush=True)
                 if len(ohlcv) >= 5:
                     hs_m = [float(x["high"]) for x in ohlcv[-14:]]
                     ls_m = [float(x["low"]) for x in ohlcv[-14:]]
