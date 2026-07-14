@@ -849,7 +849,10 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         if portfolio_risk.check_portfolio_stop(total_equity):
             actual_dd = (portfolio_risk.peak_capital - total_equity) / portfolio_risk.peak_capital * 100
             print(f"DRAWDOWN {actual_dd:.0f}% > {abs(config.PORTFOLIO_STOP_LOSS_PCT)*100:.0f}% — "
-                  f"Equity: Rp{total_equity:,.0f}", flush=True)
+                  f"Equity: Rp{total_equity:,.0f}, stopping entry", flush=True)
+            await send_message(f"🛑 DRAWDOWN {actual_dd:.0f}% — stop entry, TP-only")
+            _daily_loss_hit_today = True
+            persist.save_daily_loss_hit(True)
 
         for p in positions:
             last = ticker_map.get(p["pair"], {}).get("last", p.get("current_price") or p.get("entry_price") or 0)

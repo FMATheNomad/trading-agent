@@ -111,27 +111,22 @@ def _momentum_decide(all_signals, ticker_map, live_tickers, positions, actual_id
             for c in candidates:
                 score = 0
                 sig = all_signals.get(c["pair"], {})
-                # 1 - HMM confidence
                 if regime_info.get("hmm_confidence", 0) > 0.8:
                     score += 1
-                # 2 - RSI tidak overbought
-                rsi = sig.get("rsi") or 50
-                if rsi < 55:
+                rsi = sig.get("rsi")
+                if rsi is not None and rsi < 55:
                     score += 1
-                # 3 - Volume rasio wajar (tidak terlalu tinggi = tidak FOMO)
-                vr = sig.get("volume_ratio", 1) or 1
-                if 0.5 <= vr <= 3.0:
+                vr = sig.get("volume_ratio")
+                if vr is not None and 0.5 <= vr <= 3.0:
                     score += 1
-                # 4 - ATR tidak terlalu tinggi
-                atr = c.get("atr", 1.5) or 1.5
-                if atr < 8:
+                atr = c.get("atr")
+                if atr is not None and atr < 8:
                     score += 1
-                # 5 - Momentum tidak ekstrem
-                streak = sig.get("momentum_streak", 0) or 0
-                if abs(streak) < 3:
+                streak = sig.get("momentum_streak")
+                if streak is not None and abs(streak) < 3:
                     score += 1
-                # 6 - Harga di atas EMA50 (dari ranking signal)
-                if c.get("ema50") is None or c["price"] > c["ema50"]:
+                ema50 = c.get("ema50")
+                if ema50 is not None and c["price"] > ema50:
                     score += 1
                 if score < 4:
                     print(f"  Entry score: {c['pair']} s{score}/6 — skip (kualitas rendah)", flush=True)
