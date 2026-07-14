@@ -1223,6 +1223,11 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             blocked = [t for t in decision.get("trades", []) if t.get("action") == "BUY" and t["pair"] in _coin_blacklist]
             if blocked:
                 print(f"BLACKLIST: Skipped BUY for {', '.join(t['pair'] for t in blocked)}", flush=True)
+        grid_active = {g.pair for g in grid_mini.instances}
+        if grid_active:
+            trades = [t for t in trades if not (t.get("action") == "BUY" and t["pair"] in grid_active)]
+            if any(t["pair"] in grid_active for t in trades if t.get("action") == "BUY"):
+                print(f"  GRID MINI ACTIVE: skip buy untuk {grid_active}", flush=True)
         for p in list(positions):
             last_p = await _coin_price(p["pair"]) or LIVE_TICKERS.get(p["pair"], {}).get("last") or 0
             if last_p == 0:
