@@ -37,13 +37,17 @@ class GridMini:
 
     async def scan_and_place(self, ticker_map: dict, ohlcv_map: dict, regime: str, balance_idr: float,
                               existing_positions: set[str] | None = None, blacklisted: set[str] | None = None,
-                              cooldown_set: set[str] | None = None):
+                              cooldown_set: set[str] | None = None,
+                              daily_loss_hit: bool = False, max_trades_reached: bool = False):
         now = time.time()
         if now - self.last_scan < self.scan_interval:
             return
         self.last_scan = now
 
         if regime not in ("SIDEWAYS", "SIDEWAYS_LOW_VOL", "BULL"):
+            return
+        if daily_loss_hit or max_trades_reached:
+            print(f"  GRID MINI SKIP: daily_loss={daily_loss_hit} max_trades={max_trades_reached}", flush=True)
             return
 
         active_pairs = {g.pair for g in self.instances}
@@ -192,6 +196,44 @@ class GridMini:
                         gi.sell_order_id = None
             except Exception:
                 pass
+
+    def save_instances(self):
+        try:
+            import persist as _p
+            data = []
+            for gi in self.instances:
+                if gi.state in (GRID_STATE_BUY_PLACED, GRID_STATE_SELL_PLACED):
+                    data.append({
+                        "pair": gi.pair, "entry_price": gi.entry_price,
+                        "investment": gi.investment, "qty": gi.qty,
+                        "state": gi.state, "buy_order_id": gi.buy_order_id,
+                        "sell_order_id": gi.sell_order_id,
+                        "created_at": gi.created_at, "tp_price": gi.tp_price,
+                    })
+            _p._save_extra("grid_instances", data)
+        except Exception:
+            pass
+
+    def load_instances(self):
+        try:
+            import persist as _p
+            data = _p._load_extra("grid_instances")
+            if not data:
+                return
+            now = time.time()
+            for d in data:
+                if now - d.get("created_at", 0) > 86400:
+                    continue  # skip stale
+                gi = GridInstance(d["pair"], d["entry_price"], d["investment"])
+                gi.qty = d.get("qty", 0)
+                gi.state = d.get("state", GRID_STATE_BUY_PLACED)
+                gi.buy_order_id = d.get("buy_order_id")
+                gi.sell_order_id = d.get("sell_order_id")
+                gi.created_at = d.get("created_at", now)
+                gi.tp_price = d.get("tp_price", 0)
+                self.instances.append(gi)
+        except Exception:
+            pass
 
     async def cleanup_stale(self):
         now = time.time()

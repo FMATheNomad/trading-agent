@@ -1524,10 +1524,13 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         grid_positions = {p["pair"] for p in positions}
         grid_blacklist = _coin_blacklist | set(config.SKIP_COINS)
         grid_cooldown = {k for k in _sm_cooldown if _sm_cooldown[k] > time.time()} | {k for k in _cooldown if _cooldown[k] > time.time()}
+        grid_max_trades = get_trade_count_today() >= config.MAX_DAILY_TRADES
         await grid_mini.scan_and_place(ticker_map, ohlcv_map_1h, current_regime, actual_idr_balance,
                                         existing_positions=grid_positions, blacklisted=grid_blacklist,
-                                        cooldown_set=grid_cooldown)
+                                        cooldown_set=grid_cooldown,
+                                        daily_loss_hit=_daily_loss_hit_today, max_trades_reached=grid_max_trades)
         grid_mini.cleanup_stale()
+        grid_mini.save_instances()
 
         if config.AUTO_COMPOUND and _realized_pnl_idr != 0:
             old_cap = config.PLAY_CAPITAL_IDR
@@ -1913,6 +1916,9 @@ async def main():
             now = time.time()
             _sm_cooldown.update({k: v for k, v in saved_sm_cd.items() if v > now})
             print(f"Restored {len(_sm_cooldown)} active SM cooldowns", flush=True)
+        grid_mini.load_instances()
+        if grid_mini.instances:
+            print(f"Restored {len(grid_mini.instances)} grid instances", flush=True)
         cb = persist.load_circuit_breaker()
         _cb_consecutive_loss_days = cb.get("consecutive_loss_days", 0)
         _cb_last_loss_date = cb.get("last_loss_date", "")

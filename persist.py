@@ -29,6 +29,14 @@ def _save(state: dict):
     except Exception as e:
         print(f"Persist save error: {e}", flush=True)
 
+def _save_extra(key: str, data: list):
+    state = _load()
+    state[key] = data
+    _save(state)
+
+def _load_extra(key: str) -> list:
+    return _load().get(key, [])
+
 def load_entry_prices() -> dict[str, float]:
     return _load().get("entry_prices", {})
 
