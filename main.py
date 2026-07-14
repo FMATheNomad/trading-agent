@@ -483,9 +483,11 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     hs_lp = LIVE_TICKERS.get(pid, {}).get("last") or _latest_ticker_map.get(pid, {}).get("last", 0)
                     hs_pos = next((x for x in positions if x["pair"] == pid), None)
                     hs_hold = time.time() - hs_pos["entry_time"] if hs_pos else 0
+                    hs_regime = _latest_regime.get("regime", "")
                     if (hs_lp > 0 and hs_lp < sm["sl_price"] * 0.97
                             and hs_hold > 21600
-                            and hs_lp < sm["entry_price"]):
+                            and hs_lp < sm["entry_price"]
+                            and hs_regime in ("BEAR", "HIGH_VOL")):
                         print(f"  CONDITIONAL HARD SL: {pid} — hold {int(hs_hold/3600)}h, force sell", flush=True)
                         if hs_pos:
                             try:
