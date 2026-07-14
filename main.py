@@ -459,12 +459,19 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     atr = p.get("atr_pct") or risk.compute_atr(_latest_ohlcv_map_1h.get(pid, []))
                     sm["tp_order_id"] = None
                     sm["sl_order_id"] = None
-                    if sm["state"] in ("TP_ACTIVE", "SL_ACTIVE"):
+                    if sm["state"] == "TP_ACTIVE":
                         oid = await _sm_place_tp(client, pid, p["qty"], sm["entry_price"], atr)
                         if oid:
                             print(f"  SM TP RE-PLACED: {pid} oid={oid}", flush=True)
                         else:
                             print(f"  SM TP RE-PLACE FAILED: {pid} — PENDING, retry next cycle", flush=True)
+                            sm["state"] = "PENDING"
+                    elif sm["state"] == "SL_ACTIVE":
+                        oid = await _sm_place_sl(client, pid, p["qty"], sm["entry_price"], atr)
+                        if oid:
+                            print(f"  SM SL RE-PLACED: {pid} oid={oid}", flush=True)
+                        else:
+                            print(f"  SM SL RE-PLACE FAILED: {pid} — PENDING, retry next cycle", flush=True)
                             sm["state"] = "PENDING"
                     elif sm["state"] == "TRAILING":
                         oid = await _sm_place_sl(client, pid, p["qty"], sm["entry_price"], atr, mult=config.ROTHSCHILD_TRAILING_SL_ATR)
