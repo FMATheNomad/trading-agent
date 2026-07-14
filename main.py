@@ -245,9 +245,6 @@ async def _sm_place_sl(client: httpx.AsyncClient, pair: str, qty: float, entry: 
     m = mult if mult is not None else config.ATR_SL_MULTIPLIER
     sl_pct = max(atr * m / 100, 0.015)
     sl_price = int(entry * (1 - sl_pct))
-    curr_bid = int(LIVE_TICKERS.get(pair, {}).get("last", 0)) or sl_price
-    if curr_bid < sl_price:
-        sl_price = curr_bid
     ret = await _sm_place_sell(client, pair, qty, sl_price)
     if ret and ret.get("order_id"):
         oid = int(ret["order_id"])
@@ -977,9 +974,9 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 continue
             entry_sm = sm["entry_price"]
             atr_sm = sm.get("atr_pct", 1.0)
-            if atr_sm > 10 and _latest_ohlcv_map_1h.get(pid_sm):
+            if _latest_ohlcv_map_1h.get(pid_sm) and len(_latest_ohlcv_map_1h[pid_sm]) >= 20:
                 recalc = risk.compute_atr(_latest_ohlcv_map_1h[pid_sm])
-                if recalc < atr_sm:
+                if recalc > atr_sm:
                     atr_sm = recalc
             bear_regime = _latest_regime.get("regime", "") in ("BEAR",)
             if bear_regime and sm["state"] == "TP_ACTIVE" and sm.get("tp_order_id"):
@@ -1738,9 +1735,9 @@ async def _realtime_sltp_check(pair: str, price: float):
         return
     entry = sm["entry_price"]
     atr = sm.get("atr_pct", 1.0)
-    if atr > 10 and _latest_ohlcv_map_1h.get(pair):
+    if _latest_ohlcv_map_1h.get(pair) and len(_latest_ohlcv_map_1h[pair]) >= 20:
         recalc = risk.compute_atr(_latest_ohlcv_map_1h[pair])
-        if recalc < atr:
+        if recalc > atr:
             atr = recalc
     sl_level = entry * (1 - max(atr, 0.5) * config.ATR_SL_MULTIPLIER / 100)
     recovery_level = entry * 1.005
