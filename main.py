@@ -372,7 +372,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     pnl = (float(order_info.get("price", 0)) - p.get("entry_price", 0)) * p["qty"]
                     positions.remove(p)
                     persist.save_positions(positions)
-                    log_trade("sell", float(order_info.get("price", 0)), ps["qty"], ps["amount"], status="closed", pnl=pnl, reason="pending_sell_filled")
+                    log_trade("sell", float(order_info.get("price", 0)), ps["qty"], ps["amount"], status="closed", pnl=pnl, reason=f"pending_sell_filled {pid}")
                 del _pending_sells[pid]
                 continue
             if status in ("cancelled", "rejected"):
@@ -423,7 +423,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 if p:
                     positions.remove(p)
                     persist.save_positions(positions)
-                    log_trade("sell", fill_price, sm["qty"], fill_price * sm["qty"], status="closed", pnl=pnl, reason="sm_" + sm["state"])
+                    log_trade("sell", fill_price, sm["qty"], fill_price * sm["qty"], status="closed", pnl=pnl, reason=f"sm_{sm['state']} {pid}")
                     if config.AUTO_COMPOUND:
                         _realized_pnl_idr += pnl
                     label = "TP" if sm["state"] == "TP_ACTIVE" else "SL"
@@ -489,7 +489,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                                 pnl_h = (fill_p - sm["entry_price"]) * sm["qty"]
                                 positions.remove(p)
                                 persist.save_positions(positions)
-                                log_trade("sell", fill_p, sm["qty"], fill_p * sm["qty"], status="closed", pnl=pnl_h, reason="sm_hard_sl")
+                                log_trade("sell", fill_p, sm["qty"], fill_p * sm["qty"], status="closed", pnl=pnl_h, reason=f"sm_hard_sl {pid}")
                                 if config.AUTO_COMPOUND:
                                     _realized_pnl_idr += pnl_h
                                 await send_message(f"🔴 SM HARD SL: {pid}\n{pnl_h:+.0f} IDR @ Rp{fill_p:,}")
@@ -1117,7 +1117,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                             persist.save_positions(positions)
                             sell_value = last * p["qty"]
                             log_trade("sell", last, p["qty"], sell_value,
-                                      status="closed", pnl=pnl, reason=result)
+                                      status="closed", pnl=pnl, reason=f"{result} {p['pair']}")
                             if config.AUTO_COMPOUND:
                                 _realized_pnl_idr += pnl
                         else:
@@ -1357,7 +1357,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             log_trade(action.lower(), price, qty, amount,
                       order_type="market",
                       status="simulated" if config.PAPER_TRADING else "placed",
-                       reason=t.get("reason", ""))
+                       reason=f"{t.get('reason', '')} {pid}")
 
             coin_name = pid.split("_")[0]
             if action == "BUY":
@@ -2201,15 +2201,16 @@ async def main():
                                         qty = t.get("qty", 0) or 0
                                         amount = t.get("amount_idr", 0) or 0
                                         pnl = t.get("pnl")
-                                        reason = (t.get("reason") or "")[:25]
+                                        raw_reason = t.get("reason", "") or ""
+                                        parts = raw_reason.rsplit(" ", 1)
+                                        reason_clean = parts[0][:30] if len(parts) > 1 else raw_reason[:30]
+                                        pair_name = parts[-1] if len(parts) > 1 and "_idr" in parts[-1] else ""
                                         emoji = "🟢" if pnl and pnl > 0 else "🔴" if pnl and pnl <= 0 else "⚪"
-                                        buf += f"{emoji} {ts} {side} "
+                                        buf += f"{emoji} {ts} {side} {pair_name}\n"
                                         if side == "SELL" and pnl is not None:
-                                            coin = t.get("reason", "").split("_")[0] or "?"
-                                            buf += f"Rp{price:,.0f} × {qty:.4f} | PnL: {pnl:+,.0f} | {reason}\n"
+                                            buf += f"   Rp{price:,.0f} × {qty:.4f} | PnL: {pnl:+,.0f} | {reason_clean}\n"
                                         else:
-                                            pair = t.get("reason", "")[:15] or "?"
-                                            buf += f"Rp{price:,.0f} × {qty:.4f} (Rp{amount:,.0f}) | {reason}\n"
+                                            buf += f"   Rp{price:,.0f} × {qty:.4f} (Rp{amount:,.0f}) | {reason_clean}\n"
                                 elif _recent_actions:
                                     for a in reversed(_recent_actions[-10:]):
                                         t_str = f"{int((time.time()-a['time'])/60)}m" if a['time'] else "?"
