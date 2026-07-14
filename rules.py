@@ -128,7 +128,7 @@ def _momentum_decide(all_signals, ticker_map, live_tickers, positions, actual_id
                 ema50 = c.get("ema50")
                 if ema50 is not None and c["price"] > ema50:
                     score += 1
-                if score < 3:
+                if score < 2:
                     print(f"  Entry score: {c['pair']} s{score}/6 — skip (kualitas rendah)", flush=True)
                     continue
                 print(f"  Entry score: {c['pair']} s{score}/6 — OK", flush=True)
