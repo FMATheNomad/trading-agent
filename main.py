@@ -33,6 +33,7 @@ import rules
 import patterns
 import pairs
 from optimizer import AIOptimizer
+from grid_mini import GridMini
 
 risk = RiskManager()
 portfolio_risk = PortfolioRiskManager()
@@ -41,6 +42,7 @@ positions: list[dict] = []
 shutdown_flag = False
 momentum_engine = MomentumEngine()
 optimizer = AIOptimizer()
+grid_mini = GridMini()
 
 regime_history: list[str] = []
 known_pairs: set[str] = set()
@@ -900,6 +902,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         _prev_equity = total_equity
         _prev_regime = regime_info["regime"]
 
+        await grid_mini.check_sell_fills(client)
+
         saved_curve = persist.load_equity_curve()
         saved_curve.append(total_equity)
         if len(saved_curve) > 200:
@@ -1509,6 +1513,10 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         _latest_all_signals = all_signals
         _latest_ohlcv_map_1h = ohlcv_map_1h
         _latest_balance = actual_idr_balance
+
+        await grid_mini.scan_and_place(ticker_map, ohlcv_map_1h, current_regime, actual_idr_balance)
+        await grid_mini.check_fills_and_place_tp(client, ticker_map)
+        grid_mini.cleanup_stale()
 
         if config.AUTO_COMPOUND and _realized_pnl_idr != 0:
             old_cap = config.PLAY_CAPITAL_IDR
