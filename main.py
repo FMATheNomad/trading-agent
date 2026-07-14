@@ -2019,6 +2019,13 @@ async def main():
             lines.append(f"Posisi: {p['qty']:.4f} @ {p.get('entry_price',0):,.0f} ({pnl:+.2f}%)")
         return "\n".join(lines) or f"{pid}: tidak ditemukan"
 
+    async def _reply(cid: int, text: str):
+        async with httpx.AsyncClient() as cc:
+            await cc.post(
+                f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
+                json={"chat_id": cid, "text": text},
+            )
+
     async def telegram_poller():
         global _latest_regime
         last_id = 0
@@ -2052,38 +2059,29 @@ async def main():
                                     f"Cash: Rp{_latest_balance:,.0f} | Posisi: {len(positions)}\n" +
                                     ("\n".join(pos_lines) if pos_lines else "Tidak ada posisi")
                                 )
-                                async with httpx.AsyncClient() as cc:
-                                    await cc.post(
-                                        f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
-                                        json={"chat_id": cid, "text": text},
-                                    )
+                                await _reply(cid, text)
                                 save_chat("assistant", text)
                                 continue
 
-                            if txt == "/commands":
-                                async with httpx.AsyncClient() as cc:
-                                    await cc.post(
-                                        f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
-                                         json={"chat_id": cid, "text": (
-                                             "📋 DAFTAR PERINTAH\n\n"
-                                             "/status — Portfolio & posisi\n"
-                                             "/cycle — Status siklus (waktu, regime, cash)\n"
-                                             "/ask SUI — Detail sinyal & ATR koin\n"
-                                             "/atr — ATR, SL, TP semua posisi\n"
-                                              "/atr SOL — ATR spesifik koin\n"
-                                              "/why — Alasan bot gak trading\n"
-                                              "/project — Proyeksi harian, bulanan, tahunan\n"
-                                              "/today — Performa hari ini\n"
-                                              "/month — Performa bulan ini\n"
-                                              "/year — Performa tahun ini\n"
-                                              "/commands — Daftar ini\n"
-                                              "/cycle — Status siklus & waktu\n"
-                                              "/perf — Performa & win rate\n"
-                                              "/log — Aktivitas terakhir CIO\n"
-                                              "/risk — Status risiko & proteksi\n"
-                                               "/greed — Bypass daily loss hold (1×/hari)"
-                                         )},
-                                    )
+                            if txt in ("/commands", "/help"):
+                                await _reply(cid, (
+                                    "📋 DAFTAR PERINTAH\n\n"
+                                    "/status — Portfolio & posisi\n"
+                                    "/ask <coin> — Detail sinyal & ATR koin\n"
+                                    "/atr — ATR, SL, TP semua posisi\n"
+                                    "/atr <coin> — ATR spesifik koin\n"
+                                    "/today — Performa hari ini\n"
+                                    "/month — Performa bulan ini\n"
+                                    "/year — Performa tahun ini\n"
+                                    "/perf — Win rate & statistik\n"
+                                    "/cycle — Status & waktu siklus\n"
+                                    "/project — Proyeksi equity\n"
+                                    "/why — Alasan bot gak trading\n"
+                                    "/risk — Status parameter risiko\n"
+                                    "/greed — Bypass daily loss (1×/hari)\n"
+                                    "/log — Aktivitas terkini\n"
+                                    "/help — Daftar ini"
+                                ))
                                 continue
 
                             if txt == "/cycle":
@@ -2104,54 +2102,32 @@ async def main():
                                         f"Posisi: {cinfo.get('positions', 0)}\n"
                                         f"Durasi: {cinfo.get('duration', 0)}s"
                                     )
-                                async with httpx.AsyncClient() as cc:
-                                    await cc.post(
-                                        f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
-                                        json={"chat_id": cid, "text": text},
-                                    )
+                                await _reply(cid, text)
                                 continue
 
                             if txt == "/project":
-                                def _proj_price(pair: str) -> float:
-                                    lt = LIVE_TICKERS.get(pair, {})
-                                    if lt.get("last"):
-                                        return lt["last"]
-                                    tm = _latest_ticker_map.get(pair, {})
-                                    if tm.get("last"):
-                                        return tm["last"]
-                                    return 0
-                                eq = _latest_balance + sum(p["qty"] * _proj_price(p["pair"]) for p in positions)
-                                eq = max(eq, 100000)
+                                eq = _latest_balance + sum(p["qty"] * (LIVE_TICKERS.get(p["pair"], {}).get("last") or _latest_ticker_map.get(p["pair"], {}).get("last") or p.get("entry_price", 0)) for p in positions)
                                 base_eq = persist.load_initial_equity() or eq
-                                pnl_total = eq - base_eq
-                                pnl_pct_total = (pnl_total / base_eq) * 100
-                                sells = [a for a in _recent_actions if a.get("action") == "SELL"]
-                                total_pnl = sum(a.get("pnl", 0) for a in sells)
-                                avg_pnl = total_pnl / len(sells) if sells else max(pnl_pct_total, 0.1) / max(len(_recent_actions), 1)
-                                wins = [a for a in sells if a.get("pnl", 0) > 0]
+                                pnl_pct_total = ((eq - base_eq) / base_eq) * 100 if base_eq else 0
+                                all_sells_db = get_trades_by_period("year")
+                                sells = [t for t in all_sells_db if t["side"] == "sell" and t["pnl"] is not None]
+                                total_pnl = sum(t["pnl"] for t in sells)
+                                wins = [t for t in sells if t["pnl"] > 0]
                                 wr = len(wins) / max(len(sells), 1) * 100
-                                if not sells:
-                                    avg_pnl = pnl_pct_total / max(len(_recent_actions), 1)
-                                    wr = 50 if pnl_pct_total > 0 else 49
-                                est_daily = max(5, config.MAX_DAILY_TRADES if config.MAX_DAILY_TRADES < 99999 else 10) * max(avg_pnl, 0.1) * (wr / 100)
-                                days_running = max((time.time() - _cycle_last_end) / 86400 if _cycle_last_end > 0 else 0, 0.1)
-                                pct_per_day = pnl_pct_total / days_running if days_running > 0 else 0
-                                proj_month = eq * (1 + max(pct_per_day, 0.05) / 100) ** 30 - eq if pct_per_day >= 0 else eq * (1 - abs(pct_per_day) / 100) ** 30 - eq
-                                proj_year = eq * (1 + max(pct_per_day, 0.05) / 100) ** 365 - eq if pct_per_day >= 0 else eq * (1 - abs(pct_per_day) / 100) ** 365 - eq
+                                days_running = max(1, len(set(t["timestamp"][:10] for t in sells))) if sells else 1
+                                daily_avg = total_pnl / days_running if sells else 0
                                 text = (
                                     f"📈 PROYEKSI\n"
                                     f"Equity: Rp{eq:,.0f}\n"
                                     f"Total PnL: {pnl_pct_total:+.1f}%\n"
-                                    f"Rata-rata/trade: {avg_pnl:+.2f}%\n"
+                                    f"Rata-rata/hari: Rp{daily_avg:+,.0f}\n"
                                     f"Win rate: {wr:.0f}%\n"
+                                    f"Run: {days_running} hari\n"
                                     f"──────────────\n"
-                                    f"📅 Harian: Rp{est_daily*eq/100:,.0f}\n"
-                                    f"📅 Bulanan: Rp{proj_month:,.0f}\n"
-                                    f"📅 Tahunan: Rp{proj_year:,.0f}"
+                                    f"📅 30 hari: Rp{daily_avg * 30:+,.0f}\n"
+                                    f"📅 365 hari: Rp{daily_avg * 365:+,.0f}"
                                 )
-                                async with httpx.AsyncClient() as cc:
-                                    await cc.post(f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
-                                        json={"chat_id": cid, "text": text})
+                                await _reply(cid, text)
                                 continue
 
                             if txt in ("/today", "/month", "/year"):
@@ -2182,49 +2158,42 @@ async def main():
                                         text += f"\nWorst: {worst.get('reason','?')} ({worst['pnl']:+.0f})"
                                 except Exception as e:
                                     text = f"Error: {str(e)[:60]}"
-                                async with httpx.AsyncClient() as cc:
-                                    await cc.post(f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
-                                        json={"chat_id": cid, "text": text})
+                                await _reply(cid, text)
                                 continue
 
                             if txt == "/perf":
-                                buf = "📊 PERFORMANCE\n"
-                                total_t = _cio_stats.get("total_decisions", 0)
-                                buys = _cio_stats.get("buys", 0)
-                                sells = _cio_stats.get("sells", 0)
-                                wins = _cio_stats.get("wins", 0)
-                                losses = _cio_stats.get("losses", 0)
-                                trades_total = wins + losses
-                                wr = (wins / trades_total * 100) if trades_total > 0 else 0
-                                buf += f"Trade: {trades_total}x ({wins}W/{losses}L)\n"
-                                buf += f"Win rate: {wr:.0f}%\n"
-                                if _recent_actions:
-                                    last5 = _recent_actions[-5:]
-                                    total_pnl = sum(a.get("pnl", 0) for a in _recent_actions if a.get("action") == "SELL")
-                                    best = max((a for a in _recent_actions if a.get("action") == "SELL"), key=lambda x: x.get("pnl", 0), default={})
-                                    worst = min((a for a in _recent_actions if a.get("action") == "SELL"), key=lambda x: x.get("pnl", 0), default={})
-                                    buf += f"Best: {best.get('pair','?')} {best.get('pnl',0):+.1f}%\n" if best else ""
-                                    buf += f"Worst: {worst.get('pair','?')} {worst.get('pnl',0):+.1f}%\n" if worst else ""
-                                    buf += f"Last 5:\n"
-                                    for a in reversed(last5):
-                                        emoji = "🟢" if a.get("pnl", 0) > 0 else "🔴" if a.get("pnl", 0) < 0 else "⚪"
-                                        buf += f"{emoji} {a['pair']} {a['action']} ({a['pnl']:+.1f}%)\n"
-                                async with httpx.AsyncClient() as cc:
-                                    await cc.post(f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
-                                        json={"chat_id": cid, "text": buf})
+                                all_sells = get_trades_by_period("year")
+                                sells = [t for t in all_sells if t["side"] == "sell" and t["pnl"] is not None]
+                                wins = [t for t in sells if t["pnl"] > 0]
+                                losses = [t for t in sells if t["pnl"] <= 0]
+                                total = len(sells)
+                                wr = (len(wins) / total * 100) if total > 0 else 0
+                                total_pnl = sum(t["pnl"] for t in sells)
+                                avg_win = sum(t["pnl"] for t in wins) / len(wins) if wins else 0
+                                avg_loss = abs(sum(t["pnl"] for t in losses) / len(losses)) if losses else 0
+                                buf = f"📊 PERFORMANCE (year)\n"
+                                buf += f"Sells: {total}x ({len(wins)}W/{len(losses)}L)\n"
+                                buf += f"Win rate: {wr:.1f}%\n"
+                                buf += f"Total PnL: Rp{total_pnl:+,.0f}\n"
+                                if avg_win > 0 and avg_loss > 0:
+                                    buf += f"R:R ratio: {avg_win/avg_loss:.2f}\n"
+                                if sells:
+                                    best = max(sells, key=lambda x: x["pnl"])
+                                    worst = min(sells, key=lambda x: x["pnl"])
+                                    buf += f"Best: {best.get('reason','?')} ({best['pnl']:+.0f})\n"
+                                    buf += f"Worst: {worst.get('reason','?')} ({worst['pnl']:+.0f})"
+                                await _reply(cid, buf)
                                 continue
 
                             if txt == "/log":
-                                buf = "📋 LOG AKTIVITAS CIO\n"
+                                buf = "📋 LOG AKTIVITAS\n"
                                 if not _recent_actions:
                                     buf += "Belum ada aktivitas."
                                 else:
                                     for a in reversed(_recent_actions[-10:]):
                                         t_str = f"{int((time.time()-a['time'])/60)}m" if a['time'] else "?"
                                         buf += f"[{t_str}] {a['action']} {a['pair']} ({a['pnl']:+.1f}%)\n"
-                                async with httpx.AsyncClient() as cc:
-                                    await cc.post(f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
-                                        json={"chat_id": cid, "text": buf})
+                                await _reply(cid, buf)
                                 continue
 
                             if txt == "/risk":
@@ -2239,19 +2208,13 @@ async def main():
                                     pnl_r = pnl_pct(p.get("entry_price") or 0, last_p, p["side"])
                                     flag = "⚠️" if pnl_r < -5 else "✅"
                                     buf += f"{flag} {p['pair']} ({pnl_r:+.1f}%)\n"
-                                async with httpx.AsyncClient() as cc:
-                                    await cc.post(f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
-                                        json={"chat_id": cid, "text": buf})
+                                await _reply(cid, buf)
                                 continue
 
                             if txt.startswith("/ask "):
                                 coin = txt.split("/ask ", 1)[1].strip().upper()
                                 detail = await _build_coin_detail(coin)
-                                async with httpx.AsyncClient() as cc:
-                                    await cc.post(
-                                        f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
-                                        json={"chat_id": cid, "text": detail},
-                                    )
+                                await _reply(cid, detail)
                                 save_chat("assistant", detail)
                                 continue
 
@@ -2284,11 +2247,7 @@ async def main():
                                             reason += f"\n- {p['pair']} ({pnl:+.2f}%) belum cukup bergerak (min {min_move:.1f}%)"
                                 if reason == "Tidak ada trade karena:":
                                     reason += "\n- Semua posisi dalam batas normal, menunggu sinyal"
-                                async with httpx.AsyncClient() as cc:
-                                    await cc.post(
-                                        f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
-                                        json={"chat_id": cid, "text": reason},
-                                    )
+                                await _reply(cid, reason)
                                 save_chat("assistant", reason)
                                 continue
 
@@ -2301,16 +2260,12 @@ async def main():
                                 else:
                                     pairs_to_check = [p["pair"] for p in positions]
                                 if not pairs_to_check:
-                                    async with httpx.AsyncClient() as cc:
-                                        await cc.post(f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
-                                            json={"chat_id": cid, "text": "Tidak ada posisi. Gunakan: /atr <coin>"})
+                                    await _reply(cid, "Tidak ada posisi. Gunakan: /atr <coin>")
                                     continue
                                 atr_lines = []
                                 for pid in pairs_to_check[:8]:
                                     try:
-                                        print(f"  /atr fetching: {pid}", flush=True)
-                                        async with httpx.AsyncClient() as _oh:
-                                            ohlcv = await fetch_ohlcv(_oh, pair=pid, tf=60, limit=50)
+                                        ohlcv = _latest_ohlcv_map_1h.get(pid, [])
                                         if len(ohlcv) < 15:
                                             atr_lines.append(f"{pid}: data OHLCV kurang")
                                             continue
@@ -2327,33 +2282,18 @@ async def main():
                                         atr_lines.append(f"{pid:15} Rp{price:>8,.0f} | ATR {atr_val:.1f}% | SL Rp{sl:,.0f} ({sl_pct:+.1f}%) | TP Rp{tp:,.0f} ({tp_pct:+.1f}%){tag}")
                                     except Exception as e:
                                         atr_lines.append(f"{pid}: error ({str(e)[:30]})")
-                                msg = "-- ATR Levels --\n" + "\n".join(atr_lines)
-                                async with httpx.AsyncClient() as cc:
-                                    await cc.post(f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
-                                        json={"chat_id": cid, "text": msg})
+                                await _reply(cid, "-- ATR Levels --\n" + "\n".join(atr_lines))
                                 continue
 
                             if txt.startswith("/"):
-                                async with httpx.AsyncClient() as cc:
-                                    await cc.post(
-                                        f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
-                                        json={"chat_id": cid, "text": "Perintah: /status, /ask <coin>, /atr, /why, /commands"},
-                                    )
+                                await _reply(cid, "Perintah tidak dikenal. Ketik /help untuk daftar lengkap.")
                                 continue
 
                             if config.DEEPSEEK_API_KEY:
-                                async with httpx.AsyncClient() as cc:
-                                    await cc.post(
-                                        f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
-                                        json={"chat_id": cid, "text": "CIO mikir dulu..."},
-                                    )
+                                await _reply(cid, "CIO mikir dulu...")
                                 reply = await _cio_reply(raw)
                                 if reply:
-                                    async with httpx.AsyncClient() as cc2:
-                                        await cc2.post(
-                                            f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
-                                            json={"chat_id": cid, "text": reply[:400]},
-                                        )
+                                    await _reply(cid, reply[:400])
                                     save_chat("assistant", reply)
             except Exception:
                 pass
