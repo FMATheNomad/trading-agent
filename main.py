@@ -24,7 +24,7 @@ from risk_manager import RiskManager, PortfolioRiskManager
 from executor import place_order, get_balance, get_order
 from deadman import refresh_deadman, cancel_deadman
 from notifier import send_message
-from db import init_db, log_trade, log_decision, get_recent_trades, get_trade_count_today, get_trades_by_period, get_recent_completed_sells, count_new_completed_sells, get_max_trade_id, save_chat, get_chat_history, init_chat_db
+from db import init_db, log_trade, log_decision, get_recent_trades, get_trade_count_today, get_trades_by_period, get_recent_completed_sells, count_new_completed_sells, get_max_trade_id, init_chat_db
 import persist
 from market_ws import market_ws_loop, LIVE_TICKERS, stop as mws_stop, set_on_tick
 from private_ws import private_ws_loop, stop as pws_stop
@@ -1168,17 +1168,19 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         today_str = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=7))).strftime("%Y-%m-%d")
         if getattr(portfolio_cycle, "_last_report_date", "") != today_str:
             portfolio_cycle._last_report_date = today_str
-            all_trades = get_trades_by_period("day")
-            sells = [t for t in all_trades if t["side"] == "sell" and t["pnl"] is not None]
+            sells = [t for t in get_trades_by_period("day") if t["side"] == "sell" and t["pnl"] is not None]
             total_pnl = sum(t["pnl"] for t in sells)
             wins = len([t for t in sells if t["pnl"] > 0])
             losses = len([t for t in sells if t["pnl"] <= 0])
+            buys_today = len([t for t in get_trades_by_period("day") if t["side"] == "buy"])
             wr = wins / max(wins + losses, 1) * 100
-            fee_all = sum(abs(t.get("amount_idr", 0) or 0) for t in all_trades) * config.TAKER_FEE_PCT
+            fee_buy = buys_today * 25000 * config.TAKER_FEE_PCT
+            fee_sell = sum(abs(t.get("amount_idr", 0) or 0) for t in sells) * config.MAKER_FEE_PCT
             await send_message(
-                f"📊 HARIAN: {len(all_trades)} trade | {wins}W/{losses}L ({wr:.0f}%)\n"
-                f"PnL: Rp{total_pnl:+,.0f} (fee Rp{fee_all:,.0f})\n"
-                f"Equity: Rp{total_equity:,.0f} | Cash: Rp{actual_idr_balance:,.0f}"
+                f"📊 HARIAN\n"
+                f"Buy {buys_today}x | Sell {wins+losses}x ({wins}W/{losses}L | {wr:.0f}%)\n"
+                f"PnL: Rp{total_pnl:+,.0f} | Fee: Rp{fee_buy + fee_sell:,.0f}\n"
+                f"Net: Rp{total_pnl - fee_buy - fee_sell:+,.0f}"
             )
 
         trades = decision.get("trades", [])
@@ -1956,44 +1958,6 @@ async def main():
     )
     print(f"Telegram: {'OK' if ok else 'FAILED'}", flush=True)
 
-    async def _cio_reply(user_msg: str) -> str | None:
-        global _latest_regime
-        if not config.DEEPSEEK_API_KEY:
-            return None
-
-        cash_info = f"Rp{_latest_balance:,.0f}" if _latest_balance else "?"
-        pos_lines = []
-        for p in positions[:10]:
-            pid = p["pair"]
-            lp = LIVE_TICKERS.get(pid, {}).get("last") or _latest_ticker_map.get(pid, {}).get("last") or p.get("entry_price", 0)
-            pnl = pnl_pct(p.get("entry_price") or 0, lp, p["side"])
-            pos_lines.append(f"  {pid}: {p['qty']:.4f} @ {p.get('entry_price',0):,.0f} ({pnl:+.2f}%)")
-        pos_str = "\n".join(pos_lines) or "  Tidak ada"
-
-        regime_name = _latest_regime.get("regime", "?")
-        chat_history = get_chat_history(8)
-        messages = [
-            {"role": "system", "content": (
-                f"Kamu CIO FMA ALPHA QUANT LABS. Target: Rp{config.PLAY_CAPITAL_IDR:,} → Rp500.000.\n"
-                f"Bicara sopan pakai 'aku', singkat (1-3 kalimat), santai.\n"
-                f"Cash: {cash_info}\n"
-                f"Positions:\n{pos_str}\n"
-                f"Regime saat ini: {regime_name}\n"
-                f"Mode: {'🔴 ALPHA' if config.ALPHA_MODE else 'STANDARD'} ATR-based SL/TP"
-            )},
-        ]
-        for h in chat_history:
-            messages.append({"role": "user" if h["role"] == "user" else "assistant", "content": h["message"]})
-        messages.append({"role": "user", "content": user_msg})
-
-        try:
-            from openai import OpenAI
-            cl = OpenAI(api_key=config.DEEPSEEK_API_KEY, base_url=config.DEEPSEEK_BASE_URL)
-            resp = cl.chat.completions.create(model=config.DEEPSEEK_MODEL, messages=messages)
-            return resp.choices[0].message.content or "Gak tau."
-        except Exception as e:
-            return f"Error: {str(e)[:60]}"
-
     async def _build_coin_detail(pair: str) -> str:
         pid = (pair if pair.endswith("_idr") else f"{pair}_idr").lower()
         sig = _latest_all_signals.get(pid, {})
@@ -2050,41 +2014,53 @@ async def main():
                             if not txt:
                                 continue
 
-                            save_chat("user", raw)
-
                             if txt in ("/start", "/status"):
+                                coin_val = 0
                                 pos_lines = []
                                 for p in positions[:10]:
                                     lp = LIVE_TICKERS.get(p["pair"], {}).get("last") or _latest_ticker_map.get(p["pair"], {}).get("last") or p.get("entry_price", 0)
                                     pnl = pnl_pct(p.get("entry_price") or 0, lp, p["side"])
-                                    pos_lines.append(f"{p['pair']} {p['side']} @ {p['entry_price']:,.0f} ({pnl:+.2f}%)")
+                                    val = p["qty"] * lp
+                                    coin_val += val
+                                    pos_lines.append(f"{p['pair']} Rp{val:,.0f} ({pnl:+.2f}%)")
+                                total_eq = _latest_balance + coin_val
+                                sells_today = [t for t in get_trades_by_period("day") if t["side"] == "sell" and t["pnl"] is not None]
+                                pnl_today = sum(t["pnl"] for t in sells_today)
+                                pnl_tag = f" | Today: Rp{pnl_today:+,.0f}" if sells_today else ""
                                 text = (
-                                    f"FMA ALPHA QUANT LABS 🤖\n"
-                                    f"Mode: {'PAPER' if config.PAPER_TRADING else 'LIVE'} | {_latest_regime.get('regime','?')}\n"
-                                    f"Cash: Rp{_latest_balance:,.0f} | Posisi: {len(positions)}\n" +
+                                    f"🤖 FMA ALPHA QUANT LABS\n"
+                                    f"Equity: Rp{total_eq:,.0f} | Cash: Rp{_latest_balance:,.0f}{pnl_tag}\n"
+                                    f"Mode: {_latest_regime.get('regime','?')} | Posisi: {len(positions)}\n" +
                                     ("\n".join(pos_lines) if pos_lines else "Tidak ada posisi")
                                 )
                                 await _reply(cid, text)
-                                save_chat("assistant", text)
                                 continue
 
                             if txt in ("/commands", "/help"):
                                 await _reply(cid, (
-                                    "📋 DAFTAR PERINTAH\n\n"
+                                    "📋 PERINTAH\n\n"
+                                    "── INFO ──\n"
                                     "/status — Portfolio & posisi\n"
-                                    "/ask <coin> — Detail sinyal & ATR koin\n"
-                                    "/atr — ATR, SL, TP semua posisi\n"
-                                    "/atr <coin> — ATR spesifik koin\n"
+                                    "/risk — Parameter risiko saat ini\n"
+                                    "/cycle — Status siklus terakhir\n"
+                                    "/why — Alasan bot gak entry\n"
+                                    "\n"
+                                    "── PERFORMANCE ──\n"
                                     "/today — Performa hari ini\n"
+                                    "/week — Performa minggu ini\n"
                                     "/month — Performa bulan ini\n"
                                     "/year — Performa tahun ini\n"
-                                    "/perf — Win rate & statistik\n"
-                                    "/cycle — Status & waktu siklus\n"
+                                    "/perf — Statistik lifetime\n"
                                     "/project — Proyeksi equity\n"
-                                    "/why — Alasan bot gak trading\n"
-                                    "/risk — Status parameter risiko\n"
+                                    "/log — Transaksi terakhir\n"
+                                    "\n"
+                                    "── TRADING ──\n"
+                                    "/atr — ATR/SL/TP posisi aktif\n"
+                                    "/atr <coin> — ATR spesifik koin\n"
+                                    "/ask <coin> — Detail sinyal koin\n"
+                                    "\n"
+                                    "── LAINNYA ──\n"
                                     "/greed — Bypass daily loss (1×/hari)\n"
-                                    "/log — Aktivitas terkini\n"
                                     "/help — Daftar ini"
                                 ))
                                 continue
@@ -2112,48 +2088,50 @@ async def main():
 
                             if txt == "/project":
                                 eq = _latest_balance + sum(p["qty"] * (LIVE_TICKERS.get(p["pair"], {}).get("last") or _latest_ticker_map.get(p["pair"], {}).get("last") or p.get("entry_price", 0)) for p in positions)
-                                base_eq = persist.load_initial_equity() or eq
+                                curve = persist.load_equity_curve()
+                                base_eq = curve[0] if curve else eq
                                 pnl_pct_total = ((eq - base_eq) / base_eq) * 100 if base_eq else 0
-                                all_sells_db = get_trades_by_period("year")
-                                sells = [t for t in all_sells_db if t["side"] == "sell" and t["pnl"] is not None]
+                                sells = [t for t in get_trades_by_period("year") if t["side"] == "sell" and t["pnl"] is not None]
                                 total_pnl = sum(t["pnl"] for t in sells)
-                                wins = [t for t in sells if t["pnl"] > 0]
-                                wr = len(wins) / max(len(sells), 1) * 100
                                 days_running = max(1, len(set(t["timestamp"][:10] for t in sells))) if sells else 1
                                 daily_avg = total_pnl / days_running if sells else 0
                                 text = (
                                     f"📈 PROYEKSI\n"
-                                    f"Equity: Rp{eq:,.0f}\n"
-                                    f"Total PnL: {pnl_pct_total:+.1f}%\n"
-                                    f"Rata-rata/hari: Rp{daily_avg:+,.0f}\n"
-                                    f"Win rate: {wr:.0f}%\n"
-                                    f"Run: {days_running} hari\n"
-                                    f"──────────────\n"
-                                    f"📅 30 hari: Rp{daily_avg * 30:+,.0f}\n"
-                                    f"📅 365 hari: Rp{daily_avg * 365:+,.0f}"
+                                    f"Equity: Rp{eq:,.0f} (dari Rp{base_eq:,.0f})\n"
+                                    f"Perubahan: {pnl_pct_total:+.1f}%\n"
+                                    f"Avg/hari: Rp{daily_avg:+,.0f}\n"
+                                    f"30 hari: Rp{daily_avg * 30:+,.0f}\n"
+                                    f"365 hari: Rp{daily_avg * 365:+,.0f}"
                                 )
                                 await _reply(cid, text)
                                 continue
 
-                            if txt in ("/today", "/month", "/year"):
-                                period_map = {"/today": "day", "/month": "month", "/year": "year"}
+                            if txt in ("/today", "/week", "/month", "/year"):
+                                period_map = {"/today": "day", "/week": "week", "/month": "month", "/year": "year"}
                                 period = period_map[txt]
-                                label_map = {"day": "HARI INI", "month": "BULAN INI", "year": "TAHUN INI"}
+                                label_map = {"day": "HARI INI", "week": "MINGGU INI", "month": "BULAN INI", "year": "TAHUN INI"}
                                 label = label_map[period]
                                 try:
-                                    trades_in = get_trades_by_period(period)
+                                    if period == "week":
+                                        now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=7)))
+                                        wk_start = (now - datetime.timedelta(days=now.weekday())).strftime("%Y-%m-%d")
+                                        trades_in = get_trades_by_period("month")
+                                        trades_in = [t for t in trades_in if t.get("timestamp", "").startswith(wk_start)]
+                                    else:
+                                        trades_in = get_trades_by_period(period)
                                     sells = [t for t in trades_in if t["side"] == "sell" and t["pnl"] is not None]
+                                    buys = len([t for t in trades_in if t["side"] == "buy"])
                                     total_pnl = sum(t["pnl"] for t in sells)
                                     wins = [t for t in sells if t["pnl"] > 0]
                                     losses = [t for t in sells if t["pnl"] <= 0]
-                                    fee_est = sum(abs(t.get("amount_idr", 0) or 0) for t in trades_in) * config.TOTAL_MAKER_ROUNDTRIP_PCT
+                                    fee_buy = buys * 25000 * config.TAKER_FEE_PCT
+                                    fee_sell = sum(abs(t.get("amount_idr", 0) or 0) for t in sells) * config.MAKER_FEE_PCT
                                     text = (
                                         f"📊 {label}\n"
-                                        f"Trade: {len(sells)}x ({len(wins)}W/{len(losses)}L)\n"
+                                        f"Buy {buys}x | Sell {len(sells)}x ({len(wins)}W/{len(losses)}L)\n"
                                         f"Win rate: {len(wins)/max(len(sells),1)*100:.0f}%\n"
-                                        f"Total PnL: Rp{total_pnl:+,.0f}\n"
-                                        f"Est fee: Rp{fee_est:,.0f}\n"
-                                        f"Net: Rp{total_pnl - fee_est:+,.0f}"
+                                        f"PnL: Rp{total_pnl:+,.0f} | Fee: Rp{fee_buy+fee_sell:,.0f}\n"
+                                        f"Net: Rp{total_pnl - fee_buy - fee_sell:+,.0f}"
                                     )
                                     if wins:
                                         best = max(wins, key=lambda x: x["pnl"])
@@ -2222,12 +2200,15 @@ async def main():
                                 continue
 
                             if txt == "/risk":
+                                max_pos = config.ROTHSCHILD_OPEN_POSITIONS if config.ROTHSCHILD_ACTIVE else config.max_positions_for_equity(_latest_balance)
+                                kelly_r = portfolio_risk.kelly_for_regime(_latest_regime.get("regime", "?"))
                                 buf = "⚠️ RISK STATUS\n"
-                                buf += f"Portfolio drawdown: {config.PORTFOLIO_STOP_LOSS_PCT*100:.0f}%\n"
-                                buf += f"Daily loss floor: Rp{config.DAILY_LOSS_FLOOR_IDR:,}\n"
-                                buf += f"ATR SL: {config.ATR_SL_MULTIPLIER:.0f}x | TP: {config.ATR_TP_MULTIPLIER:.0f}x\n"
-                                buf += f"Max trade/day: {config.MAX_DAILY_TRADES}\n"
-                                buf += f"Max positions: {config.MAX_OPEN_POSITIONS}\n"
+                                buf += f"Regime: {_latest_regime.get('regime', '?')}\n"
+                                buf += f"Mode: {'🔴 ROTHSCHILD' if config.ROTHSCHILD_ACTIVE else '🟢 KONSERVATIF'}\n"
+                                buf += f"Kelly: {kelly_r*100:.0f}%\n"
+                                buf += f"ATR SL: {config.ATR_SL_MULTIPLIER:.1f}x | TP: {config.ATR_TP_MULTIPLIER:.1f}x\n"
+                                buf += f"Max pos: {max_pos} | Max trade/hari: {config.MAX_DAILY_TRADES}\n"
+                                buf += f"Daily loss: Rp{config.DAILY_LOSS_FLOOR_IDR:,} | Drawdown: {abs(config.PORTFOLIO_STOP_LOSS_PCT)*100:.0f}%\n"
                                 for p in positions[:5]:
                                     last_p = LIVE_TICKERS.get(p["pair"], {}).get("last") or _latest_ticker_map.get(p["pair"], {}).get("last") or p.get("entry_price", 0)
                                     pnl_r = pnl_pct(p.get("entry_price") or 0, last_p, p["side"])
@@ -2240,7 +2221,6 @@ async def main():
                                 coin = txt.split("/ask ", 1)[1].strip().upper()
                                 detail = await _build_coin_detail(coin)
                                 await _reply(cid, detail)
-                                save_chat("assistant", detail)
                                 continue
 
                             if txt == "/greed":
@@ -2254,26 +2234,28 @@ async def main():
                                 continue
 
                             if txt == "/why":
-                                reason = "Tidak ada trade karena:"
+                                regime_r = _latest_regime.get("regime", "")
+                                reason = f"Regime: {regime_r}"
+                                if regime_r in ("BEAR", "HIGH_VOL"):
+                                    reason += f" — bot tidak entry di {regime_r}"
+                                elif regime_r == "SIDEWAYS":
+                                    reason += " — mean-reversion, nunggu oversold"
+                                elif regime_r == "BULL":
+                                    reason += " — momentum, nunggu sinyal"
                                 if _latest_balance < config.MIN_ORDER_IDR:
-                                    reason += f"\n- Cash Rp{_latest_balance:,.0f} < minimum Rp{config.MIN_ORDER_IDR:,}"
+                                    reason += f"\nCash Rp{_latest_balance:,.0f} < min Rp{config.MIN_ORDER_IDR:,}"
+                                if not _latest_ohlcv_map_1h:
+                                    reason += "\nData OHLCV kosong"
                                 if not positions:
-                                    reason += "\n- Tidak ada posisi"
+                                    reason += "\nTidak ada posisi"
                                 else:
                                     for p in positions[:5]:
                                         lp = LIVE_TICKERS.get(p["pair"], {}).get("last") or _latest_ticker_map.get(p["pair"], {}).get("last") or p.get("entry_price", 0)
                                         pnl = pnl_pct(p.get("entry_price") or 0, lp, p["side"])
                                         atr_for = risk.compute_atr(_latest_ohlcv_map_1h.get(p["pair"], []))
-                                        pnl_target = atr_for * config.ATR_PROFIT_SELL_MULT
-                                        if pnl < pnl_target:
-                                            reason += f"\n- {p['pair']} ({pnl:+.2f}%) belum ≥{pnl_target:.1f}% (ATR-based)"
-                                        min_move = atr_for * config.ATR_MIN_MOVE_MULTIPLIER
-                                        if abs(pnl) < min_move:
-                                            reason += f"\n- {p['pair']} ({pnl:+.2f}%) belum cukup bergerak (min {min_move:.1f}%)"
-                                if reason == "Tidak ada trade karena:":
-                                    reason += "\n- Semua posisi dalam batas normal, menunggu sinyal"
+                                        sm_state = _position_states.get(p["pair"], {}).get("state", "?")
+                                        reason += f"\n{p['pair']} ({pnl:+.1f}%) SM:{sm_state}"
                                 await _reply(cid, reason)
-                                save_chat("assistant", reason)
                                 continue
 
                             if txt.startswith("/atr"):
@@ -2313,13 +2295,6 @@ async def main():
                             if txt.startswith("/"):
                                 await _reply(cid, "Perintah tidak dikenal. Ketik /help untuk daftar lengkap.")
                                 continue
-
-                            if config.DEEPSEEK_API_KEY:
-                                await _reply(cid, "CIO mikir dulu...")
-                                reply = await _cio_reply(raw)
-                                if reply:
-                                    await _reply(cid, reply[:400])
-                                    save_chat("assistant", reply)
             except Exception:
                 pass
             await asyncio.sleep(5)
