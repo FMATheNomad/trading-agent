@@ -4,6 +4,7 @@ import httpx
 import config
 from executor import place_order, get_order, cancel_order
 from db import log_trade
+from notifier import send_message
 import asyncio
 
 GRID_STATE_IDLE = 0
@@ -118,6 +119,7 @@ class GridMini:
                         gi.state = GRID_STATE_BUY_PLACED
                         self.instances.append(gi)
                         print(f"  GRID MINI: BUY limit {pair} @ Rp{grid_entry:,.0f} (Rp{invest:,}) oid={oid}", flush=True)
+                        asyncio.ensure_future(send_message(f"📐 GRID: BUY limit {pair} @ Rp{grid_entry:,.0f} (Rp{invest:,})"))
                         working_balance -= invest
                     elif order.get("paper_trade"):
                         gi = GridInstance(pair, grid_entry, invest)
@@ -148,6 +150,7 @@ class GridMini:
                             gi.tp_price = int(fill_price * (1 + self.tp_pct))
                             print(f"  GRID MINI FILLED: {gi.pair} @ Rp{fill_price:,.0f} qty={fill_qty:.6f}", flush=True)
                             log_trade("buy", fill_price, fill_qty, gi.investment, order_type="limit", status="filled", reason=f"grid_mini_entry {gi.pair}")
+                            asyncio.ensure_future(send_message(f"📐 GRID FILLED: {gi.pair}\nRp{fill_price:,.0f} × {fill_qty:.4f}"))
                         elif status in ("cancelled", "rejected"):
                             print(f"  GRID MINI CANCELLED: {gi.pair} oid={gi.buy_order_id}", flush=True)
                             self._pair_blacklist.add(gi.pair)
@@ -188,6 +191,7 @@ class GridMini:
                         pnl = (fill_p - gi.entry_price) * gi.qty
                         log_trade("sell", fill_p, gi.qty, gi.qty * fill_p, order_type="limit", status="closed", pnl=pnl, reason=f"grid_mini_tp {gi.pair}")
                         print(f"  GRID MINI TP FILLED: {gi.pair} profit Rp{pnl:+,.0f}", flush=True)
+                        asyncio.ensure_future(send_message(f"📐 GRID TP: {gi.pair}\nProfit Rp{pnl:+,.0f}"))
                         self._pair_blacklist.discard(gi.pair)
                         self.instances.remove(gi)
                     elif status in ("cancelled", "rejected"):
