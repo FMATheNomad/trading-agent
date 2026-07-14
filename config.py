@@ -21,9 +21,9 @@ def max_positions_for_equity(equity: float) -> int:
     if equity >= 5_000_000: return 4
     return 3
 
-MIN_24H_VOLUME_IDR = 500_000_000
-MAX_SCAN_PAIRS = 40
-OHLCV_FETCH_CONCURRENCY = 15
+MIN_24H_VOLUME_IDR = int(os.getenv("MIN_24H_VOLUME_IDR", "500000000"))
+MAX_SCAN_PAIRS = int(os.getenv("MAX_SCAN_PAIRS", "40"))
+OHLCV_FETCH_CONCURRENCY = int(os.getenv("OHLCV_FETCH_CONCURRENCY", "15"))
 MAX_POSITION_PCT_PER_ASSET = 0.35
 MAX_SECTOR_EXPOSURE_PCT = 0.5
 
