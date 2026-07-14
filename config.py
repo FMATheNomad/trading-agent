@@ -17,9 +17,8 @@ DEFAULT_PLAY_CAPITAL_PCT = 1.0
 PORTFOLIO_MODE = True
 MAX_OPEN_POSITIONS = 3
 def max_positions_for_equity(equity: float) -> int:
-    if equity >= 50_000_000: return 6
-    if equity >= 5_000_000: return 5
-    if equity >= 500_000: return 4
+    if equity >= 50_000_000: return 4
+    if equity >= 5_000_000: return 4
     return 3
 
 MIN_24H_VOLUME_IDR = int(os.getenv("MIN_24H_VOLUME_IDR", "500000000"))

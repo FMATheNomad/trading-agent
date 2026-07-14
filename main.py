@@ -792,7 +792,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 total_equity = _prev_equity
         else:
             portfolio_cycle._equity_guard = 0
-        max_positions = config.MAX_OPEN_POSITIONS if _rothschild_active else config.max_positions_for_equity(total_equity)
+        max_positions = config.ROTHSCHILD_OPEN_POSITIONS if _rothschild_active else config.MAX_OPEN_POSITIONS
         if cycle_counter == 1:
             portfolio_risk.peak_capital = total_equity
             persist.save_peak_capital(total_equity)
@@ -2200,8 +2200,7 @@ async def main():
                                 continue
 
                             if txt == "/risk":
-                                total_eq = _latest_balance + sum(p["qty"] * (LIVE_TICKERS.get(p["pair"], {}).get("last") or _latest_ticker_map.get(p["pair"], {}).get("last") or p.get("entry_price", 0)) for p in positions)
-                                max_pos_runtime = config.ROTHSCHILD_OPEN_POSITIONS if config.ROTHSCHILD_ACTIVE else config.max_positions_for_equity(total_eq)
+                                max_pos_runtime = config.ROTHSCHILD_OPEN_POSITIONS if config.ROTHSCHILD_ACTIVE else config.MAX_OPEN_POSITIONS
                                 kelly_r = portfolio_risk.kelly_for_regime(_latest_regime.get("regime", "?"))
                                 buf = "⚠️ RISK STATUS\n"
                                 buf += f"Regime: {_latest_regime.get('regime', '?')}\n"
