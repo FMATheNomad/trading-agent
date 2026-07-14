@@ -457,10 +457,16 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                         oid = await _sm_place_tp(client, pid, p["qty"], sm["entry_price"], atr)
                         if oid:
                             print(f"  SM TP RE-PLACED: {pid} oid={oid}", flush=True)
+                        else:
+                            print(f"  SM TP RE-PLACE FAILED: {pid} — PENDING, retry next cycle", flush=True)
+                            sm["state"] = "PENDING"
                     elif sm["state"] == "TRAILING":
                         oid = await _sm_place_sl(client, pid, p["qty"], sm["entry_price"], atr, mult=config.ROTHSCHILD_TRAILING_SL_ATR)
                         if oid:
                             print(f"  SM SL RE-PLACED: {pid} oid={oid}", flush=True)
+                        else:
+                            print(f"  SM SL RE-PLACE FAILED: {pid} — PENDING, retry next cycle", flush=True)
+                            sm["state"] = "PENDING"
                 continue
             if sm["state"] == "SL_ACTIVE" and sm.get("sl_price", 0) > 0:
                 lp = LIVE_TICKERS.get(pid, {}).get("last") or _latest_ticker_map.get(pid, {}).get("last", 0)
