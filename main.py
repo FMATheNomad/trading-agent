@@ -2335,6 +2335,9 @@ async def main():
                                     try:
                                         ohlcv = _latest_ohlcv_map_1h.get(pid, [])
                                         if len(ohlcv) < 15:
+                                            async with httpx.AsyncClient() as _ac:
+                                                ohlcv = await fetch_ohlcv(_ac, pair=pid, tf=60, limit=50)
+                                        if len(ohlcv) < 15:
                                             atr_lines.append(f"{pid}: data OHLCV kurang")
                                             continue
                                         atr_val = risk.compute_atr(ohlcv)
