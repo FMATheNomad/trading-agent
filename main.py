@@ -34,6 +34,7 @@ import patterns
 import pairs
 from optimizer import AIOptimizer
 from grid_mini import GridMini
+from dca_smart import SmartDCA
 
 
 risk = RiskManager()
@@ -44,6 +45,7 @@ shutdown_flag = False
 momentum_engine = MomentumEngine()
 optimizer = AIOptimizer()
 grid_mini = GridMini()
+dca_smart = SmartDCA()
 
 
 regime_history: list[str] = []
@@ -2449,12 +2451,29 @@ async def main():
         elif status in ("CANCELLED", "REJECTED"):
             print(f"  PWS CANCELLED: {pair} — SM akan re-place di cycle berikutnya", flush=True)
 
+    dca_smart.load_instances()
+    if dca_smart.instances:
+        print(f"Restored {len(dca_smart.instances)} DCA instances", flush=True)
+
+    async def _dca_task():
+        async with httpx.AsyncClient(timeout=30) as _dc:
+            while not shutdown_flag:
+                try:
+                    await dca_smart.run_cycle(_dc)
+                except Exception as e:
+                    print(f"DCA error: {e}", flush=True)
+                for _ in range(15):
+                    if shutdown_flag:
+                        break
+                    await asyncio.sleep(1)
+
     set_on_tick(_realtime_sltp_check)
     set_on_fill(_on_pws_fill)
     ws_task = asyncio.create_task(market_ws_loop())
     pws_task = asyncio.create_task(private_ws_loop())
     momentum_task = asyncio.create_task(_momentum_scanner())
     opt_task = asyncio.create_task(_optimizer_loop())
+    dca_task = asyncio.create_task(_dca_task())
     for _ in range(6):
         await asyncio.sleep(0.5)
 
