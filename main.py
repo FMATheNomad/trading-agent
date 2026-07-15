@@ -909,6 +909,9 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             persist.save_daily_loss_hit(False)
             persist.save_loss_hit_date(_today_d)
             print(f"  Daily loss reset — new trading day", flush=True)
+        if config.PAPER_TRADING and _daily_loss_hit_today:
+            _daily_loss_hit_today = False
+            print(f"  PAPER MODE: daily loss flag cleared", flush=True)
         _latest_regime = regime_info
         _latest_ticker_map = ticker_map
         _latest_all_signals = all_signals
