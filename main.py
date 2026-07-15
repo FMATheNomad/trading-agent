@@ -869,6 +869,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             persist.save_peak_capital(total_equity)
 
         base_eq = persist.load_initial_equity() or total_equity
+        if config.PAPER_TRADING and cycle_counter <= 1:
+            base_eq = total_equity
         eq_pct = (total_equity - base_eq) / base_eq * 100 if base_eq else 0
         tag = "🔴 R" if _rothschild_active else "🟢 K"
         hold_tag = " ⏸️" if _daily_loss_hit_today else ""
