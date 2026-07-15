@@ -87,6 +87,7 @@ _cb_consecutive_loss_days: int = 0
 _cb_last_loss_date: str = ""
 _cb_triggered_at: float = 0
 _cb_active_until: float = 0
+_paper_balance: float = 0
 
 def classify_regime(all_signals: dict, ohlcv_map_1h: dict | None = None) -> dict:
     signals = [s.get("raw_signal") for s in all_signals.values() if s.get("raw_signal")]
@@ -687,7 +688,10 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         actual_idr_balance = 0
 
         if config.PAPER_TRADING:
-            actual_idr_balance = config.PLAY_CAPITAL_IDR
+            global _paper_balance
+            if _paper_balance <= 0:
+                _paper_balance = config.PLAY_CAPITAL_IDR
+            actual_idr_balance = _paper_balance
             _latest_full_balance = {}
             _latest_full_hold = {}
             print(f"  PAPER MODE: simulated balance Rp{actual_idr_balance:,.0f}", flush=True)
@@ -1478,6 +1482,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 t["entry_price"] = actual_price
                 t["exec_price"] = actual_price
                 actual_idr_balance -= actual_spend
+                if config.PAPER_TRADING:
+                    _paper_balance = actual_idr_balance
                 _latest_balance = actual_idr_balance
                 add_position(positions, pid, action, actual_price, actual_qty, actual_spend,
                              atr_pct if ohlcv else None, time.time(),
@@ -1491,6 +1497,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 actual_sell_price = actual_received / actual_qty if actual_qty else price
                 t["exec_price"] = actual_sell_price
                 actual_idr_balance += actual_received
+                if config.PAPER_TRADING:
+                    _paper_balance = actual_idr_balance
                 _latest_balance = actual_idr_balance
                 positions = [p for p in positions if p["pair"] != pid]
                 persist.save_positions(positions)
