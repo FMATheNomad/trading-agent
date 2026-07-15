@@ -2458,6 +2458,7 @@ async def main():
         print("DCA Smart: starting fresh (no saved instances)", flush=True)
 
     async def _dca_task():
+        _dca_heartbeat = 0
         async with httpx.AsyncClient(timeout=30) as _dc:
             while not shutdown_flag:
                 try:
@@ -2466,6 +2467,9 @@ async def main():
                     print(f"DCA error: {e}", flush=True)
                     import traceback
                     traceback.print_exc()
+                _dca_heartbeat += 1
+                if _dca_heartbeat % 20 == 0:
+                    print(f"  DCA alive: {len(dca_smart.instances)} instances, balance Rp{dca_smart.balance_idr:,.0f}", flush=True)
                 for _ in range(15):
                     if shutdown_flag:
                         break
