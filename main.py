@@ -868,6 +868,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
 
         for p in list(positions):
             pid = p["pair"]
+            if pid in rules.DCA_EXCLUSIVE:
+                continue
             if pid not in _position_states and pid not in _sm_cooldown:
                 atr = p.get("atr_pct")
                 if not atr and _latest_ohlcv_map_1h.get(pid):
@@ -1010,6 +1012,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
 
         for p in list(positions):
             pid = p["pair"]
+            if pid in rules.DCA_EXCLUSIVE:
+                continue
             sm = _position_states.get(pid)
             if sm:
                 if sm["state"] == "PENDING":
