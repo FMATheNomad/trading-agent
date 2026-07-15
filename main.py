@@ -857,6 +857,11 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             persist.save_daily_loss_hit(False)
             persist.save_loss_hit_date(_today_d)
             print(f"  Daily loss reset — new trading day", flush=True)
+        _latest_regime = regime_info
+        _latest_ticker_map = ticker_map
+        _latest_all_signals = all_signals
+        _latest_ohlcv_map_1h = ohlcv_map_1h
+        _latest_balance = actual_idr_balance
         if total_equity < config.EQUITY_FLOOR_IDR:
             print(f"🏴 EQUITY FLOOR: Rp{total_equity:,.0f} < Rp{config.EQUITY_FLOOR_IDR:,} — no cash, waiting", flush=True)
             return
@@ -1559,12 +1564,6 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                                             print(f"CLEANUP: cancelled orphan {opair} {o.get('type')} (order_id={oid})", flush=True)
             except Exception as e:
                 print(f"Orphan cleanup error: {e}", flush=True)
-
-        _latest_regime = regime_info
-        _latest_ticker_map = ticker_map
-        _latest_all_signals = all_signals
-        _latest_ohlcv_map_1h = ohlcv_map_1h
-        _latest_balance = actual_idr_balance
 
         await grid_mini.check_sell_fills(client)
         await grid_mini.check_fills_and_place_tp(client, ticker_map)
