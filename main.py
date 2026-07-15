@@ -879,7 +879,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             persist.save_peak_capital(total_equity)
 
         base_eq = persist.load_initial_equity() or total_equity
-        if config.PAPER_TRADING and cycle_counter <= 1:
+        if config.PAPER_TRADING:
             base_eq = total_equity
         eq_pct = (total_equity - base_eq) / base_eq * 100 if base_eq else 0
         tag = "🔴 R" if _rothschild_active else "🟢 K"
@@ -2028,6 +2028,12 @@ async def main():
             _daily_loss_hit_today = False
             print(f"  CLEAR_LOSS_HOLD: daily loss flag reset by env", flush=True)
         _daily_loss_hit_today = persist.load_daily_loss_hit()
+        if config.PAPER_TRADING:
+            _daily_loss_hit_today = False
+            persist.save_daily_loss_hit(False)
+            persist.save_loss_hit_date("")
+            _cb_consecutive_loss_days = 0
+            persist.save_circuit_breaker({"consecutive_loss_days": 0, "last_loss_date": "", "triggered_at": 0, "active_until": 0})
         if _daily_loss_hit_today:
             print(f"  Previous session hit daily loss — TP allow, SL hold", flush=True)
         _ext_entry_prices.update(persist.load_entry_prices())
