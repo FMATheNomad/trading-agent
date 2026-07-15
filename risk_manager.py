@@ -178,8 +178,8 @@ class KellyCalculator:
         self.trade_count = 0
 
     def update(self, trades_history: list[dict]):
-        wins = [t for t in trades_history if t.get("pnl", 0) > 0]
-        losses = [t for t in trades_history if t.get("pnl", 0) <= 0]
+        wins = [t for t in trades_history if (t.get("pnl") or 0) > 0]
+        losses = [t for t in trades_history if (t.get("pnl") or 0) <= 0]
         self.trade_count = len(wins) + len(losses)
         if self.trade_count < 5:
             return
