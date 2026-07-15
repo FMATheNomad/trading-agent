@@ -740,6 +740,9 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     if pair in _realtime_sold:
                         print(f"  {pair}: skip restore (baru di-SM FILLED)", flush=True)
                         continue
+                    if pair in rules.DCA_EXCLUSIVE:
+                        print(f"  {pair}: DCA coin — skip restore to positions", flush=True)
+                        continue
                     positions.append({
                         "pair": pair, "side": "BUY",
                         "entry_price": entry_price,
