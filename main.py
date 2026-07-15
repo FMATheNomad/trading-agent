@@ -286,6 +286,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
     risk.daily_loss_stopped = False
     actual_idr_balance = 0
     _idr_held = 0
+    _latest_full_balance = {}
+    _latest_full_hold = {}
 
     if _cb_active_until > time.time():
         print(f"🛑 CIRCUIT BREAKER ACTIVE — cooling down until {datetime.datetime.fromtimestamp(_cb_active_until).strftime('%Y-%m-%d %H:%M')} WIB", flush=True)
@@ -679,6 +681,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 hold = info.get("balance_hold", {})
                 actual_idr_balance = float(bal.get("idr", 0))
                 _idr_held = float(hold.get("idr", 0))
+                _latest_full_balance = bal
+                _latest_full_hold = hold
                 for coin in set(list(bal.keys()) + list(hold.keys())):
                     raw_qty = bal.get(coin, 0)
                     qty = float(raw_qty) + float(hold.get(coin, 0))
@@ -804,10 +808,20 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             paper_equity += p["qty"] * price
         total_equity = actual_idr_balance + _idr_held + paper_equity
         try:
-            held_coins = sum(float(bal.get(c, 0)) * float(ticker_map.get(f"{c}_idr", {}).get("last", 0) or LIVE_TICKERS.get(f"{c}_idr", {}).get("last", 0)) for c in set(list(bal.keys()) + list(hold.keys())) if c != "idr" and float(bal.get(c,0)) + float(hold.get(c,0)) > 0 and f"{c}_idr" not in {p["pair"] for p in positions})
-            total_equity += held_coins
+            for coin in set(list(_latest_full_balance.keys()) + list(_latest_full_hold.keys())):
+                if coin == "idr":
+                    continue
+                c_qty = float(_latest_full_balance.get(coin, 0)) + float(_latest_full_hold.get(coin, 0))
+                if c_qty <= 0:
+                    continue
+                c_pair = f"{coin}_idr"
+                if c_pair in {p["pair"] for p in positions}:
+                    continue
+                c_price = float(ticker_map.get(c_pair, {}).get("last", 0) or LIVE_TICKERS.get(c_pair, {}).get("last", 0))
+                total_equity += c_qty * c_price
         except Exception:
             pass
+
         dust_eq = getattr(portfolio_cycle, "_dust_equity", 0)
         if dust_eq:
             total_equity += dust_eq
