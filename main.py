@@ -1851,6 +1851,11 @@ async def _realtime_sltp_check(pair: str, price: float):
             if now_pyr - _pyramid_cooldown.get(pair, 0) < 300:
                 print(f"  SM PYRAMID SKIP: {pair} cooldown ({int(now_pyr - _pyramid_cooldown.get(pair, 0))}s)", flush=True)
                 return
+            pyr_high = sm.get("_pyramid_high", 0)
+            if pyr_high > 0 and price <= pyr_high:
+                print(f"  SM PYRAMID SKIP: {pair} price {price:.0f} <= last pyramid {pyr_high:.0f} (trend turun)", flush=True)
+                return
+            sm["_pyramid_high"] = price
             pyr_pos = next((x for x in positions if x["pair"] == pair), None)
             if not pyr_pos:
                 print(f"  SM PYRAMID SKIP: {pair} posisi tidak ditemukan (mungkin sudah kejual)", flush=True)
