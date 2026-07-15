@@ -861,6 +861,25 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             print(f"🏴 EQUITY FLOOR: Rp{total_equity:,.0f} < Rp{config.EQUITY_FLOOR_IDR:,} — no cash, waiting", flush=True)
             return
 
+        for p in list(positions):
+            pid = p["pair"]
+            if pid not in _position_states and pid not in _sm_cooldown:
+                atr = p.get("atr_pct")
+                if not atr and _latest_ohlcv_map_1h.get(pid):
+                    atr = risk.compute_atr(_latest_ohlcv_map_1h[pid])
+                if atr and p["qty"] > 0:
+                    try:
+                        _sm_init(pid, p["entry_price"], p["qty"], atr, mode="TP_ACTIVE")
+                        tp_m = 0.5 if current_regime in ("SIDEWAYS", "SIDEWAYS_LOW_VOL") else config.ATR_TP_MULTIPLIER
+                        oid = await _sm_place_tp(client, pid, p["qty"], p["entry_price"], atr, mult=tp_m)
+                        if oid:
+                            print(f"  SM INIT (pre-loss): {pid} tp_oid={oid}", flush=True)
+                        else:
+                            _position_states[pid]["state"] = "PENDING"
+                            print(f"  SM PENDING (pre-loss): {pid}", flush=True)
+                    except Exception:
+                        pass
+
         if daily_limit == "DAILY_LOSS_LIMIT":
             actual_loss = risk.today_peak - total_equity
             if _greed_used_today and actual_loss < config.DAILY_LOSS_FLOOR_IDR * 2:
