@@ -8,6 +8,8 @@
 import time
 import config
 
+DCA_EXCLUSIVE = {"btc_idr", "eth_idr", "usdt_idr"}
+
 
 def decide(all_signals, ticker_map, live_tickers, positions, actual_idr_balance,
            total_equity, regime_info, ohlcv_map_1h, coin_blacklist, pair_meta,
@@ -96,6 +98,7 @@ def _momentum_decide(all_signals, ticker_map, live_tickers, positions, actual_id
             if r["pair"] not in held_pairs
             and r["pair"] not in config.STABLECOINS
             and r["pair"] not in config.SKIP_COINS
+            and r["pair"] not in DCA_EXCLUSIVE
             and r["pair"] not in coin_blacklist
             and r["signal"] == "BUY"
             and r["score"] >= 8
@@ -218,7 +221,7 @@ def _mean_reversion_decide(all_signals, ticker_map, live_tickers, positions, act
     if slots > 0 and actual_idr_balance >= 25000:
         candidates = []
         for pair, sig in all_signals.items():
-            if pair in held_pairs or pair in config.STABLECOINS or pair in config.SKIP_COINS:
+            if pair in held_pairs or pair in config.STABLECOINS or pair in config.SKIP_COINS or pair in DCA_EXCLUSIVE:
                 continue
             if pair in coin_blacklist:
                 continue

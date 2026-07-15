@@ -1675,7 +1675,7 @@ async def _momentum_scanner():
                     break
                 if any(p["pair"] == pid for p in positions):
                     continue
-                if pid in config.STABLECOINS or pid in config.SKIP_COINS:
+                if pid in config.STABLECOINS or pid in config.SKIP_COINS or pid in rules.DCA_EXCLUSIVE:
                     continue
                 if pid in _coin_blacklist or pid in _realtime_sold:
                     continue
