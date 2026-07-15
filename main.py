@@ -1559,14 +1559,6 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         await grid_mini.cleanup_stale()
         grid_mini.save_instances()
 
-        await dca_smart.check_fills(client, ticker_map)
-        await dca_smart.place_safety_and_tp(client)
-        dca_positions = {p["pair"] for p in positions} | {g.pair for g in grid_mini.instances}
-        await dca_smart.scan_and_place(ticker_map, actual_idr_balance,
-                                        existing_positions=dca_positions,
-                                        blacklisted=_coin_blacklist)
-        dca_smart.save_instances()
-
         if config.AUTO_COMPOUND and _realized_pnl_idr != 0:
             old_cap = config.PLAY_CAPITAL_IDR
             config.PLAY_CAPITAL_IDR = max(
@@ -1771,6 +1763,20 @@ async def _momentum_scanner():
                     print(f"    Order failed: {ex}", flush=True)
         except Exception as e:
             print(f"Momentum scanner error: {e}", flush=True)
+
+async def _dca_loop():
+    while not shutdown_flag:
+        await asyncio.sleep(15)
+        if not _latest_ticker_map:
+            continue
+        pos_set = {p["pair"] for p in positions} | {g.pair for g in grid_mini.instances}
+        async with httpx.AsyncClient() as _dc:
+            await dca_smart.check_fills(_dc, _latest_ticker_map)
+            await dca_smart.place_safety_and_tp(_dc)
+            await dca_smart.scan_and_place(_latest_ticker_map, _latest_balance,
+                                            existing_positions=pos_set,
+                                            blacklisted=_coin_blacklist)
+        dca_smart.save_instances()
 
 async def _realtime_sltp_check(pair: str, price: float):
     global _realized_pnl_idr, _latest_balance, _pyramid_cooldown
@@ -2403,6 +2409,7 @@ async def main():
     pws_task = asyncio.create_task(private_ws_loop())
     momentum_task = asyncio.create_task(_momentum_scanner())
     opt_task = asyncio.create_task(_optimizer_loop())
+    dca_task = asyncio.create_task(_dca_loop())
     for _ in range(6):
         await asyncio.sleep(0.5)
 
