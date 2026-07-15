@@ -13,9 +13,9 @@ DCA_TP_PLACED = 3
 DCA_CANCELLED = 4
 
 DCA_CONFIGS = {
-    "btc_idr": {"safety_steps": [0.05, 0.10, 0.15], "tp": 0.02, "min_order": 10000},
-    "eth_idr": {"safety_steps": [0.05, 0.10, 0.15], "tp": 0.02, "min_order": 10000},
-    "usdt_idr": {"safety_steps": [0.005, 0.01, 0.015], "tp": 0.003, "min_order": 10000},
+    "btc_idr": {"safety_steps": [0.05, 0.10, 0.15, 0.20, 0.25], "tp": 0.20, "min_order": 10000},
+    "eth_idr": {"safety_steps": [0.05, 0.10, 0.15, 0.20], "tp": 0.20, "min_order": 10000},
+    "usdt_idr": {"safety_steps": [0.005, 0.01, 0.015], "tp": 999, "min_order": 10000},
 }
 
 class DCAInstance:
@@ -89,20 +89,26 @@ class SmartDCA:
                         di.total_invest = invest
                         di.base_order_id = order.get("order_id")
                         self.instances[pair] = di
-                        log_trade("buy", fill_price, fill_qty, invest, order_type="market", status="filled", reason=f"dca_base {pair}")
+                        log_trade("buy", fill_price, fill_qty, invest, order_type="maker_first", status="filled", reason=f"dca_base {pair}")
                         print(f"  DCA BASE: {pair} @ Rp{fill_price:,.0f} qty={fill_qty:.6f}", flush=True)
                         await send_message(f"🏦 DCA BASE: {pair}\nRp{fill_price:,.0f} × {fill_qty:.4f}")
                         self._place_safety_limits(c, di, settings, fill_price, invest)
+                        for so in di.safety_orders:
+                            await self._place_safety_order(c, di, so)
             except Exception as e:
                 print(f"  DCA base failed {pair}: {e}", flush=True)
 
     def _place_safety_limits(self, client, di, settings, entry, invest):
         for i, step in enumerate(settings["safety_steps"]):
             limit_price = int(entry * (1 - step))
-            coin = di.pair.split("_")[0]
-            qty = invest / limit_price
-            so = {"price": limit_price, "invest": invest, "qty": qty, "order_id": None, "filled": False, "step": step}
+            so = {"price": limit_price, "invest": invest, "qty": invest / limit_price, "order_id": None, "filled": False, "step": step}
             di.safety_orders.append(so)
+
+    async def _place_safety_order(self, client, di, so):
+        order = await place_order(client, "buy", so["price"], so["invest"], pair=di.pair, order_type="limit")
+        if order.get("order_id"):
+            so["order_id"] = int(order["order_id"])
+            print(f"  DCA SAFETY LIMIT: {di.pair} @ Rp{so['price']:,} step -{so['step']*100:.0f}%", flush=True)
 
     async def check_fills(self, client: httpx.AsyncClient, ticker_map: dict):
         for pair, di in list(self.instances.items()):
@@ -147,14 +153,7 @@ class SmartDCA:
             for i, so in enumerate(di.safety_orders):
                 if so["filled"] or so["order_id"] is not None:
                     continue
-                limit_price = int(entry * (1 - so["step"]))
-                try:
-                    order = await place_order(client, "buy", limit_price, so["invest"], pair=pair, order_type="limit")
-                    if order.get("order_id"):
-                        so["order_id"] = int(order["order_id"])
-                        print(f"  DCA SAFETY LIMIT: {pair} @ Rp{limit_price:,} step -{so['step']*100:.0f}%", flush=True)
-                except Exception as e:
-                    print(f"  DCA safety limit failed {pair}: {e}", flush=True)
+                await self._place_safety_order(client, di, so)
 
             if di.state == DCA_TP_PLACED and di.tp_order_id:
                 try:
