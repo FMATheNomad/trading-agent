@@ -74,7 +74,7 @@ class SmartDCA:
 
             try:
                 async with httpx.AsyncClient() as c:
-                    order = await place_order(c, "buy", price, invest, pair=pair, order_type="maker_first")
+                    order = await place_order(c, "buy", price, invest, pair=pair, order_type="market")
                     if order.get("order_id") or order.get("receive_rp"):
                         coin = pair.split("_")[0]
                         fill_qty = float(order.get(f"receive_{coin}", 0)) or (invest / price)
