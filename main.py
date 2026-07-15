@@ -34,7 +34,7 @@ import patterns
 import pairs
 from optimizer import AIOptimizer
 from grid_mini import GridMini
-from dca_smart import SmartDCA
+
 
 risk = RiskManager()
 portfolio_risk = PortfolioRiskManager()
@@ -44,7 +44,7 @@ shutdown_flag = False
 momentum_engine = MomentumEngine()
 optimizer = AIOptimizer()
 grid_mini = GridMini()
-dca_smart = SmartDCA()
+
 
 regime_history: list[str] = []
 known_pairs: set[str] = set()
@@ -271,6 +271,15 @@ def _sm_init(pair: str, entry: float, qty: float, atr: float, mode: str = "TP_AC
 
 def _sm_cleanup(pair: str):
     _position_states.pop(pair, None)
+    risk.trailing_highs.pop(pair, None)
+    risk._initial_sl_released.pop(pair, None)
+    risk._pyramid_done.pop(pair, None)
+    _ext_entry_prices.pop(pair, None)
+    _order_error_cooldown.pop(pair, None)
+    _realtime_sltp_last.pop(pair, None)
+    _pyramid_cooldown.pop(pair, None)
+    _momentum_entry_time.pop(pair, None)
+    _tp_limit_orders.pop(pair, None)
 
 def _sm_get(pair: str) -> dict | None:
     return _position_states.get(pair)
@@ -380,6 +389,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     positions.remove(p)
                     persist.save_positions(positions)
                     log_trade("sell", float(order_info.get("price", 0)), ps["qty"], ps["amount"], status="closed", pnl=pnl, reason=f"pending_sell_filled {pid}")
+                _sm_cleanup(pid)
                 del _pending_sells[pid]
                 continue
             if status in ("cancelled", "rejected"):
@@ -761,6 +771,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 for p in list(positions):
                     if p["pair"] not in bal_coins:
                         print(f"  CLEANUP: {p['pair']} gak ada di balance — hapus", flush=True)
+                        _sm_cleanup(p["pair"])
                         positions.remove(p)
                         persist.save_positions(positions)
             except Exception as e:
@@ -1153,6 +1164,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 pair_min = _pair_meta.get(p["pair"], {}).get("min_base", config.MIN_ORDER_IDR)
                 if dust_value < pair_min:
                     print(f"  {p['pair']}: dust Rp{dust_value:,.0f} < min Rp{pair_min:,} — hapus tracking", flush=True)
+                    _sm_cleanup(p["pair"])
                     positions.remove(p)
                     persist.save_positions(positions)
                     continue
@@ -1194,6 +1206,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                                     _pending_sells[p["pair"]] = {"order_id": order_id, "qty": sl_qty, "amount": sl_qty * last, "price": sell_price, "cycles": 0, "pair": p["pair"]}
                                 continue
                             print(f"  SOLD {p['pair']} via maker", flush=True)
+                            _sm_cleanup(p["pair"])
                             positions.remove(p)
                             persist.save_positions(positions)
                             sell_value = last * p["qty"]
@@ -1428,7 +1441,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 if action == "SELL" and "insufficient" in err_str.lower():
                     positions = [p for p in positions if p["pair"] != pid]
                     persist.save_positions(positions)
-                    _tp_limit_orders.pop(pid, None)
+                    _sm_cleanup(pid)
                     print(f"  REMOVED {pid} from tracking (sell failed)", flush=True)
                 continue
 
@@ -1472,6 +1485,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 _latest_balance = actual_idr_balance
                 positions = [p for p in positions if p["pair"] != pid]
                 persist.save_positions(positions)
+                _sm_cleanup(pid)
                 sell_entry = t.get("entry_price", 0) or 0
                 sell_cost = sell_entry * actual_qty
                 sell_pnl_idr = actual_received - sell_cost
@@ -1638,6 +1652,10 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             "duration": int(time.time() - _t0),
         }
         print(f"⏱ Cycle #{cycle_counter} finished in {int(time.time() - _t0)}s", flush=True)
+        if cycle_counter % 100 == 0:
+            from db import _checkpoint as _db_ck
+            _db_ck()
+            print(f"  DB checkpoint done (cycle #{cycle_counter})", flush=True)
 
 _latest_balance: float = 0
 
@@ -1808,25 +1826,6 @@ async def _momentum_scanner():
                     print(f"    Order failed: {ex}", flush=True)
         except Exception as e:
             print(f"Momentum scanner error: {e}", flush=True)
-
-async def _dca_loop():
-    while not shutdown_flag:
-        await asyncio.sleep(15)
-        if not _latest_ticker_map:
-            print(f"  DCA LOOP: _latest_ticker_map kosong", flush=True)
-            continue
-        if _latest_balance < 10000:
-            print(f"  DCA LOOP: balance Rp{_latest_balance:,.0f} < 10k", flush=True)
-            continue
-            continue
-        pos_set = {p["pair"] for p in positions} | {g.pair for g in grid_mini.instances}
-        async with httpx.AsyncClient() as _dc:
-            await dca_smart.check_fills(_dc, _latest_ticker_map)
-            await dca_smart.place_safety_and_tp(_dc)
-            await dca_smart.scan_and_place(_latest_ticker_map, _latest_balance,
-                                            existing_positions=pos_set,
-                                            blacklisted=_coin_blacklist)
-        dca_smart.save_instances()
 
 async def _realtime_sltp_check(pair: str, price: float):
     global _realized_pnl_idr, _latest_balance, _pyramid_cooldown
@@ -2030,9 +2029,6 @@ async def main():
         grid_mini.load_instances()
         if grid_mini.instances:
             print(f"Restored {len(grid_mini.instances)} grid instances", flush=True)
-        dca_smart.load_instances()
-        if dca_smart.instances:
-            print(f"Restored {len(dca_smart.instances)} DCA instances", flush=True)
         cb = persist.load_circuit_breaker()
         _cb_consecutive_loss_days = cb.get("consecutive_loss_days", 0)
         _cb_last_loss_date = cb.get("last_loss_date", "")
@@ -2459,7 +2455,6 @@ async def main():
     pws_task = asyncio.create_task(private_ws_loop())
     momentum_task = asyncio.create_task(_momentum_scanner())
     opt_task = asyncio.create_task(_optimizer_loop())
-    dca_task = asyncio.create_task(_dca_loop())
     for _ in range(6):
         await asyncio.sleep(0.5)
 

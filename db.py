@@ -5,7 +5,6 @@
 # (at your option) any later version.
 # See the LICENSE file for more details.
 
-import json
 import sqlite3
 import os
 from datetime import datetime, timezone, timedelta
@@ -17,6 +16,15 @@ DB_PATH = os.path.join(DATA_DIR, "trades.db")
 
 def _conn():
     return sqlite3.connect(DB_PATH)
+
+_write_count = 0
+
+def _checkpoint():
+    try:
+        with _conn() as conn:
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    except Exception:
+        pass
 
 def init_db():
     with _conn() as conn:
@@ -42,12 +50,6 @@ def init_db():
             CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)
         """)
         conn.execute("""
-            CREATE TABLE IF NOT EXISTS bot_positions (
-                pair TEXT, side TEXT, entry_price REAL, qty REAL,
-                amount_idr REAL, atr_pct REAL
-            )
-        """)
-        conn.execute("""
             CREATE TABLE IF NOT EXISTS decisions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 timestamp TEXT NOT NULL,
@@ -57,10 +59,12 @@ def init_db():
                 executed INTEGER DEFAULT 0
             )
         """)
+    _checkpoint()
 
 def log_trade(side: str, price: float, qty: float, amount_idr: float,
               order_type: str = "limit", status: str = "simulated",
               pnl: float | None = None, reason: str = ""):
+    global _write_count
     with _conn() as conn:
         conn.execute(
             "INSERT INTO trades (timestamp, side, price, qty, amount_idr, order_type, status, pnl, reason, paper_trade) "
@@ -68,6 +72,9 @@ def log_trade(side: str, price: float, qty: float, amount_idr: float,
             (datetime.now(WIB).isoformat(), side, price, qty,
              amount_idr, order_type, status, pnl, reason, 1),
         )
+    _write_count += 1
+    if _write_count % 50 == 0:
+        _checkpoint()
 
 def log_decision(raw_signal: str, llm_decision: str, llm_reasoning: str, executed: bool = False):
     with _conn() as conn:
@@ -88,50 +95,6 @@ def get_recent_trades(limit: int = 3) -> list[dict]:
          "status": r[7], "pnl": r[8], "reason": r[9], "paper_trade": r[10]}
         for r in rows
     ]
-
-def save_positions(positions: list[dict]):
-    with _conn() as conn:
-        conn.execute("DELETE FROM bot_positions")
-        for p in positions:
-            conn.execute(
-                "INSERT INTO bot_positions (pair, side, entry_price, qty, amount_idr, atr_pct) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (p["pair"], p["side"], p.get("entry_price", 0), p.get("qty", 0),
-                 p.get("amount_idr", 0), p.get("atr_pct")),
-            )
-
-def load_positions() -> list[dict]:
-    with _conn() as conn:
-        rows = conn.execute(
-            "SELECT pair, side, entry_price, qty, amount_idr, atr_pct FROM bot_positions"
-        ).fetchall()
-    return [
-        {"pair": r[0], "side": r[1], "entry_price": r[2], "qty": r[3],
-         "amount_idr": r[4], "atr_pct": r[5]}
-        for r in rows
-    ]
-
-def save_ext_entry_prices(prices: dict[str, float]):
-    with _conn() as conn:
-        conn.execute("DELETE FROM meta WHERE key='ext_entry_prices'")
-        conn.execute("INSERT INTO meta (key, value) VALUES (?, ?)", ("ext_entry_prices", json.dumps(prices)))
-
-def load_ext_entry_prices() -> dict[str, float]:
-    with _conn() as conn:
-        row = conn.execute("SELECT value FROM meta WHERE key='ext_entry_prices'").fetchone()
-    if row:
-        return json.loads(row[0])
-    return {}
-
-def save_peak_capital(value: float):
-    with _conn() as conn:
-        conn.execute("DELETE FROM meta WHERE key='peak_capital'")
-        conn.execute("INSERT INTO meta (key, value) VALUES (?, ?)", ("peak_capital", str(value)))
-
-def load_peak_capital() -> float | None:
-    with _conn() as conn:
-        row = conn.execute("SELECT value FROM meta WHERE key='peak_capital'").fetchone()
-    return float(row[0]) if row else None
 
 def get_trade_count_today() -> int:
     today = datetime.now(WIB).strftime("%Y-%m-%d")

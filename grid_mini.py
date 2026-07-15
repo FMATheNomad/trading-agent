@@ -1,11 +1,65 @@
 import time
-import math
+import os
+import json
+import sqlite3
+from datetime import datetime, timezone, timedelta
 import httpx
 import config
 from executor import place_order, get_order, cancel_order
-from db import log_trade
 from notifier import send_message
 import asyncio
+
+_WIB = timezone(timedelta(hours=7))
+_GRID_DATA_DIR = os.getenv("STATE_DIR") or os.getenv("DATA_DIR") or ("/data" if os.path.isdir("/data") else os.path.dirname(__file__))
+_GRID_STATE_FILE = os.path.join(_GRID_DATA_DIR, "grid_state.json")
+_GRID_DB_PATH = os.path.join(_GRID_DATA_DIR, "grid_trades.db")
+
+def _grid_db_init():
+    os.makedirs(os.path.dirname(_GRID_DB_PATH) if os.path.dirname(_GRID_DB_PATH) else ".", exist_ok=True)
+    with sqlite3.connect(_GRID_DB_PATH) as conn:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS grid_trades (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                side TEXT NOT NULL,
+                price REAL,
+                qty REAL,
+                amount_idr REAL,
+                order_type TEXT,
+                status TEXT DEFAULT 'simulated',
+                pnl REAL,
+                reason TEXT
+            )
+        """)
+
+def _grid_log_trade(side: str, price: float, qty: float, amount_idr: float,
+                    order_type: str = "limit", status: str = "simulated",
+                    pnl: float | None = None, reason: str = ""):
+    global _grid_write_count
+    try:
+        with sqlite3.connect(_GRID_DB_PATH) as conn:
+            conn.execute(
+                "INSERT INTO grid_trades (timestamp, side, price, qty, amount_idr, order_type, status, pnl, reason) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (datetime.now(_WIB).isoformat(), side, price, qty,
+                 amount_idr, order_type, status, pnl, reason),
+            )
+        _grid_write_count += 1
+        if _grid_write_count % 50 == 0:
+            _grid_checkpoint()
+    except Exception as e:
+        print(f"  GRID log error: {e}", flush=True)
+
+_grid_write_count = 0
+
+def _grid_checkpoint():
+    try:
+        with sqlite3.connect(_GRID_DB_PATH) as conn:
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    except Exception:
+        pass
 
 GRID_STATE_IDLE = 0
 GRID_STATE_BUY_PLACED = 1
@@ -28,6 +82,7 @@ class GridInstance:
 class GridMini:
     def __init__(self):
         self.instances: list[GridInstance] = []
+        _grid_db_init()
         self.max_instances = 2
         self.min_volume_idr = 500_000_000
         self.grid_step_pct = 0.01
@@ -161,7 +216,7 @@ class GridMini:
                             gi.entry_price = fill_price
                             gi.tp_price = int(fill_price * (1 + self.tp_pct))
                             print(f"  GRID MINI FILLED: {gi.pair} @ Rp{fill_price:,.0f} qty={fill_qty:.6f}", flush=True)
-                            log_trade("buy", fill_price, fill_qty, gi.investment, order_type="limit", status="filled", reason=f"grid_mini_entry {gi.pair}")
+                            _grid_log_trade("buy", fill_price, fill_qty, gi.investment, order_type="limit", status="filled", reason=f"grid_mini_entry {gi.pair}")
                             asyncio.ensure_future(send_message(f"📐 GRID FILLED: {gi.pair}\nRp{fill_price:,.0f} × {fill_qty:.4f}"))
                         elif status in ("cancelled", "rejected"):
                             print(f"  GRID MINI CANCELLED: {gi.pair} oid={gi.buy_order_id}", flush=True)
@@ -184,7 +239,7 @@ class GridMini:
                             print(f"  GRID MINI TP: {gi.pair} SELL limit @ Rp{tp_price:,.0f} (target +{self.tp_pct*100:.0f}%)", flush=True)
                         elif order.get("paper_trade"):
                             pnl = (tp_price - gi.entry_price) * gi.qty
-                            log_trade("sell", tp_price, gi.qty, gi.qty * tp_price, order_type="limit", status="closed", pnl=pnl, reason=f"grid_mini_tp {gi.pair}")
+                            _grid_log_trade("sell", tp_price, gi.qty, gi.qty * tp_price, order_type="limit", status="closed", pnl=pnl, reason=f"grid_mini_tp {gi.pair}")
                             print(f"  GRID MINI [PAPER] TP: {gi.pair} profit Rp{pnl:+,.0f}", flush=True)
                             self.instances.remove(gi)
                 except Exception as e:
@@ -201,7 +256,7 @@ class GridMini:
                     if status in ("filled",) or float(oi.get(f"remain_{gi.pair.split('_')[0]}", 1)) <= 0:
                         fill_p = float(oi.get("price", gi.tp_price or 0))
                         pnl = (fill_p - gi.entry_price) * gi.qty
-                        log_trade("sell", fill_p, gi.qty, gi.qty * fill_p, order_type="limit", status="closed", pnl=pnl, reason=f"grid_mini_tp {gi.pair}")
+                        _grid_log_trade("sell", fill_p, gi.qty, gi.qty * fill_p, order_type="limit", status="closed", pnl=pnl, reason=f"grid_mini_tp {gi.pair}")
                         print(f"  GRID MINI TP FILLED: {gi.pair} profit Rp{pnl:+,.0f}", flush=True)
                         asyncio.ensure_future(send_message(f"📐 GRID TP: {gi.pair}\nProfit Rp{pnl:+,.0f}"))
                         self._pair_blacklist.discard(gi.pair)
@@ -215,7 +270,7 @@ class GridMini:
 
     def save_instances(self):
         try:
-            import persist as _p
+            os.makedirs(os.path.dirname(_GRID_STATE_FILE) if os.path.dirname(_GRID_STATE_FILE) else ".", exist_ok=True)
             data = []
             for gi in self.instances:
                 if gi.state in (GRID_STATE_BUY_PLACED, GRID_STATE_SELL_PLACED):
@@ -226,20 +281,27 @@ class GridMini:
                         "sell_order_id": gi.sell_order_id,
                         "created_at": gi.created_at, "tp_price": gi.tp_price,
                     })
-            _p._save_extra("grid_instances", data)
+            tmp = _GRID_STATE_FILE + ".tmp"
+            with open(tmp, "w") as f:
+                json.dump(data, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, _GRID_STATE_FILE)
         except Exception:
             pass
 
     def load_instances(self):
         try:
-            import persist as _p
-            data = _p._load_extra("grid_instances")
+            if not os.path.exists(_GRID_STATE_FILE):
+                return
+            with open(_GRID_STATE_FILE) as f:
+                data = json.load(f)
             if not data:
                 return
             now = time.time()
             for d in data:
                 if now - d.get("created_at", 0) > 86400:
-                    continue  # skip stale
+                    continue
                 gi = GridInstance(d["pair"], d["entry_price"], d["investment"])
                 gi.qty = d.get("qty", 0)
                 gi.state = d.get("state", GRID_STATE_BUY_PLACED)

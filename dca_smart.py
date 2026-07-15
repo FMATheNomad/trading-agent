@@ -1,10 +1,19 @@
 import time
+import os
+import json
+import sqlite3
+from datetime import datetime, timezone, timedelta
 import httpx
 import config
-from executor import place_order, get_order, cancel_order
-from db import log_trade
+from executor import place_order, get_order, cancel_order, get_balance
 from notifier import send_message
+from data_layer import fetch_all_tickers
 import asyncio
+
+_WIB = timezone(timedelta(hours=7))
+_DCA_DATA_DIR = os.getenv("STATE_DIR") or os.getenv("DATA_DIR") or ("/data" if os.path.isdir("/data") else os.path.dirname(__file__))
+_DCA_STATE_FILE = os.path.join(_DCA_DATA_DIR, "dca_state.json")
+_DCA_DB_PATH = os.path.join(_DCA_DATA_DIR, "dca_trades.db")
 
 DCA_IDLE = 0
 DCA_BASE_PLACED = 1
@@ -17,6 +26,53 @@ DCA_CONFIGS = {
     "eth_idr": {"safety_steps": [0.05, 0.10, 0.15, 0.20], "tp": 0.20, "min_order": 20000},
     "usdt_idr": {"safety_steps": [0.005, 0.01, 0.015], "tp": 999, "min_order": 20000},
 }
+
+_dca_write_count = 0
+
+def _dca_checkpoint():
+    try:
+        with sqlite3.connect(_DCA_DB_PATH) as conn:
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    except Exception:
+        pass
+
+def _dca_db_init():
+    os.makedirs(os.path.dirname(_DCA_DB_PATH) if os.path.dirname(_DCA_DB_PATH) else ".", exist_ok=True)
+    with sqlite3.connect(_DCA_DB_PATH) as conn:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS dca_trades (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                side TEXT NOT NULL,
+                price REAL,
+                qty REAL,
+                amount_idr REAL,
+                order_type TEXT,
+                status TEXT DEFAULT 'simulated',
+                pnl REAL,
+                reason TEXT
+            )
+        """)
+
+def _dca_log_trade(side: str, price: float, qty: float, amount_idr: float,
+                   order_type: str = "limit", status: str = "simulated",
+                   pnl: float | None = None, reason: str = ""):
+    global _dca_write_count
+    try:
+        with sqlite3.connect(_DCA_DB_PATH) as conn:
+            conn.execute(
+                "INSERT INTO dca_trades (timestamp, side, price, qty, amount_idr, order_type, status, pnl, reason) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (datetime.now(_WIB).isoformat(), side, price, qty,
+                 amount_idr, order_type, status, pnl, reason),
+            )
+        _dca_write_count += 1
+        if _dca_write_count % 50 == 0:
+            _dca_checkpoint()
+    except Exception as e:
+        print(f"  DCA log error: {e}", flush=True)
 
 class DCAInstance:
     def __init__(self, pair: str):
@@ -41,6 +97,11 @@ class SmartDCA:
         self.instances: dict[str, DCAInstance] = {}
         self.scan_interval = 60
         self.last_scan = 0
+        self.ticker_map: dict = {}
+        self.balance_idr: float = 0
+        self._ticker_stale: bool = False
+        self._balance_stale: bool = False
+        _dca_db_init()
 
     async def scan_and_place(self, ticker_map: dict, balance_idr: float,
                               existing_positions: set[str] | None = None,
@@ -89,7 +150,7 @@ class SmartDCA:
                         di.total_invest = invest
                         di.base_order_id = order.get("order_id")
                         self.instances[pair] = di
-                        log_trade("buy", fill_price, fill_qty, invest, order_type="maker_first", status="filled", reason=f"dca_base {pair}")
+                        _dca_log_trade("buy", fill_price, fill_qty, invest, order_type="maker_first", status="filled", reason=f"dca_base {pair}")
                         print(f"  DCA BASE: {pair} @ Rp{fill_price:,.0f} qty={fill_qty:.6f}", flush=True)
                         await send_message(f"🏦 DCA BASE: {pair}\nRp{fill_price:,.0f} × {fill_qty:.4f}")
                         self._place_safety_limits(c, di, settings, fill_price, invest)
@@ -133,7 +194,7 @@ class SmartDCA:
                             di.avg_entry = total_invest / total_qty if total_qty > 0 else di.avg_entry
                             di.total_invest = total_invest
                             di.total_qty = total_qty
-                            log_trade("buy", fill_price, fill_qty, so["invest"], order_type="limit", status="filled", reason=f"dca_safety {pair} -{so['step']*100:.0f}%")
+                            _dca_log_trade("buy", fill_price, fill_qty, so["invest"], order_type="limit", status="filled", reason=f"dca_safety {pair} -{so['step']*100:.0f}%")
                             print(f"  DCA SAFETY: {pair} @ Rp{fill_price:,.0f} step -{so['step']*100:.0f}%", flush=True)
                             await send_message(f"🏦 DCA SAFETY: {pair}\n-{so['step']*100:.0f}% @ Rp{fill_price:,.0f}")
                         elif status in ("cancelled", "rejected"):
@@ -163,7 +224,7 @@ class SmartDCA:
                         if status in ("filled",) or float(oi.get(f"remain_{pair.split('_')[0]}", 1)) <= 0:
                             fill_price = float(oi.get("price", di.tp_price))
                             pnl = (fill_price - di.avg_entry) * di.total_qty
-                            log_trade("sell", fill_price, di.total_qty, di.total_invest, order_type="limit", status="closed", pnl=pnl, reason=f"dca_tp {pair}")
+                            _dca_log_trade("sell", fill_price, di.total_qty, di.total_invest, order_type="limit", status="closed", pnl=pnl, reason=f"dca_tp {pair}")
                             print(f"  DCA TP FILLED: {pair} profit Rp{pnl:+,.0f}", flush=True)
                             await send_message(f"✅ DCA TP: {pair}\nProfit Rp{pnl:+,.0f}")
                             self.instances.pop(pair, None)
@@ -185,11 +246,18 @@ class SmartDCA:
 
     def save_instances(self):
         try:
-            import persist as _p
+            os.makedirs(os.path.dirname(_DCA_STATE_FILE) if os.path.dirname(_DCA_STATE_FILE) else ".", exist_ok=True)
             data = []
             for pair, di in self.instances.items():
                 if not di.active:
                     continue
+                safety_data = []
+                for so in di.safety_orders:
+                    safety_data.append({
+                        "price": so["price"], "invest": so["invest"],
+                        "qty": so["qty"], "order_id": so["order_id"],
+                        "filled": so["filled"], "step": so["step"],
+                    })
                 data.append({
                     "pair": pair, "state": di.state,
                     "base_entry": di.base_entry, "base_qty": di.base_qty,
@@ -197,16 +265,24 @@ class SmartDCA:
                     "total_qty": di.total_qty, "total_invest": di.total_invest,
                     "created_at": di.created_at,
                     "safety_filled": di.safety_filled,
+                    "safety_orders": safety_data,
                     "tp_order_id": di.tp_order_id, "tp_price": di.tp_price,
                 })
-            _p._save_extra("dca_instances", data)
+            tmp = _DCA_STATE_FILE + ".tmp"
+            with open(tmp, "w") as f:
+                json.dump(data, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, _DCA_STATE_FILE)
         except Exception:
             pass
 
     def load_instances(self):
         try:
-            import persist as _p
-            data = _p._load_extra("dca_instances")
+            if not os.path.exists(_DCA_STATE_FILE):
+                return
+            with open(_DCA_STATE_FILE) as f:
+                data = json.load(f)
             if not data:
                 return
             for d in data:
@@ -220,6 +296,13 @@ class SmartDCA:
                 di.total_invest = d.get("total_invest", 0)
                 di.created_at = d.get("created_at", time.time())
                 di.safety_filled = d.get("safety_filled", 0)
+                di.safety_orders = []
+                for so in d.get("safety_orders", []):
+                    di.safety_orders.append({
+                        "price": so["price"], "invest": so["invest"],
+                        "qty": so["qty"], "order_id": so.get("order_id"),
+                        "filled": so.get("filled", False), "step": so["step"],
+                    })
                 di.tp_order_id = d.get("tp_order_id")
                 di.tp_price = d.get("tp_price", 0)
                 di.state = DCA_TP_PLACED if di.tp_order_id else DCA_BASE_PLACED
@@ -227,3 +310,40 @@ class SmartDCA:
                 self.instances[di.pair] = di
         except Exception:
             pass
+
+    async def _fetch_tickers(self, client):
+        try:
+            self.ticker_map = await fetch_all_tickers(client)
+            self._ticker_stale = False
+            return True
+        except Exception:
+            self._ticker_stale = True
+            return False
+
+    async def _fetch_balance(self, client):
+        try:
+            info = await get_balance(client)
+            self.balance_idr = float(info.get("balance", {}).get("idr", 0))
+            self._balance_stale = False
+            return True
+        except Exception:
+            self._balance_stale = True
+            return False
+
+    async def run_cycle(self, client):
+        ticker_ok = await self._fetch_tickers(client)
+        bal_ok = await self._fetch_balance(client)
+        if not ticker_ok or not bal_ok:
+            stale_since = "ticker" if not ticker_ok else "balance"
+            print(f"  DCA SKIP CYCLE: stale data ({stale_since})", flush=True)
+            return
+        if not self.ticker_map:
+            print(f"  DCA SKIP CYCLE: ticker_map kosong", flush=True)
+            return
+        if self.balance_idr < 10000:
+            print(f"  DCA SKIP CYCLE: balance Rp{self.balance_idr:,.0f} < 10k", flush=True)
+            return
+        await self.check_fills(client, self.ticker_map)
+        await self.place_safety_and_tp(client)
+        await self.scan_and_place(self.ticker_map, self.balance_idr)
+        self.save_instances()
