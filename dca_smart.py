@@ -1,0 +1,238 @@
+import time
+import httpx
+import config
+from executor import place_order, get_order, cancel_order
+from db import log_trade
+from notifier import send_message
+import asyncio
+
+DCA_IDLE = 0
+DCA_BASE_PLACED = 1
+DCA_FILLED = 2
+DCA_TP_PLACED = 3
+DCA_CANCELLED = 4
+
+DCA_CONFIGS = {
+    "btc_idr": {"safety_steps": [0.05, 0.10, 0.15], "tp": 0.02, "min_order": 10000},
+    "eth_idr": {"safety_steps": [0.05, 0.10, 0.15], "tp": 0.02, "min_order": 10000},
+    "usdt_idr": {"safety_steps": [0.005, 0.01, 0.015], "tp": 0.003, "min_order": 10000},
+}
+
+class DCAInstance:
+    def __init__(self, pair: str):
+        self.pair = pair
+        self.state = DCA_IDLE
+        self.base_entry = 0
+        self.base_qty = 0
+        self.base_invest = 0
+        self.base_order_id = None
+        self.safety_orders: list[dict] = []
+        self.safety_filled = 0
+        self.avg_entry = 0
+        self.total_qty = 0
+        self.total_invest = 0
+        self.tp_order_id = None
+        self.tp_price = 0
+        self.created_at = time.time()
+        self.active = True
+
+class SmartDCA:
+    def __init__(self):
+        self.instances: dict[str, DCAInstance] = {}
+        self.scan_interval = 60
+        self.last_scan = 0
+
+    async def scan_and_place(self, ticker_map: dict, balance_idr: float,
+                              existing_positions: set[str] | None = None,
+                              blacklisted: set[str] | None = None,
+                              daily_loss_hit: bool = False,
+                              max_trades_reached: bool = False):
+        now = time.time()
+        if now - self.last_scan < self.scan_interval:
+            return
+        self.last_scan = now
+
+        if daily_loss_hit or max_trades_reached:
+            return
+
+        cfg = DCA_CONFIGS
+        for pair, dca in self.instances.items():
+            if dca.state not in (DCA_TP_PLACED, DCA_CANCELLED) and dca.active:
+                dca.active = False
+
+        for pair, settings in cfg.items():
+            if pair in self.instances and self.instances[pair].active:
+                continue
+            if existing_positions and pair in existing_positions:
+                continue
+            if blacklisted and pair in blacklisted:
+                continue
+
+            price = float(ticker_map.get(pair, {}).get("sell", 0))
+            if price < 50:
+                continue
+            settings = cfg[pair]
+            invest = settings["min_order"]
+            if invest > balance_idr * 0.5:
+                continue
+            invest = min(invest, int(balance_idr * 0.5))
+
+            try:
+                async with httpx.AsyncClient() as c:
+                    order = await place_order(c, "buy", price, invest, pair=pair, order_type="market")
+                    if order.get("order_id") or order.get("receive_rp"):
+                        coin = pair.split("_")[0]
+                        fill_qty = float(order.get(f"receive_{coin}", 0)) or (invest / price)
+                        fill_price = invest / fill_qty if fill_qty > 0 else price
+                        di = DCAInstance(pair)
+                        di.state = DCA_BASE_PLACED
+                        di.base_entry = fill_price
+                        di.base_qty = fill_qty
+                        di.base_invest = invest
+                        di.avg_entry = fill_price
+                        di.total_qty = fill_qty
+                        di.total_invest = invest
+                        di.base_order_id = order.get("order_id")
+                        self.instances[pair] = di
+                        log_trade("buy", fill_price, fill_qty, invest, order_type="market", status="filled", reason=f"dca_base {pair}")
+                        print(f"  DCA BASE: {pair} @ Rp{fill_price:,.0f} qty={fill_qty:.6f}", flush=True)
+                        await send_message(f"🏦 DCA BASE: {pair}\nRp{fill_price:,.0f} × {fill_qty:.4f}")
+                        self._place_safety_limits(c, di, settings, fill_price, invest)
+            except Exception as e:
+                print(f"  DCA base failed {pair}: {e}", flush=True)
+
+    def _place_safety_limits(self, client, di, settings, entry, invest):
+        for i, step in enumerate(settings["safety_steps"]):
+            limit_price = int(entry * (1 - step))
+            coin = di.pair.split("_")[0]
+            qty = invest / limit_price
+            so = {"price": limit_price, "invest": invest, "qty": qty, "order_id": None, "filled": False, "step": step}
+            di.safety_orders.append(so)
+
+    async def check_fills(self, client: httpx.AsyncClient, ticker_map: dict):
+        for pair, di in list(self.instances.items()):
+            if not di.active:
+                continue
+            for so in di.safety_orders:
+                if so["filled"] or not so["order_id"]:
+                    continue
+                try:
+                    oi = await get_order(client, so["order_id"], pair=pair)
+                    if oi:
+                        status = oi.get("status", "").lower()
+                        if status in ("filled",) or float(oi.get(f"remain_{pair.split('_')[0]}", 1)) <= 0:
+                            so["filled"] = True
+                            di.safety_filled += 1
+                            fill_price = float(oi.get("price", so["price"]))
+                            fill_qty = float(oi.get(f"receive_{pair.split('_')[0]}", 0))
+                            if fill_qty <= 0:
+                                fill_qty = so["invest"] / fill_price
+                            total_invest = di.total_invest + so["invest"]
+                            total_qty = di.total_qty + fill_qty
+                            di.avg_entry = total_invest / total_qty if total_qty > 0 else di.avg_entry
+                            di.total_invest = total_invest
+                            di.total_qty = total_qty
+                            log_trade("buy", fill_price, fill_qty, so["invest"], order_type="limit", status="filled", reason=f"dca_safety {pair} -{so['step']*100:.0f}%")
+                            print(f"  DCA SAFETY: {pair} @ Rp{fill_price:,.0f} step -{so['step']*100:.0f}%", flush=True)
+                            await send_message(f"🏦 DCA SAFETY: {pair}\n-{so['step']*100:.0f}% @ Rp{fill_price:,.0f}")
+                        elif status in ("cancelled", "rejected"):
+                            so["order_id"] = None
+                except Exception:
+                    pass
+
+    async def place_safety_and_tp(self, client: httpx.AsyncClient):
+        cfg = DCA_CONFIGS
+        for pair, di in list(self.instances.items()):
+            if not di.active:
+                continue
+            settings = cfg.get(pair)
+            if not settings:
+                continue
+            entry = di.base_entry
+            for i, so in enumerate(di.safety_orders):
+                if so["filled"] or so["order_id"] is not None:
+                    continue
+                limit_price = int(entry * (1 - so["step"]))
+                try:
+                    order = await place_order(client, "buy", limit_price, so["invest"], pair=pair, order_type="limit")
+                    if order.get("order_id"):
+                        so["order_id"] = int(order["order_id"])
+                        print(f"  DCA SAFETY LIMIT: {pair} @ Rp{limit_price:,} step -{so['step']*100:.0f}%", flush=True)
+                except Exception as e:
+                    print(f"  DCA safety limit failed {pair}: {e}", flush=True)
+
+            if di.state == DCA_TP_PLACED and di.tp_order_id:
+                try:
+                    oi = await get_order(client, di.tp_order_id, pair=pair)
+                    if oi:
+                        status = oi.get("status", "").lower()
+                        if status in ("filled",) or float(oi.get(f"remain_{pair.split('_')[0]}", 1)) <= 0:
+                            fill_price = float(oi.get("price", di.tp_price))
+                            pnl = (fill_price - di.avg_entry) * di.total_qty
+                            log_trade("sell", fill_price, di.total_qty, di.total_invest, order_type="limit", status="closed", pnl=pnl, reason=f"dca_tp {pair}")
+                            print(f"  DCA TP FILLED: {pair} profit Rp{pnl:+,.0f}", flush=True)
+                            await send_message(f"✅ DCA TP: {pair}\nProfit Rp{pnl:+,.0f}")
+                            self.instances.pop(pair, None)
+                except Exception:
+                    pass
+                continue
+
+            if di.total_qty > 0:
+                tp_price = int(di.avg_entry * (1 + settings["tp"]))
+                bid = int(ticker_map.get(pair, {}).get("buy", 0))
+                if bid > tp_price * 0.99:
+                    pass
+                try:
+                    order = await place_order(client, "sell", tp_price, di.total_qty * tp_price, pair=pair, order_type="limit", qty=di.total_qty)
+                    if order.get("order_id"):
+                        di.tp_order_id = int(order["order_id"])
+                        di.tp_price = tp_price
+                        di.state = DCA_TP_PLACED
+                        print(f"  DCA TP: {pair} SELL limit @ Rp{tp_price:,} (+{settings['tp']*100:.0f}%)", flush=True)
+                except Exception as e:
+                    print(f"  DCA TP failed {pair}: {e}", flush=True)
+
+    def save_instances(self):
+        try:
+            import persist as _p
+            data = []
+            for pair, di in self.instances.items():
+                if not di.active:
+                    continue
+                data.append({
+                    "pair": pair, "state": di.state,
+                    "base_entry": di.base_entry, "base_qty": di.base_qty,
+                    "base_invest": di.base_invest, "avg_entry": di.avg_entry,
+                    "total_qty": di.total_qty, "total_invest": di.total_invest,
+                    "created_at": di.created_at,
+                    "safety_filled": di.safety_filled,
+                    "tp_order_id": di.tp_order_id, "tp_price": di.tp_price,
+                })
+            _p._save_extra("dca_instances", data)
+        except Exception:
+            pass
+
+    def load_instances(self):
+        try:
+            import persist as _p
+            data = _p._load_extra("dca_instances")
+            if not data:
+                return
+            for d in data:
+                di = DCAInstance(d["pair"])
+                di.state = d.get("state", DCA_IDLE)
+                di.base_entry = d.get("base_entry", 0)
+                di.base_qty = d.get("base_qty", 0)
+                di.base_invest = d.get("base_invest", 0)
+                di.avg_entry = d.get("avg_entry", 0)
+                di.total_qty = d.get("total_qty", 0)
+                di.total_invest = d.get("total_invest", 0)
+                di.created_at = d.get("created_at", time.time())
+                di.safety_filled = d.get("safety_filled", 0)
+                di.tp_order_id = d.get("tp_order_id")
+                di.tp_price = d.get("tp_price", 0)
+                di.state = DCA_TP_PLACED if di.tp_order_id else DCA_BASE_PLACED
+                di.active = True
+                self.instances[di.pair] = di
+        except Exception:
+            pass

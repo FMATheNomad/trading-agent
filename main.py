@@ -34,6 +34,7 @@ import patterns
 import pairs
 from optimizer import AIOptimizer
 from grid_mini import GridMini
+from dca_smart import SmartDCA
 
 risk = RiskManager()
 portfolio_risk = PortfolioRiskManager()
@@ -43,6 +44,7 @@ shutdown_flag = False
 momentum_engine = MomentumEngine()
 optimizer = AIOptimizer()
 grid_mini = GridMini()
+dca_smart = SmartDCA()
 
 regime_history: list[str] = []
 known_pairs: set[str] = set()
@@ -1557,6 +1559,16 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         await grid_mini.cleanup_stale()
         grid_mini.save_instances()
 
+        await dca_smart.check_fills(client, ticker_map)
+        await dca_smart.place_safety_and_tp(client)
+        dca_positions = {p["pair"] for p in positions} | {g.pair for g in grid_mini.instances}
+        await dca_smart.scan_and_place(ticker_map, actual_idr_balance,
+                                        existing_positions=dca_positions,
+                                        blacklisted=_coin_blacklist,
+                                        daily_loss_hit=_daily_loss_hit_today,
+                                        max_trades_reached=grid_max_trades)
+        dca_smart.save_instances()
+
         if config.AUTO_COMPOUND and _realized_pnl_idr != 0:
             old_cap = config.PLAY_CAPITAL_IDR
             config.PLAY_CAPITAL_IDR = max(
@@ -1964,6 +1976,9 @@ async def main():
         grid_mini.load_instances()
         if grid_mini.instances:
             print(f"Restored {len(grid_mini.instances)} grid instances", flush=True)
+        dca_smart.load_instances()
+        if dca_smart.instances:
+            print(f"Restored {len(dca_smart.instances)} DCA instances", flush=True)
         cb = persist.load_circuit_breaker()
         _cb_consecutive_loss_days = cb.get("consecutive_loss_days", 0)
         _cb_last_loss_date = cb.get("last_loss_date", "")
