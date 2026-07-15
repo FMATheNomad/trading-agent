@@ -1793,7 +1793,8 @@ async def _realtime_sltp_check(pair: str, price: float):
                     await _sm_cancel(c, sm["tp_order_id"], pair)
                 p = next((x for x in positions if x["pair"] == pair), None)
                 if p:
-                    oid = await _sm_place_sl(c, pair, p["qty"], price, atr, mult=config.ROTHSCHILD_TRAILING_SL_ATR)
+                    trail_price_min = int(entry * 1.005)
+                    oid = await _sm_place_sl(c, pair, p["qty"], trail_price_min if price < trail_price_min else price, atr, mult=config.ROTHSCHILD_TRAILING_SL_ATR)
                     if oid:
                         sm["sl_order_id"] = oid
                         sm["tp_order_id"] = None
@@ -1836,6 +1837,7 @@ async def _realtime_sltp_check(pair: str, price: float):
             old_high = sm.get("trailing_high", entry)
             sm["trailing_high"] = price
             trail_price = int(price * (1 - max(atr, 0.5) * config.ROTHSCHILD_TRAILING_SL_ATR / 100))
+            trail_price = max(trail_price, int(entry * 1.005))
             if sm.get("sl_order_id") and trail_price > sm.get("sl_price", 0):
                 async with httpx.AsyncClient() as c:
                     await _sm_cancel(c, sm["sl_order_id"], pair)
