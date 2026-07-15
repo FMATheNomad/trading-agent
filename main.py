@@ -1289,7 +1289,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         selling_pairs = {t["pair"] for t in trades if t.get("action") == "SELL"}
         extra_buys = [t for t in trades if t.get("action") == "BUY" and t["pair"] in all_held]
         new_buys = [t for t in trades if t.get("action") == "BUY" and t["pair"] not in all_held]
-        slots_left = max(0, max_positions - len(all_held - selling_pairs))
+        non_dca_held = {p for p in all_held if p not in rules.DCA_EXCLUSIVE}
+        slots_left = max(0, max_positions - len(non_dca_held - selling_pairs))
         if len(new_buys) > slots_left:
             trades = [t for t in trades if t.get("action") == "SELL"] + extra_buys + new_buys[:slots_left]
             print(f"Limited new buys to {slots_left} (max {max_positions} unique, equity Rp{total_equity:,.0f})", flush=True)
