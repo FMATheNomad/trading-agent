@@ -2454,6 +2454,8 @@ async def main():
     dca_smart.load_instances()
     if dca_smart.instances:
         print(f"Restored {len(dca_smart.instances)} DCA instances", flush=True)
+    else:
+        print("DCA Smart: starting fresh (no saved instances)", flush=True)
 
     async def _dca_task():
         async with httpx.AsyncClient(timeout=30) as _dc:
@@ -2462,6 +2464,8 @@ async def main():
                     await dca_smart.run_cycle(_dc)
                 except Exception as e:
                     print(f"DCA error: {e}", flush=True)
+                    import traceback
+                    traceback.print_exc()
                 for _ in range(15):
                     if shutdown_flag:
                         break
