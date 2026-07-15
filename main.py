@@ -1846,55 +1846,54 @@ async def _realtime_sltp_check(pair: str, price: float):
                             sm["sl_order_id"] = oid
                             sm["sl_price"] = trail_price
                             print(f"  SM TRAIL: {pair} trailing_high={price:,.0f} sl={trail_price:,} (oid={oid})", flush=True)
-        if pnl_pct >= max(atr, 0.5) * config.ROTHSCHILD_PYRAMID_TRIGGER / 100:
-            now_pyr = time.time()
-            if now_pyr - _pyramid_cooldown.get(pair, 0) < 300:
-                print(f"  SM PYRAMID SKIP: {pair} cooldown ({int(now_pyr - _pyramid_cooldown.get(pair, 0))}s)", flush=True)
-                return
-            pyr_high = sm.get("_pyramid_high", 0)
-            if pyr_high > 0 and price <= pyr_high:
-                print(f"  SM PYRAMID SKIP: {pair} price {price:.0f} <= last pyramid {pyr_high:.0f} (trend turun)", flush=True)
-                return
-            sm["_pyramid_high"] = price
-            pyr_pos = next((x for x in positions if x["pair"] == pair), None)
-            if not pyr_pos:
-                print(f"  SM PYRAMID SKIP: {pair} posisi tidak ditemukan (mungkin sudah kejual)", flush=True)
-                _sm_cleanup(pair)
-                return
-            if not _daily_loss_hit_today or _greed_used_today:
-                pyr_amt = int(max(config.MIN_ORDER_IDR, _latest_balance * config.ROTHSCHILD_PYRAMID_MULT))
-                if pyr_amt >= config.MIN_ORDER_IDR and pyr_amt <= _latest_balance:
-                    async with httpx.AsyncClient() as _pc:
-                        try:
-                            pyr_order = await place_order(_pc, "buy", price, pyr_amt, pair=pair, order_type="market")
-                            if pyr_order.get("order_id") or pyr_order.get("receive_rp"):
-                                coin_n = pair.split("_")[0]
-                                pyr_f = float(pyr_order.get(f"receive_{coin_n}", 0)) or (pyr_amt / price)
-                                pyr_spend = float(pyr_order.get("spend_rp", 0)) or pyr_amt
-                                _latest_balance -= pyr_spend
-                                old_qty = sm["qty"]
-                                old_entry = sm["entry_price"]
-                                total_qty = old_qty + pyr_f
-                                new_entry = (old_entry * old_qty + price * pyr_f) / total_qty if total_qty > 0 else price
-                                sm["entry_price"] = new_entry
-                                sm["qty"] = total_qty
-                                add_position(positions, pair, "BUY", price, pyr_f, pyr_spend, atr, time.time(), "TRAILING")
-                                _pyramid_cooldown[pair] = now_pyr
-                                if sm.get("sl_order_id"):
-                                    oid = sm["sl_order_id"]
-                                    cb_p = urlencode({"method":"cancelOrder","timestamp":int(time.time()*1000),"recvWindow":"5000","pair":pair,"order_id":str(oid),"type":"sell"})
-                                    cs_p = hmac.new(config.INDODAX_SECRET_KEY.encode(), cb_p.encode(), hashlib.sha512).hexdigest()
-                                    await _pc.post(config.INDODAX_TAPI_URL, headers={"Key":config.INDODAX_API_KEY,"Sign":cs_p,"Content-Type":"application/x-www-form-urlencoded"}, content=cb_p)
-                                    sm["sl_order_id"] = None
-                                p_sm = next((x for x in positions if x["pair"] == pair), None)
-                                if p_sm:
-                                    new_oid = await _sm_place_sl(_pc, pair, p_sm["qty"], new_entry, atr, mult=config.ROTHSCHILD_TRAILING_SL_ATR)
-                                    if new_oid:
-                                        sm["sl_order_id"] = new_oid
-                                print(f"  SM PYRAMID: {pair} +{pyr_f:.6f} @ {price:,.0f} avg_entry={new_entry:,.0f}", flush=True)
-                                await send_message(f"🔺 SM PYRAMID: {pair} +{pyr_f:.6f} @ Rp{price:,.0f}")
-                        except Exception as e:
-                            print(f"  SM pyramid fail {pair}: {e}", flush=True)
+            if pnl_pct >= max(atr, 0.5) * config.ROTHSCHILD_PYRAMID_TRIGGER / 100:
+                now_pyr = time.time()
+                if now_pyr - _pyramid_cooldown.get(pair, 0) < 300:
+                    print(f"  SM PYRAMID SKIP: {pair} cooldown ({int(now_pyr - _pyramid_cooldown.get(pair, 0))}s)", flush=True)
+                    return
+                pyr_high = sm.get("_pyramid_high", 0)
+                if pyr_high > 0 and price <= pyr_high:
+                    print(f"  SM PYRAMID SKIP: {pair} price {price:.0f} <= last pyramid {pyr_high:.0f} (trend turun)", flush=True)
+                    return
+                sm["_pyramid_high"] = price
+                pyr_pos = next((x for x in positions if x["pair"] == pair), None)
+                if not pyr_pos:
+                    _sm_cleanup(pair)
+                    return
+                if not _daily_loss_hit_today or _greed_used_today:
+                    pyr_amt = int(max(config.MIN_ORDER_IDR, _latest_balance * config.ROTHSCHILD_PYRAMID_MULT))
+                    if pyr_amt >= config.MIN_ORDER_IDR and pyr_amt <= _latest_balance:
+                        async with httpx.AsyncClient() as _pc:
+                            try:
+                                pyr_order = await place_order(_pc, "buy", price, pyr_amt, pair=pair, order_type="market")
+                                if pyr_order.get("order_id") or pyr_order.get("receive_rp"):
+                                    coin_n = pair.split("_")[0]
+                                    pyr_f = float(pyr_order.get(f"receive_{coin_n}", 0)) or (pyr_amt / price)
+                                    pyr_spend = float(pyr_order.get("spend_rp", 0)) or pyr_amt
+                                    _latest_balance -= pyr_spend
+                                    old_qty = sm["qty"]
+                                    old_entry = sm["entry_price"]
+                                    total_qty = old_qty + pyr_f
+                                    new_entry = (old_entry * old_qty + price * pyr_f) / total_qty if total_qty > 0 else price
+                                    sm["entry_price"] = new_entry
+                                    sm["qty"] = total_qty
+                                    add_position(positions, pair, "BUY", price, pyr_f, pyr_spend, atr, time.time(), "TRAILING")
+                                    _pyramid_cooldown[pair] = now_pyr
+                                    if sm.get("sl_order_id"):
+                                        oid = sm["sl_order_id"]
+                                        cb_p = urlencode({"method":"cancelOrder","timestamp":int(time.time()*1000),"recvWindow":"5000","pair":pair,"order_id":str(oid),"type":"sell"})
+                                        cs_p = hmac.new(config.INDODAX_SECRET_KEY.encode(), cb_p.encode(), hashlib.sha512).hexdigest()
+                                        await _pc.post(config.INDODAX_TAPI_URL, headers={"Key":config.INDODAX_API_KEY,"Sign":cs_p,"Content-Type":"application/x-www-form-urlencoded"}, content=cb_p)
+                                        sm["sl_order_id"] = None
+                                    p_sm = next((x for x in positions if x["pair"] == pair), None)
+                                    if p_sm:
+                                        new_oid = await _sm_place_sl(_pc, pair, p_sm["qty"], new_entry, atr, mult=config.ROTHSCHILD_TRAILING_SL_ATR)
+                                        if new_oid:
+                                            sm["sl_order_id"] = new_oid
+                                    print(f"  SM PYRAMID: {pair} +{pyr_f:.6f} @ {price:,.0f} avg_entry={new_entry:,.0f}", flush=True)
+                                    await send_message(f"🔺 SM PYRAMID: {pair} +{pyr_f:.6f} @ Rp{price:,.0f}")
+                            except Exception as e:
+                                print(f"  SM pyramid fail {pair}: {e}", flush=True)
 
 async def main():
     global _latest_balance, shutdown_flag
