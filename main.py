@@ -2046,9 +2046,7 @@ async def main():
         else:
             print(f"Circuit breaker: {_cb_consecutive_loss_days} consecutive loss days on record", flush=True)
     except Exception as e:
-        import traceback
         print(f"DB init failed: {e}", flush=True)
-        traceback.print_exc()
 
     if config.INDODAX_API_KEY and not config.PAPER_TRADING:
         try:

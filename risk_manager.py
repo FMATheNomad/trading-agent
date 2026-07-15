@@ -178,14 +178,15 @@ class KellyCalculator:
         self.trade_count = 0
 
     def update(self, trades_history: list[dict]):
-        wins = [t for t in trades_history if (t.get("pnl") or 0) > 0]
-        losses = [t for t in trades_history if (t.get("pnl") or 0) <= 0]
+        trades_with_pnl = [t for t in trades_history if t.get("pnl") is not None]
+        wins = [t for t in trades_with_pnl if t["pnl"] > 0]
+        losses = [t for t in trades_with_pnl if t["pnl"] <= 0]
         self.trade_count = len(wins) + len(losses)
         if self.trade_count < 5:
             return
         self.win_rate = len(wins) / self.trade_count
-        self.avg_win = np.mean([t["pnl"] for t in wins]) if wins else 0
-        self.avg_loss = abs(np.mean([t["pnl"] for t in losses])) if losses else 1
+        self.avg_win = float(np.mean([(t.get("pnl") or 0) for t in wins])) if wins else 0
+        self.avg_loss = float(abs(np.mean([(t.get("pnl") or 0) for t in losses]))) if losses else 1
 
     def optimal_fraction(self) -> float:
         if self.trade_count < 5 or self.avg_loss == 0:
