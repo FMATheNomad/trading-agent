@@ -13,9 +13,9 @@ DCA_TP_PLACED = 3
 DCA_CANCELLED = 4
 
 DCA_CONFIGS = {
-    "btc_idr": {"safety_steps": [0.05, 0.10, 0.15, 0.20, 0.25], "tp": 0.20, "min_order": 10000},
-    "eth_idr": {"safety_steps": [0.05, 0.10, 0.15, 0.20], "tp": 0.20, "min_order": 10000},
-    "usdt_idr": {"safety_steps": [0.005, 0.01, 0.015], "tp": 999, "min_order": 10000},
+    "btc_idr": {"safety_steps": [0.05, 0.10, 0.15, 0.20, 0.25], "tp": 0.20, "min_order": 20000},
+    "eth_idr": {"safety_steps": [0.05, 0.10, 0.15, 0.20], "tp": 0.20, "min_order": 20000},
+    "usdt_idr": {"safety_steps": [0.005, 0.01, 0.015], "tp": 999, "min_order": 20000},
 }
 
 class DCAInstance:
@@ -51,9 +51,9 @@ class SmartDCA:
         self.last_scan = now
 
         cfg = DCA_CONFIGS
-        for pair, dca in self.instances.items():
-            if dca.state not in (DCA_TP_PLACED, DCA_CANCELLED) and dca.active:
-                dca.active = False
+        for pair, dca in list(self.instances.items()):
+            if dca.state in (DCA_TP_PLACED, DCA_CANCELLED):
+                self.instances.pop(pair, None)
 
         for pair, settings in cfg.items():
             if pair in self.instances and self.instances[pair].active:
