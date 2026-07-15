@@ -1564,9 +1564,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         dca_positions = {p["pair"] for p in positions} | {g.pair for g in grid_mini.instances}
         await dca_smart.scan_and_place(ticker_map, actual_idr_balance,
                                         existing_positions=dca_positions,
-                                        blacklisted=_coin_blacklist,
-                                        daily_loss_hit=_daily_loss_hit_today,
-                                        max_trades_reached=grid_max_trades)
+                                        blacklisted=_coin_blacklist)
         dca_smart.save_instances()
 
         if config.AUTO_COMPOUND and _realized_pnl_idr != 0:

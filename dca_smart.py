@@ -44,16 +44,11 @@ class SmartDCA:
 
     async def scan_and_place(self, ticker_map: dict, balance_idr: float,
                               existing_positions: set[str] | None = None,
-                              blacklisted: set[str] | None = None,
-                              daily_loss_hit: bool = False,
-                              max_trades_reached: bool = False):
+                              blacklisted: set[str] | None = None):
         now = time.time()
         if now - self.last_scan < self.scan_interval:
             return
         self.last_scan = now
-
-        if daily_loss_hit or max_trades_reached:
-            return
 
         cfg = DCA_CONFIGS
         for pair, dca in self.instances.items():
@@ -79,7 +74,7 @@ class SmartDCA:
 
             try:
                 async with httpx.AsyncClient() as c:
-                    order = await place_order(c, "buy", price, invest, pair=pair, order_type="market")
+                    order = await place_order(c, "buy", price, invest, pair=pair, order_type="maker_first")
                     if order.get("order_id") or order.get("receive_rp"):
                         coin = pair.split("_")[0]
                         fill_qty = float(order.get(f"receive_{coin}", 0)) or (invest / price)
@@ -177,11 +172,8 @@ class SmartDCA:
                     pass
                 continue
 
-            if di.total_qty > 0:
+            if di.total_qty > 0 and di.safety_filled >= min(1, len(di.safety_orders)):
                 tp_price = int(di.avg_entry * (1 + settings["tp"]))
-                bid = int(ticker_map.get(pair, {}).get("buy", 0))
-                if bid > tp_price * 0.99:
-                    pass
                 try:
                     order = await place_order(client, "sell", tp_price, di.total_qty * tp_price, pair=pair, order_type="limit", qty=di.total_qty)
                     if order.get("order_id"):
