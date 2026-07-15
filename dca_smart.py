@@ -322,6 +322,10 @@ class SmartDCA:
 
     async def _fetch_balance(self, client):
         try:
+            if config.PAPER_TRADING:
+                self.balance_idr = config.PLAY_CAPITAL_IDR
+                self._balance_stale = False
+                return True
             info = await get_balance(client)
             self.balance_idr = float(info.get("balance", {}).get("idr", 0))
             self._balance_stale = False

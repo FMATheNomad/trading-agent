@@ -686,7 +686,12 @@ async def portfolio_cycle(client: httpx.AsyncClient):
 
         actual_idr_balance = 0
 
-        if config.INDODAX_API_KEY and config.INDODAX_SECRET_KEY:
+        if config.PAPER_TRADING:
+            actual_idr_balance = config.PLAY_CAPITAL_IDR
+            _latest_full_balance = {}
+            _latest_full_hold = {}
+            print(f"  PAPER MODE: simulated balance Rp{actual_idr_balance:,.0f}", flush=True)
+        elif config.INDODAX_API_KEY and config.INDODAX_SECRET_KEY:
             try:
                 info = await get_balance(client)
                 bal = info.get("balance", {})
@@ -2459,6 +2464,7 @@ async def main():
 
     async def _dca_task():
         _dca_heartbeat = 0
+        print("  DCA task started", flush=True)
         async with httpx.AsyncClient(timeout=30) as _dc:
             while not shutdown_flag:
                 try:
