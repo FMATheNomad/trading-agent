@@ -1788,6 +1788,11 @@ async def _dca_loop():
     while not shutdown_flag:
         await asyncio.sleep(15)
         if not _latest_ticker_map:
+            print(f"  DCA LOOP: _latest_ticker_map kosong", flush=True)
+            continue
+        if _latest_balance < 10000:
+            print(f"  DCA LOOP: balance Rp{_latest_balance:,.0f} < 10k", flush=True)
+            continue
             continue
         pos_set = {p["pair"] for p in positions} | {g.pair for g in grid_mini.instances}
         async with httpx.AsyncClient() as _dc:
