@@ -800,6 +800,11 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 price = p["entry_price"]
             paper_equity += p["qty"] * price
         total_equity = actual_idr_balance + _idr_held + paper_equity
+        try:
+            held_coins = sum(float(bal.get(c, 0)) * float(ticker_map.get(f"{c}_idr", {}).get("last", 0) or LIVE_TICKERS.get(f"{c}_idr", {}).get("last", 0)) for c in set(list(bal.keys()) + list(hold.keys())) if c != "idr" and float(bal.get(c,0)) + float(hold.get(c,0)) > 0 and f"{c}_idr" not in {p["pair"] for p in positions})
+            total_equity += held_coins
+        except Exception:
+            pass
         dust_eq = getattr(portfolio_cycle, "_dust_equity", 0)
         if dust_eq:
             total_equity += dust_eq
