@@ -108,7 +108,10 @@ def save_loss_hit_date(date_str: str):
     _save(state)
 
 def load_today_peak() -> float:
-    return _load().get("today_peak", 0)
+    val = _load().get("today_peak", 0)
+    if val is None:
+        return 0
+    return float(val)
 
 def save_today_peak(value: float):
     state = _load()
