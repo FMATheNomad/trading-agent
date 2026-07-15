@@ -697,6 +697,10 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             _latest_full_hold = {}
             print(f"  PAPER MODE: simulated balance Rp{actual_idr_balance:,.0f}", flush=True)
             config.DAILY_LOSS_FLOOR_IDR = int(config.PLAY_CAPITAL_IDR * 0.05)
+            config.MAX_OPEN_POSITIONS = 12
+            config.ROTHSCHILD_OPEN_POSITIONS = 12
+            config.MAX_POSITION_PCT_PER_ASSET = 0.50
+            config.REGIME_STABILITY_CYCLES = 2
         elif config.INDODAX_API_KEY and config.INDODAX_SECRET_KEY:
             try:
                 info = await get_balance(client)
