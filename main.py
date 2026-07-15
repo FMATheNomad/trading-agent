@@ -689,8 +689,9 @@ async def portfolio_cycle(client: httpx.AsyncClient):
 
         if config.PAPER_TRADING:
             global _paper_balance
-            if _paper_balance <= 0:
-                _paper_balance = config.PLAY_CAPITAL_IDR
+            used = sum(p.get("amount_idr", 0) for p in positions)
+            if _paper_balance <= 0 or used > 0:
+                _paper_balance = max(0, config.PLAY_CAPITAL_IDR - used)
             actual_idr_balance = _paper_balance
             _latest_full_balance = {}
             _latest_full_hold = {}
