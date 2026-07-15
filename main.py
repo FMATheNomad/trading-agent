@@ -1410,7 +1410,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             if action == "BUY" and atr_pct:
                 raw_atr = risk.compute_atr(ohlcv, clamped=False)
                 vol_idr = float(ticker.get("vol_idr", 0))
-                if raw_atr < 1.5:
+                if raw_atr < 0.5:
                     print(f"  {pid}: ATR {raw_atr:.1f}% < 1.5 — skip (terlalu stabil)", flush=True)
                     continue
                 if raw_atr > 25.0 or vol_idr < 500_000_000:
@@ -1752,7 +1752,7 @@ async def _momentum_scanner():
                 _last_scan_pairs[pid] = time.time()
                 print(f"  MOMENTUM: {pid} {signal}", flush=True)
                 atr_chk = risk.compute_atr(ohlcv, clamped=False)
-                if atr_chk < 1.5:
+                if atr_chk < 0.5:
                     print(f"    ATR {atr_chk:.1f}% < 1.5 — skip (terlalu stabil)", flush=True)
                     continue
                 if atr_chk > 25.0:
