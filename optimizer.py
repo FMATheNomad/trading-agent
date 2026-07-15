@@ -50,7 +50,9 @@ class AIOptimizer:
         self.last_recommendations = []
 
     def _build_metrics(self, trades: list[dict], equity_curve: list[float]) -> dict:
-        sells = [t for t in trades if t.get("side") == "sell" and t.get("pnl") is not None]
+        sells = [t for t in trades if t.get("side") == "sell" and t.get("pnl") is not None
+                 and "grid_mini" not in (t.get("reason") or "")
+                 and "dca_" not in (t.get("reason") or "")]
         if len(sells) < 5:
             return {"trade_count": len(sells), "skip": True}
 
