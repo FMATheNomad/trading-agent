@@ -901,6 +901,10 @@ async def portfolio_cycle(client: httpx.AsyncClient):
 
         daily_limit = risk.check_daily_limits(total_equity)
         persist.save_today_peak(risk.today_peak)
+        if config.PAPER_TRADING:
+            daily_limit = None
+            _cb_consecutive_loss_days = 0
+
 
         _today_d = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=7))).strftime("%Y-%m-%d")
         if persist.load_loss_hit_date() != _today_d:
@@ -970,7 +974,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 _cb_last_loss_date = _today_d
                 persist.save_circuit_breaker({"consecutive_loss_days": 0, "last_loss_date": "", "triggered_at": _cb_triggered_at, "active_until": _cb_active_until})
 
-        if portfolio_risk.check_portfolio_stop(total_equity):
+        if portfolio_risk.check_portfolio_stop(total_equity) and not config.PAPER_TRADING:
             actual_dd = (portfolio_risk.peak_capital - total_equity) / portfolio_risk.peak_capital * 100
             print(f"DRAWDOWN {actual_dd:.0f}% > {abs(config.PORTFOLIO_STOP_LOSS_PCT)*100:.0f}% — "
                   f"Equity: Rp{total_equity:,.0f}, stopping entry", flush=True)
