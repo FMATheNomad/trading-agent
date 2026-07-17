@@ -701,6 +701,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             config.ROTHSCHILD_OPEN_POSITIONS = 12
             config.MAX_POSITION_PCT_PER_ASSET = 0.50
             config.REGIME_STABILITY_CYCLES = 2
+            _position_states.clear()
         elif config.INDODAX_API_KEY and config.INDODAX_SECRET_KEY:
             try:
                 info = await get_balance(client)
@@ -928,6 +929,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         for p in list(positions):
             pid = p["pair"]
             if pid in rules.DCA_EXCLUSIVE:
+                continue
+            if config.PAPER_TRADING:
                 continue
             if pid not in _position_states and pid not in _sm_cooldown:
                 atr = p.get("atr_pct")
@@ -1447,7 +1450,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                 tp_limit_price = int(tp)
                 print(f"  ATR: {atr_pct}% | SL: {sl} | TP: {tp}", flush=True)
 
-            if action == "SELL" and _position_states.get(pid):
+            if action == "SELL" and _position_states.get(pid) and not config.PAPER_TRADING:
                 print(f"  SKIP SELL {pid}: SM aktif, exit via state machine", flush=True)
                 continue
             else:
