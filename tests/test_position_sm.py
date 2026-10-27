@@ -245,16 +245,10 @@ for n in MOVED:
         assert getattr(m, n) is getattr(ps, n), f"main.py punya salinan {n}"
 print("T9 OK: 11 fungsi pindah utuh, main.py konsumen — nol circular import")
 
-# --- T10: body fungsi tidak berubah sedikit pun vs main.py sebelum ekstraksi
-before = ast.parse(open("/tmp/main_stage2_before.py").read()) if os.path.exists("/tmp/main_stage2_before.py") else None
-if before:
-    b = {n.name: ast.dump(n) for n in before.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
-    n_ = {n.name: ast.dump(n) for n in ast.parse(src_ps).body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
-    assert all(b[k] == n_[k] for k in n_), "ekstraksi mengubah logika SM"
-    print(f"T10 OK: {len(n_)} body fungsi AST-identik dengan main.py pra-ekstraksi")
-else:
-    print("T10 SKIP: backup pra-ekstraksi tidak ada (dipakai hanya saat refactor)")
-
+# --- T10: kontrak lock tertulis di docstring modul, bukan di kepala orang
+doc = (ps.__doc__ or "").lower()
+assert "_state_lock" in doc, "kontrak lock harus ada di docstring position_sm"
+print("T10 OK: position_sm berdiri sendiri + kontrak lock terbaca mesin")
 S.positions.clear()
 S._position_states.clear()
 print("ALL POSITION-SM CHECKS PASSED")
