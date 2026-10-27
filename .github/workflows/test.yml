@@ -17,8 +17,6 @@ jobs:
   suite:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    env:
-      STATE_DIR: ${{ runner.temp }}/fma-state
     steps:
       - uses: actions/checkout@v4
 
@@ -35,6 +33,8 @@ jobs:
           pip install -r requirements.txt
 
       - name: Fail if credentials are tracked
+        env:
+          STATE_DIR: ${{ runner.temp }}/fma-state
         run: |
           mkdir -p "$STATE_DIR"
           if git ls-files --error-unmatch .env >/dev/null 2>&1; then
@@ -47,7 +47,10 @@ jobs:
         run: python -m py_compile *.py engine/*.py tests/*.py
 
       - name: Run test suites
+        env:
+          STATE_DIR: ${{ runner.temp }}/fma-state
         run: |
+          mkdir -p "$STATE_DIR"
           status=0
           for suite in tests/test_*.py; do
             echo "::group::$suite"
