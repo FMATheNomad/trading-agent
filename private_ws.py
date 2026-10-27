@@ -92,7 +92,7 @@ async def private_ws_loop():
                                 price = order.get('price', '?')
                                 print(f"PWS: {symbol} {side} {qty} @ {price} → {status}", flush=True)
                                 if _on_fill_callback:
-                                    asyncio.ensure_future(_on_fill_callback(symbol, side, status))
+                                    _on_fill_callback(symbol, side, status)
                     except Exception:
                         pass
         except Exception as e:

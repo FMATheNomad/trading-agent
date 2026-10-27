@@ -33,6 +33,7 @@ from optimizer import AIOptimizer
 from grid_mini import GridMini
 from dca_smart import SmartDCA
 from orders import registry, ENTRY, SELL
+from state_bus import StateBus, TICK, FILL
 
 
 risk = RiskManager()
@@ -102,6 +103,50 @@ def _engine_order_ids() -> set[str]:
 
 
 registry.add_engine_source(_engine_order_ids)
+
+state_bus = StateBus()
+_state_lock = asyncio.Lock()
+
+
+def _on_ws_tick(pair: str, price: float) -> None:
+    """Dipanggil sinkron dari task market_ws: cuma nitip pesan, nol await,
+    nol sentuhan state."""
+    state_bus.publish_tick(pair, price)
+
+
+def _on_ws_fill(symbol: str, side: str, status: str) -> None:
+    """Dipanggil sinkron dari task private_ws."""
+    pair = symbol.replace("idr", "_idr") if not symbol.endswith("_idr") else symbol
+    state_bus.publish_fill(pair, side, status)
+
+
+async def _handle_fill_event(pair: str, side: str, status: str) -> None:
+    sm = _position_states.get(pair)
+    if status in ("FILLED", "FILL", "DONE", "PARTIALLY_FILLED") and side == "sell":
+        if sm:
+            print(f"  PWS FILL TRIGGER: {pair} — SM aware", flush=True)
+    elif status in ("CANCELLED", "REJECTED"):
+        print(f"  PWS CANCELLED: {pair} — SM akan re-place di cycle berikutnya", flush=True)
+
+
+async def _state_consumer():
+    """Satu-satunya jalan event WS menjadi mutasi state, serial dengan cycle."""
+    while not shutdown_flag:
+        await state_bus.wait()
+        if shutdown_flag:
+            return
+        for ev in state_bus.drain():
+            if shutdown_flag:
+                return
+            async with _state_lock:
+                try:
+                    if ev.kind == TICK:
+                        await _realtime_sltp_check(ev.pair, ev.price)
+                    else:
+                        await _handle_fill_event(ev.pair, ev.side, ev.status)
+                except Exception as e:
+                    print(f"  WS event error {ev.kind} {ev.pair}: {e}", flush=True)
+
 
 def classify_regime(all_signals: dict, ohlcv_map_1h: dict | None = None) -> dict:
     signals = [s.get("raw_signal") for s in all_signals.values() if s.get("raw_signal")]
@@ -1719,22 +1764,23 @@ async def _momentum_scanner():
                     print(f"    Fee makan profit — skip", flush=True)
                     continue
                 try:
-                    async with httpx.AsyncClient() as _mc:
-                        order = await place_order(_mc, "buy", price, amount, pair=pid, order_type="market")
-                    if order.get("order_id") or order.get("receive_rp"):
-                        coin_name = pid.split("_")[0]
-                        actual_qty = float(order.get(f"receive_{coin_name}", 0)) or qty
-                        actual_spend = float(order.get("spend_rp", 0)) or amount
-                        add_position(positions, pid, "BUY", actual_spend / actual_qty if actual_qty else price,
-                                     actual_qty, actual_spend, None, time.time(),
-                                     "ROTHSCHILD" if _rothschild_active else "KONSERVATIF")
-                        persist.save_positions(positions)
-                        _ext_entry_prices[pid] = actual_spend / actual_qty if actual_qty else price
-                        persist.save_entry_prices(_ext_entry_prices)
-                        cash_avail -= actual_spend
-                        await send_message(f"⚡ MOMENTUM {signal}: BUY {pid}\nRp{actual_spend:,.0f} @ {price:,.0f}")
-                        _momentum_entry_time[pid] = time.time()
-                        print(f"    EXECUTED: BUY {pid}", flush=True)
+                    async with _state_lock:
+                        async with httpx.AsyncClient() as _mc:
+                            order = await place_order(_mc, "buy", price, amount, pair=pid, order_type="market")
+                        if order.get("order_id") or order.get("receive_rp"):
+                            coin_name = pid.split("_")[0]
+                            actual_qty = float(order.get(f"receive_{coin_name}", 0)) or qty
+                            actual_spend = float(order.get("spend_rp", 0)) or amount
+                            add_position(positions, pid, "BUY", actual_spend / actual_qty if actual_qty else price,
+                                         actual_qty, actual_spend, None, time.time(),
+                                         "ROTHSCHILD" if _rothschild_active else "KONSERVATIF")
+                            persist.save_positions(positions)
+                            _ext_entry_prices[pid] = actual_spend / actual_qty if actual_qty else price
+                            persist.save_entry_prices(_ext_entry_prices)
+                            cash_avail -= actual_spend
+                            await send_message(f"⚡ MOMENTUM {signal}: BUY {pid}\nRp{actual_spend:,.0f} @ {price:,.0f}")
+                            _momentum_entry_time[pid] = time.time()
+                            print(f"    EXECUTED: BUY {pid}", flush=True)
                 except Exception as ex:
                     print(f"    Order failed: {ex}", flush=True)
         except Exception as e:
@@ -2333,15 +2379,6 @@ async def main():
                 pass
             await asyncio.sleep(5)
 
-    async def _on_pws_fill(symbol: str, side: str, status: str):
-        pair = symbol.replace("idr", "_idr") if not symbol.endswith("_idr") else symbol
-        if status in ("FILLED", "FILL", "DONE", "PARTIALLY_FILLED") and side == "sell":
-            sm = _position_states.get(pair)
-            if sm:
-                print(f"  PWS FILL TRIGGER: {pair} — SM aware", flush=True)
-        elif status in ("CANCELLED", "REJECTED"):
-            print(f"  PWS CANCELLED: {pair} — SM akan re-place di cycle berikutnya", flush=True)
-
     dca_smart.load_instances()
     if dca_smart.instances:
         print(f"Restored {len(dca_smart.instances)} DCA instances", flush=True)
@@ -2354,7 +2391,8 @@ async def main():
         async with httpx.AsyncClient(timeout=30) as _dc:
             while not shutdown_flag:
                 try:
-                    await dca_smart.run_cycle(_dc)
+                    async with _state_lock:
+                        await dca_smart.run_cycle(_dc)
                 except Exception as e:
                     print(f"DCA error: {e}", flush=True)
                     import traceback
@@ -2367,10 +2405,11 @@ async def main():
                         break
                     await asyncio.sleep(1)
 
-    set_on_tick(_realtime_sltp_check)
-    set_on_fill(_on_pws_fill)
+    set_on_tick(_on_ws_tick)
+    set_on_fill(_on_ws_fill)
     ws_task = asyncio.create_task(market_ws_loop())
     pws_task = asyncio.create_task(private_ws_loop())
+    state_task = asyncio.create_task(_state_consumer())
     momentum_task = asyncio.create_task(_momentum_scanner())
     opt_task = asyncio.create_task(_optimizer_loop())
     dca_task = asyncio.create_task(_dca_task())
@@ -2384,7 +2423,8 @@ async def main():
 
         while not shutdown_flag:
             print(f"\n{'='*20} FMA ALPHA QUANT LABS — Cycle #{cycle_counter + 1} {'='*20}", flush=True)
-            await portfolio_cycle(client)
+            async with _state_lock:
+                await portfolio_cycle(client)
             for _ in range(config.LOOP_INTERVAL_SECONDS // 5):
                 if shutdown_flag:
                     break
@@ -2394,6 +2434,7 @@ async def main():
     bal_poller.cancel()
     mws_stop()
     pws_stop()
+    state_task.cancel()
     if config.HAS_TRADING_KEYS:
         try:
             async with httpx.AsyncClient() as _dc:

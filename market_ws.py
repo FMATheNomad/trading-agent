@@ -57,7 +57,7 @@ async def market_ws_loop():
                                     "change_24h": ((price - float(entry[5])) / float(entry[5]) * 100) if float(entry[5]) else 0,
                                 }
                                 if _on_tick_callback:
-                                    asyncio.ensure_future(_on_tick_callback(pair, price))
+                                    _on_tick_callback(pair, price)
                     except Exception:
                         pass
         except Exception as e:
