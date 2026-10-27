@@ -32,6 +32,7 @@ import pairs
 from optimizer import AIOptimizer
 from grid_mini import GridMini
 from dca_smart import SmartDCA
+from orders import registry, ENTRY, SELL
 
 
 risk = RiskManager()
@@ -55,9 +56,6 @@ _prev_equity: float = 0
 _report_sent_count: int = 0
 _coin_blacklist: set[str] = set()
 _cio_stats: dict = {"total_decisions": 0, "buys": 0, "sells": 0, "wins": 0, "losses": 0}
-_tp_limit_orders: dict[str, int] = {}
-_pending_orders: dict[str, dict] = {}
-_pending_sells: dict[str, dict] = {}
 _cooldown: dict[str, float] = {}
 _latest_regime: dict = {}
 _latest_ticker_map: dict = {}
@@ -85,6 +83,25 @@ _cb_last_loss_date: str = ""
 _cb_triggered_at: float = 0
 _cb_active_until: float = 0
 _paper_balance: float = 0
+
+def _engine_order_ids() -> set[str]:
+    """Order resting milik state machine engine — dibaca live, tidak disalin.
+
+    Grid/DCA/position-SM punya field order id sendiri; tanpa ini orphan-cleanup
+    melihat order mereka sebagai order yatim lalu membatalkannya.
+    """
+    ids: set[str] = set()
+    for sm in _position_states.values():
+        ids |= {x for x in (sm.get("tp_order_id"), sm.get("sl_order_id")) if x}
+    for gi in grid_mini.instances:
+        ids |= {x for x in (gi.buy_order_id, gi.sell_order_id) if x}
+    for di in dca_smart.instances.values():
+        ids |= {x for x in (di.base_order_id, di.tp_order_id) if x}
+        ids |= {x for x in (so.get("order_id") for so in di.safety_orders) if x}
+    return {str(x) for x in ids}
+
+
+registry.add_engine_source(_engine_order_ids)
 
 def classify_regime(all_signals: dict, ohlcv_map_1h: dict | None = None) -> dict:
     signals = [s.get("raw_signal") for s in all_signals.values() if s.get("raw_signal")]
@@ -252,7 +269,6 @@ def _sm_cleanup(pair: str):
     _realtime_sltp_last.pop(pair, None)
     _pyramid_cooldown.pop(pair, None)
     _momentum_entry_time.pop(pair, None)
-    _tp_limit_orders.pop(pair, None)
 
 def _sm_get(pair: str) -> dict | None:
     return _position_states.get(pair)
@@ -262,7 +278,7 @@ cycle_counter = 0
 async def portfolio_cycle(client: httpx.AsyncClient):
     global positions, cycle_counter, _prev_regime, _prev_equity, _report_sent_count, _latest_regime, _latest_ticker_map, _latest_all_signals, _latest_ohlcv_map_1h, _latest_balance, _realized_pnl_idr, _realtime_sold, _realtime_sold_time
     global _daily_loss_hit_today, _greed_used_today, _rothschild_active, _regime_bull_streak, _regime_bear_streak
-    global _cb_consecutive_loss_days, _cb_last_loss_date, _cb_triggered_at, _cb_active_until, shutdown_flag, _pending_sells
+    global _cb_consecutive_loss_days, _cb_last_loss_date, _cb_triggered_at, _cb_active_until, shutdown_flag
     cycle_counter += 1
     _t0 = time.time()
     risk.daily_loss_stopped = False
@@ -281,57 +297,54 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         await send_message("✅ CIRCUIT BREAKER selesai — bot lanjut normal")
         persist.save_circuit_breaker({"consecutive_loss_days": 0, "last_loss_date": "", "triggered_at": 0, "active_until": 0})
 
-    for pid in list(_pending_orders.keys()):
+    for po in registry.list(ENTRY):
+        pid = po.pair
         try:
-            po = _pending_orders[pid]
-            oid = po["order_id"]
+            oid = po.order_id
             order_info = await get_order(client, oid, pair=pid)
             if not order_info:
-                del _pending_orders[pid]
+                registry.pop(pid, ENTRY)
                 continue
             status = order_info.get("status", "").lower()
             remain = float(order_info.get("remain_rp", order_info.get("remain_idr", 0)) or 0)
             is_filled = status in ("filled",) or remain == 0
-            if is_filled and po.get("is_maker"):
-                qty_filled = float(order_info.get(f"receive_{po.get('side', 'buy').lower()}", po["qty"]))
-                add_position(positions, pid, po.get("side", "BUY"), po["price"], po["qty"],
-                             po["amount_idr"], po.get("atr_pct"), time.time(),
+            if is_filled and po.is_maker:
+                add_position(positions, pid, po.side.upper(), po.price, po.qty,
+                             po.amount_idr, po.atr_pct, time.time(),
                              "ROTHSCHILD" if _rothschild_active else "KONSERVATIF")
                 persist.save_positions(positions)
                 print(f"  MAKER FILLED: {pid} → position opened", flush=True)
-                await send_message(f"✅ MAKER FILLED: BUY {pid}\nRp{po['amount_idr']:,.0f} @ {po['price']:,.0f}")
-                del _pending_orders[pid]
+                await send_message(f"✅ MAKER FILLED: BUY {pid}\nRp{po.amount_idr:,.0f} @ {po.price:,.0f}")
+                registry.pop(pid, ENTRY)
                 continue
             if status in ("cancelled", "rejected") or remain == 0:
-                del _pending_orders[pid]
+                registry.pop(pid, ENTRY)
                 continue
-            if po.get("is_maker"):
-                po["cycles"] = po.get("cycles", 0) + 1
+            if po.is_maker:
                 grace = max(1, int(config.LIMIT_GRACE_CYCLE))
-                if po["cycles"] >= grace:
+                if registry.bump(pid, ENTRY) >= grace:
                     try:
-                        await cancel_order(client, oid, pair=pid, side=po.get("side", "buy").lower())
+                        await cancel_order(client, oid, pair=pid, side=po.side.lower())
                         print(f"  LIMIT UNFILLED: {pid} order_id={oid} — cancel, cari koin lain", flush=True)
                     except Exception as e:
                         print(f"  Cancel unfilled order failed {pid}: {e}", flush=True)
-                    del _pending_orders[pid]
+                    registry.pop(pid, ENTRY)
         except Exception:
-            po = _pending_orders.get(pid)
-            if po and po.get("order_id"):
+            if po.order_id:
                 try:
-                    await cancel_order(client, po["order_id"], pair=pid, side=po.get("side", "buy").lower())
-                    print(f"  CANCEL STUCK: {pid} order_id={po['order_id']}", flush=True)
+                    await cancel_order(client, po.order_id, pair=pid, side=po.side.lower())
+                    print(f"  CANCEL STUCK: {pid} order_id={po.order_id}", flush=True)
                 except Exception:
                     pass
-            del _pending_orders[pid]
+            registry.pop(pid, ENTRY)
 
-    for pid in list(_pending_sells.keys()):
+    for ps in registry.list(SELL):
+        pid = ps.pair
         try:
-            ps = _pending_sells[pid]
-            oid = ps["order_id"]
+            oid = ps.order_id
             order_info = await get_order(client, oid, pair=pid)
             if not order_info:
-                del _pending_sells[pid]
+                registry.pop(pid, SELL)
                 continue
             status = order_info.get("status", "").lower()
             remain = float(order_info.get(f"remain_{pid.split('_')[0]}", 0))
@@ -343,33 +356,29 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                     pnl = (float(order_info.get("price", 0)) - p.get("entry_price", 0)) * p["qty"]
                     positions.remove(p)
                     persist.save_positions(positions)
-                    log_trade("sell", float(order_info.get("price", 0)), ps["qty"], ps["amount"], status="closed", pnl=pnl, reason=f"pending_sell_filled {pid}")
+                    log_trade("sell", float(order_info.get("price", 0)), ps.qty, ps.amount_idr,
+                              status="closed", pnl=pnl, reason=f"pending_sell_filled {pid}")
                 _sm_cleanup(pid)
-                del _pending_sells[pid]
+                registry.pop(pid, SELL)
                 continue
             if status in ("cancelled", "rejected"):
-                p = next((x for x in positions if x["pair"] == pid), None)
-                if p and pid not in [ps2["pair"] for ps2 in _pending_sells.values()]:
-                    pass
-                del _pending_sells[pid]
+                registry.pop(pid, SELL)
                 continue
-            ps["cycles"] = ps.get("cycles", 0) + 1
-            if ps["cycles"] >= config.SELL_GRACE_CYCLE:
+            if registry.bump(pid, SELL) >= config.SELL_GRACE_CYCLE:
                 try:
                     await cancel_order(client, oid, pair=pid, side="sell")
                 except Exception:
                     pass
                 bid = int(_latest_ticker_map.get(pid, {}).get("buy", 0))
                 if bid > 20:
-                    sell_ret = await _sm_place_sell(client, pid, ps["qty"], bid)
+                    sell_ret = await _sm_place_sell(client, pid, ps.qty, bid)
                     if sell_ret is not None:
                         print(f"  SELL RETRY AT BID: {pid} @ {bid}", flush=True)
                     else:
                         print(f"  SELL RETRY FAILED: {pid}", flush=True)
-                del _pending_sells[pid]
+                registry.pop(pid, SELL)
         except Exception:
-            if pid in _pending_sells:
-                del _pending_sells[pid]
+            registry.pop(pid, SELL)
 
     for pid, sm in list(_position_states.items()):
         if sm["state"] not in ("TP_ACTIVE", "SL_ACTIVE", "TRAILING"):
@@ -564,12 +573,12 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                             except Exception:
                                 pass
                         _sm_cleanup(pid)
-                    if pid in _pending_sells:
+                    t = registry.pop(pid, SELL)
+                    if t:
                         try:
-                            await _sm_cancel(client, _pending_sells[pid]["order_id"], pid)
+                            await _sm_cancel(client, t.order_id, pid)
                         except Exception:
                             pass
-                        del _pending_sells[pid]
                     print(f"  CLEANUP: {pid} dust Rp{val:,.0f} < min Rp{pm['min_base']:,} — hapus", flush=True)
                     await send_message(f"🧹 Dust {pid} Rp{int(val):,} dihapus (di bawah min order)")
                     positions.remove(p)
@@ -1074,7 +1083,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         for p in list(positions):
             if p["pair"] in _realtime_sold:
                 continue
-            if p["pair"] in _pending_sells:
+            if registry.has(p["pair"], SELL):
                 continue
             if _position_states.get(p["pair"]) or p["pair"] in _sm_cooldown:
                 continue
@@ -1156,7 +1165,8 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                                 print(f"  SELL UNFILLED: {p['pair']} — track sampe keisi (max {config.SELL_GRACE_CYCLE} cycle)", flush=True)
                                 order_id = sj_ret.get("order_id")
                                 if order_id:
-                                    _pending_sells[p["pair"]] = {"order_id": order_id, "qty": sl_qty, "amount": sl_qty * last, "price": sell_price, "cycles": 0, "pair": p["pair"]}
+                                    registry.add(p["pair"], SELL, order_id, side="sell",
+                                                 qty=sl_qty, price=sell_price, amount_idr=sl_qty * last)
                                 continue
                             print(f"  SOLD {p['pair']} via maker", flush=True)
                             _sm_cleanup(p["pair"])
@@ -1171,13 +1181,6 @@ async def portfolio_cycle(client: httpx.AsyncClient):
                             print(f"  Sell {p['pair']} failed: {sj_err} — CIO will decide", flush=True)
                     except Exception as e:
                         print(f"  Auto-sell failed {p['pair']}: {e}", flush=True)
-                if p["pair"] in _tp_limit_orders:
-                    try:
-                        oid = _tp_limit_orders.pop(p["pair"])
-                        await cancel_order(client, oid, pair=p["pair"], side="sell")
-                        print(f"  TP ORDER CANCELLED for {p['pair']} (order_id={oid})", flush=True)
-                    except Exception as e:
-                        print(f"  Cancel TP failed {p['pair']}: {e}", flush=True)
 
         for sl_hit in sl_hits:
             if "SL_HIT" in sl_hit or "TRAILING_SL" in sl_hit or "INITIAL_SL" in sl_hit or "ATR_SL" in sl_hit:
@@ -1389,12 +1392,10 @@ async def portfolio_cycle(client: httpx.AsyncClient):
 
             is_pending_maker = action == "BUY" and ot == "maker_first" and order.get("order_id") and float(order.get("remain_rp", order.get("remain_idr", 0)) or 0) > 0
             if is_pending_maker:
-                _pending_orders[pid] = {
-                    "order_id": order["order_id"], "is_maker": True,
-                    "side": "BUY", "price": price, "qty": qty,
-                    "amount_idr": amount, "atr_pct": atr_pct if ohlcv else None,
-                    "cycles": 0,
-                }
+                registry.add(pid, ENTRY, order["order_id"], side="buy", price=price, qty=qty,
+                             amount_idr=amount, is_maker=True,
+                             atr_pct=(atr_pct if ohlcv else None),
+                             client_order_id=order.get("client_order_id", ""))
                 print(f"  MAKER ORDER PLACED: {pid} (order_id={order['order_id']})", flush=True)
                 continue
 
@@ -1452,15 +1453,7 @@ async def portfolio_cycle(client: httpx.AsyncClient):
             executed_trades.append(t)
 
             if action == "SELL":
-                _pending_orders.pop(pid, None)
-                _tp_limit_orders.pop(pid, None)
-                if pid in _tp_limit_orders and not config.PAPER_TRADING and config.HAS_TRADING_KEYS:
-                    try:
-                        oid = _tp_limit_orders.pop(pid)
-                        await cancel_order(client, oid, pair=pid, side="sell")
-                        print(f"  TP LIMIT ORDER cancelled for {pid} (order_id={oid})", flush=True)
-                    except Exception as e:
-                        print(f"  Cancel TP limit failed {pid}: {e}", flush=True)
+                registry.pop(pid, ENTRY)
 
         if executed_trades:
             _cio_stats["total_decisions"] += 1
@@ -1509,16 +1502,19 @@ async def portfolio_cycle(client: httpx.AsyncClient):
         if cycle_counter % 10 == 0 and config.HAS_TRADING_KEYS:
             try:
                 orders_map = await get_open_orders(client)
-                tracked = {p["pair"] for p in positions} | set(_pending_orders.keys())
+                tracked = {p["pair"] for p in positions} | registry.tracked_pairs()
                 if isinstance(orders_map, dict):
                     for opair, olist in orders_map.items():
-                        if isinstance(olist, list):
-                            for o in olist:
-                                if opair not in tracked:
-                                    oid = o.get("order_id")
-                                    if oid:
-                                        await cancel_order(client, oid, pair=opair, side=o.get("type", "buy"))
-                                        print(f"CLEANUP: cancelled orphan {opair} {o.get('type')} (order_id={oid})", flush=True)
+                        if opair in tracked or not isinstance(olist, list):
+                            continue
+                        for o in olist:
+                            oid = o.get("order_id")
+                            # pair tanpa position bukan bukti order ini yatim:
+                            # grid/DCA/SM menyimpan order resting tanpa position
+                            if not oid or registry.owns(oid):
+                                continue
+                            await cancel_order(client, oid, pair=opair, side=o.get("type", "buy"))
+                            print(f"CLEANUP: cancelled orphan {opair} {o.get('type')} (order_id={oid})", flush=True)
             except Exception as e:
                 print(f"Orphan cleanup error: {e}", flush=True)
 
@@ -2404,11 +2400,12 @@ async def main():
                 await cancel_deadman(_dc)
         except Exception:
             pass
-    if _tp_limit_orders and config.HAS_TRADING_KEYS:
+    if registry and config.HAS_TRADING_KEYS:
         try:
             async with httpx.AsyncClient() as _tc:
-                for pid, oid in list(_tp_limit_orders.items()):
-                    await cancel_order(_tc, oid, pair=pid, side="sell")
+                for t in registry.list():
+                    await cancel_order(_tc, t.order_id, pair=t.pair, side=t.side)
+                    registry.pop(t.pair, t.kind)
         except Exception:
             pass
     if _position_states:
