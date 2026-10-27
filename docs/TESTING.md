@@ -37,14 +37,25 @@ selalu gagal `ModuleNotFoundError` — itu bukan kegagalan test.
 - `python -m py_compile *.py engine/*.py tests/*.py` (paket `engine/` ikut);
 - loop `tests/test_*.py` dengan `timeout 300` per suite, `status` diakumulasi
   supaya **suite yang gagal belakangan tetap jalan** (bukan fail-fast);
-- `STATE_DIR` di-set ke direktori runner → test tidak pernah menulis `trades.db`
-  repository.
+- `STATE_DIR` di-set **per step** (`runner.temp`) → test tidak pernah menulis
+  `trades.db` di repository. Jangan pindahkan ini ke `env:` level job: context
+  `runner` hanya tersedia di level step, dan GitHub menolak seluruh file kalau
+  tidak (lihat blok di bawah).
 
-> **Status jujur:** workflow ini belum pernah benar-benar berjalan. Ia ditulis di
-> commit `0598e06` dan belum ada `push` ke `main` karena push = deploy Railway.
-> Hijau di lokal ≠ hijau di CI; yang pertama kali perlu dicek di CI adalah
-> perbedaan Python 3.12 vs 3.14 — di 3.14 kolom AST di dalam f-string dilaporkan
-> berbeda, jadi alat refactor bisa memberi hasil tak identik kalau versinya tertukar.
+**Status: sudah berjalan dan hijau.** Run pertama (`0598e06` dikirim ke GitHub
+pada 27 Okt) mati dalam 0 detik dengan `workflow file issue` dan **0 job** —
+`${{ runner.temp }}` dipasang di `env:` level job. Parser YAML biasa (termasuk
+`yaml.safe_load`) menerima ini; hanya runner Actions yang menolak. Diperbaiki di
+`198bb8b`, dan run berikutnya lolos: [run 40584759444](https://github.com/FMATheNomad/trading-agent/actions/runs/40584759444)
+→ `suite in 1m13s`, 10/10 suite `PASS`, 82 baris `OK:` di log pada Python 3.12.
+
+> Pelajaran yang lebih umum: **`hijau di laptop ≠ hijau di CI`, dan kegagalan
+> CI bisa terjadi sebelum satu baris test pun jalan.** Karena itu: validasi
+> perubahan workflow dengan `actionlint` (bukan cuma `yaml.safe_load`) sebelum
+> push, dan perlakukan "workflow belum pernah punya run hijau" sebagai bug, bukan
+> sebagai detail kecil. Perbedaan interpreter 3.12 vs 3.14 juga tetap perlu
+> diwaspadai: di 3.14 kolom AST di dalam f-string dilaporkan berbeda, jadi alat
+> refactor memberi hasil tak identik kalau versinya tertukar.
 
 ## Kalau menambah suite
 

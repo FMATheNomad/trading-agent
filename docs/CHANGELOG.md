@@ -23,6 +23,23 @@ Nomor fix list mengacu ke daftar review itu.
 
 ---
 
+## `198bb8b` — fix(ci): `STATE_DIR` pindah ke env per-step
+
+Bukti pertama bahwa workflow ini belum pernah diuji.
+
+- Run pertama sesudah push (`actions/runs/40582983743`): conclusion `failure`,
+  **0 job**, durasi 0 detik, pesan UI "This run likely failed because of a
+  workflow file issue". Penyebab: `${{ runner.temp }}` di `env:` level job —
+  context `runner` hanya tersedia di level step, jadi GitHub menolak seluruh
+  file sebelum satu test pun jalan. `yaml.safe_load` lokal lolos; ini jenis bug
+  yang tidak bisa ditemukan tanpa runner Actions.
+- Perbaikan: `env: STATE_DIR: ${{ runner.temp }}/fma-state` dipindah ke dua step
+  yang memakainya, plus `mkdir -p "$STATE_DIR"` di step test.
+- Diverifikasi dua lapis: `actionlint` exit 0, lalu run
+  [40584759444](https://github.com/FMATheNomad/trading-agent/actions/runs/40584759444)
+  → `suite in 1m13s`, **10/10 suite `PASS`, 82 baris `OK:`** pada Python 3.12.
+  Ini pertama kalinya 82 kasus itu dieksekusi di interpreter produksi.
+
 ## 2026-10-28 — dokumen baru
 
 Tiga commit, berturut dari yang paling tua: `10b8608` (arsip), `a7cc68b`
@@ -164,11 +181,11 @@ Fix list #7.
   `python -m py_compile *.py engine/*.py tests/*.py`, lalu setiap
   `tests/test_*.py` dijalankan dengan `timeout 300` dan diakumulasikan
   (non-fail-fast, supaya satu suite mati tidak menyembunyikan suite lain).
-- `STATE_DIR: ${{ runner.temp }}/fma-state` — test tidak boleh menulis ke
-  direktori repo.
-- **Status jujur:** workflow ini belum pernah benar-benar berjalan. `git push`
-  belum dilakukan (`main` auto-deploy ke Railway, dan push bukan keputusan
-  agent). Hijau di laptop ≠ hijau di runner.
+- `STATE_DIR` di-set ke direktori runner — test tidak boleh menulis ke repo.
+  (Cara penulisannya salah di commit ini; lihat `198bb8b`.)
+- **Yang menyusul:** commit ini baru di-push 27 Okt, dan run pertamanya gagal
+  sebelum satu test pun jalan. Hijau di laptop ≠ hijau di runner, dan ternyata
+  bukan cuma soal hasil test — file workflow sendiri bisa ditolak.
 
 ## `f3f8700` — migrasi TAPI v2 + hardening gerbang order (fix list 1–6)
 

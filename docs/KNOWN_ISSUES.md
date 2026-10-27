@@ -168,10 +168,16 @@ Ini bukan bug, ini **belum diuji**. Bedakan keduanya.
   dikirim → diterima → di-update lewat private WS. Migrasi v2
   (`f3f8700`) menguji tanda tangan dan respons terhadap sandbox/key read-only,
   tidak terhadap fill.
-- **CI belum pernah berjalan.** `.github/workflows/test.yml` dibuat di
-  `0598e06`, dan sejak itu `git push` belum dilakukan (push bukan keputusan
-  agent — `main` auto-deploy ke Railway). Artinya: 10 suite hijau di laptop,
-  tapi nol bukti hijau di runner Python 3.12 dengan `STATE_DIR` terpisah.
+- **CI: tertutup, dengan catatan.** `.github/workflows/test.yml` dibuat di
+  `0598e06` tapi belum pernah di-push sampai 27 Okt. Begitu di-push, run
+  pertamanya mati dalam 0 detik (`workflow file issue`, 0 job) karena
+  `${{ runner.temp }}` dipasang di `env:` level job — context `runner` hanya
+  sah di level step, dan `yaml.safe_load` tidak menangkapnya. Diperbaiki di
+  `198bb8b`; run [40584759444](https://github.com/FMATheNomad/trading-agent/actions/runs/40584759444)
+  hijau: 10/10 suite, 82 `OK:`, 1m13s pada Python 3.12. Yang masih terbuka:
+  workflow belum pernah gagal-test dilihat di CI (kita tahu ia bisa lulus, belum
+  tahu apakah ia benar-benar menangkap regresi), dan `actionlint` belum masuk
+  langkah CI.
 - **Restart dengan state rusak.** Belum ada uji putus-listrik: `state.json`
   separuh tertulis, atau `trades.db` WAL yang tidak ter-checkpoint.
 
