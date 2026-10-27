@@ -1,3 +1,17 @@
+> # ARSIP — ditutup 2026-10-28
+>
+> Dokumen ini menjelaskan project **sebelum** migrasi TAPI v2, registry order tunggal,
+> antrean event WS, dan pemecahan `main.py` menjadi paket `engine/`. Disimpan apa adanya
+> supaya keputusan lama tetap terbaca; **bukan sumber kebenaran** untuk kode hari ini.
+>
+> Angka lama sudah bergeser: `MIN_ORDER_IDR` 15.000 → **25.000**; `executor.py` disebut
+> HMAC-SHA512 padahal sekarang gerbang TAPI v2 (HMAC-SHA256 `Sign`); `_pending_orders` dan
+> `_pending_sells` sudah dihapus (digantikan `orders.registry`); 50 state tidak lagi tinggal
+> di `main.py` tapi di `engine/state.py`. Tesis "The Blast Engine v3" tetap utuh.
+>
+> Sumber kebenaran sekarang: [`../../README.md`](../../README.md) dan [`../`](../).
+
+---
 # FMA Alpha Quant Labs — Onboarding Brief
 
 **Jangan edit file ini tanpa persetujuan.** Ini adalah dokumen konteks untuk sesi AI baru. Jika ada perubahan signifikan, tanyakan ke user apakah perlu diupdate.

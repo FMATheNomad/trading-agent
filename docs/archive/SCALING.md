@@ -1,3 +1,16 @@
+> # ARSIP — ditutup 2026-10-28
+>
+> Dokumen ini menjelaskan project **sebelum** migrasi TAPI v2, registry order tunggal,
+> antrean event WS, dan pemecahan `main.py` menjadi paket `engine/`. Disimpan apa adanya
+> supaya keputusan lama tetap terbaca; **bukan sumber kebenaran** untuk kode hari ini.
+>
+> Rencana scaling ditulis waktu `main.py` masih satu file 2.400 baris. Sebagian sudah
+> terlaksana (pemecahan modul `engine/`, satu pemegang state). Sisanya (multi-pair worker,
+> warm standby) belum dikerjakan dan perlu dibaca ulang terhadap arsitektur baru.
+>
+> Sumber kebenaran sekarang: [`../../README.md`](../../README.md) dan [`../`](../).
+
+---
 # 📈 Scaling Guide — FMA Alpha Quant Labs
 
 **Bagaimana cara menaikkan kapasitas bot dari Rp100rb → Rp100jt → Rp1M+**

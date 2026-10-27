@@ -1,3 +1,16 @@
+> # ARSIP — ditutup 2026-10-28
+>
+> Dokumen ini menjelaskan project **sebelum** migrasi TAPI v2, registry order tunggal,
+> antrean event WS, dan pemecahan `main.py` menjadi paket `engine/`. Disimpan apa adanya
+> supaya keputusan lama tetap terbaca; **bukan sumber kebenaran** untuk kode hari ini.
+>
+> Dibuat sebelum migrasi TAPI v2. Tidak menyebut `INDODAX_V2_API_KEY`/`INDODAX_V2_SECRET_KEY`,
+> keharusan kunci v1 untuk deadman + private-WS token, dan konsekuensi rotasi key (penarikan
+> API terkunci 24 jam). Isinya digantikan [`../SECURITY.md`](../SECURITY.md).
+>
+> Sumber kebenaran sekarang: [`../../README.md`](../../README.md) dan [`../`](../).
+
+---
 # Security Policy
 
 ## 🔐 Reporting a Vulnerability

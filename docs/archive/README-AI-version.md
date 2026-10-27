@@ -1,3 +1,15 @@
+> # ARSIP — ditutup 2026-10-28
+>
+> Dokumen ini menjelaskan project **sebelum** migrasi TAPI v2, registry order tunggal,
+> antrean event WS, dan pemecahan `main.py` menjadi paket `engine/`. Disimpan apa adanya
+> supaya keputusan lama tetap terbaca; **bukan sumber kebenaran** untuk kode hari ini.
+>
+> Dokumen versi AI (Jul 2026), sebelum fix list 1-8. Tidak menyebut TAPI v2, registry order,
+> maupun StateBus — tiga hal yang sekarang justru menegakkan invarian racing & idempotensi.
+>
+> Sumber kebenaran sekarang: [`../../README.md`](../../README.md) dan [`../`](../).
+
+---
 # 🏛️ FMA ALPHA QUANT LABS — Arsip: Dari AI ke Engineering
 
 > *Dokumen ini mencatat transformasi bot dari sistem yang bergantung pada DeepSeek AI menjadi 100% engineering murni.*
