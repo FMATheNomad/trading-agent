@@ -150,7 +150,7 @@ class SmartDCA:
                         di.total_invest = invest
                         di.base_order_id = order.get("order_id")
                         self.instances[pair] = di
-                        _dca_log_trade("buy", fill_price, fill_qty, invest, order_type="maker_first", status="filled", reason=f"dca_base {pair}")
+                        _dca_log_trade("buy", fill_price, fill_qty, invest, order_type="market", status="filled", reason=f"dca_base {pair}")
                         print(f"  DCA BASE: {pair} @ Rp{fill_price:,.0f} qty={fill_qty:.6f}", flush=True)
                         await send_message(f"🏦 DCA BASE: {pair}\nRp{fill_price:,.0f} × {fill_qty:.4f}")
                         self._place_safety_limits(c, di, settings, fill_price, invest)

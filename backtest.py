@@ -155,16 +155,16 @@ class Backtest:
         dec = rules.decide(
             sigs, {p: {"sell": closes[p], "vol_idr": 5e8} for p in pairs},
             {p: {"last": closes[p]} for p in pairs},
-            self.positions, cash, tv, regime, None, set(), {},
+            self.positions, cash, tv, regime, window, set(), {},
         )
 
         for t in dec.get("trades", []):
             if t["action"] == "BUY" and len(self.positions) < 6:
-                self._exec_buy(t, closes[t["pair"]], idx)
+                self._exec_buy(t, closes[t["pair"]], idx, window)
             elif t["action"] == "SELL":
                 self._exec_sell(t, closes.get(t["pair"], 1000))
 
-    def _exec_buy(self, t, price, idx):
+    def _exec_buy(self, t, price, idx, window):
         size = min(self.capital * 0.25, 50000)
         if size < 20000:
             return

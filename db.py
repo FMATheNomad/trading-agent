@@ -7,6 +7,7 @@
 
 import sqlite3
 import os
+import config
 from datetime import datetime, timezone, timedelta
 
 WIB = timezone(timedelta(hours=7))
@@ -70,7 +71,7 @@ def log_trade(side: str, price: float, qty: float, amount_idr: float,
             "INSERT INTO trades (timestamp, side, price, qty, amount_idr, order_type, status, pnl, reason, paper_trade) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (datetime.now(WIB).isoformat(), side, price, qty,
-             amount_idr, order_type, status, pnl, reason, 1),
+             amount_idr, order_type, status, pnl, reason, int(bool(config.PAPER_TRADING))),
         )
     _write_count += 1
     if _write_count % 50 == 0:

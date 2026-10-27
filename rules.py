@@ -147,7 +147,7 @@ def _momentum_decide(all_signals, ticker_map, live_tickers, positions, actual_id
                 else:
                     print(f"  Range filter: {c['pair']} data OHLCV < 15 candle — skip entry", flush=True)
                     continue
-                if c["pair"] in sm_cooldown:
+                if sm_cooldown and c["pair"] in sm_cooldown:
                     print(f"  Cooldown: {c['pair']} — skip (cooldown aktif)", flush=True)
                     continue
                 final.append(c)

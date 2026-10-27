@@ -21,11 +21,9 @@ def set_on_fill(callback):
     global _on_fill_callback
     _on_fill_callback = callback
 
-async def _generate_token() -> tuple[str, str] | None:
-    if not config.INDODAX_API_KEY or not config.INDODAX_SECRET_KEY:
-        return None
-    body = urlencode({"client": "tapi", "tapi_key": config.INDODAX_API_KEY})
-    sign = hmac.new(config.INDODAX_SECRET_KEY.encode(), body.encode(), hashlib.sha512).hexdigest()
+async def _generate_token(key: str, secret: str) -> tuple[str, str] | None:
+    body = urlencode({"client": "tapi", "tapi_key": key})
+    sign = hmac.new(secret.encode(), body.encode(), hashlib.sha512).hexdigest()
     try:
         async with httpx.AsyncClient() as c:
             r = await c.post(
@@ -41,11 +39,27 @@ async def _generate_token() -> tuple[str, str] | None:
         print(f"PWS token error: {e}", flush=True)
     return None
 
+
+async def _token_any_credential() -> tuple[str, str] | None:
+    # The token endpoint has no v2 counterpart; try the v2 key first (it is
+    # still a TAPI key) and fall back to the legacy one.
+    creds = []
+    if config.USE_TAPI_V2:
+        creds.append((config.INDODAX_V2_API_KEY, config.INDODAX_V2_SECRET_KEY))
+    creds.append((config.INDODAX_API_KEY, config.INDODAX_SECRET_KEY))
+    for key, secret in creds:
+        if not key or not secret:
+            continue
+        tok = await _generate_token(key, secret)
+        if tok:
+            return tok
+    return None
+
 async def private_ws_loop():
     global _shutdown
     while not _shutdown:
         try:
-            tok = await _generate_token()
+            tok = await _token_any_credential()
             if not tok:
                 await asyncio.sleep(60)
                 continue
@@ -71,7 +85,7 @@ async def private_ws_loop():
                         for event in push.get("data", []):
                             order = event.get("order", {})
                             status = order.get("status", "")
-                            if status in ("FILL", "DONE", "CANCELLED", "REJECTED"):
+                            if status in ("FILLED", "FILL", "DONE", "PARTIALLY_FILLED", "CANCELLED", "REJECTED"):
                                 symbol = order.get('symbol', '?')
                                 side = order.get('side', '?')
                                 qty = order.get('executedQty', '?')

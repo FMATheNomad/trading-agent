@@ -98,7 +98,21 @@ INDODAX_API_KEY = os.getenv("INDODAX_API_KEY", "")
 INDODAX_SECRET_KEY = os.getenv("INDODAX_SECRET_KEY", "")
 INDODAX_BASE_URL = "https://indodax.com"
 INDODAX_TAPI_URL = f"{INDODAX_BASE_URL}/tapi"
-INDODAX_TAPI_V2_URL = "https://tapi.indodax.com"
+INDODAX_V2_API_KEY = os.getenv("INDODAX_V2_API_KEY", "")
+INDODAX_V2_SECRET_KEY = os.getenv("INDODAX_V2_SECRET_KEY", "")
+INDODAX_TAPI_V2_URL = os.getenv("INDODAX_TAPI_V2_URL", "https://api.indodax.com")
+
+_tapi_version = os.getenv("TAPI_VERSION", "auto").strip().lower()
+if _tapi_version in ("v1", "1", "legacy"):
+    USE_TAPI_V2 = False
+elif _tapi_version in ("v2", "2"):
+    USE_TAPI_V2 = True
+else:
+    USE_TAPI_V2 = bool(INDODAX_V2_API_KEY and INDODAX_V2_SECRET_KEY)
+
+# Deadman switch and the private-WS token only exist on the legacy endpoint,
+# so those paths keep needing INDODAX_API_KEY even after the v2 migration.
+HAS_TRADING_KEYS = USE_TAPI_V2 or bool(INDODAX_API_KEY and INDODAX_SECRET_KEY)
 
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
