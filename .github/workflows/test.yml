@@ -44,7 +44,7 @@ jobs:
           echo "no .env tracked"
 
       - name: Byte-compile every module
-        run: python -m py_compile *.py tests/*.py
+        run: python -m py_compile *.py engine/*.py tests/*.py
 
       - name: Run test suites
         run: |

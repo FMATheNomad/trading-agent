@@ -72,17 +72,17 @@ print("T6 OK: owns() gabung registry + engine source, id asing tetap asing")
 
 # --- T7: main.py wiring — order resting grid/DCA/SM tidak dianggap yatim
 assert len(m.registry._engine_sources) == 1, "main.py harus daftarkan 1 engine source"
-m._position_states["testa_idr"] = {"tp_order_id": 9001, "sl_order_id": None}
+m.S._position_states["testa_idr"] = {"tp_order_id": 9001, "sl_order_id": None}
 gi = GridInstance("testb_idr", 1000, 100000)
 gi.buy_order_id = 9002
 gi.sell_order_id = 9003
 di = DCAInstance("testc_idr")
 di.tp_order_id = 9004
 di.safety_orders = [{"order_id": 9005}, {"order_id": None}]
-m.grid_mini.instances.append(gi)
-m.dca_smart.instances["testc_idr"] = di
+m.S.grid_mini.instances.append(gi)
+m.S.dca_smart.instances["testc_idr"] = di
 try:
-    ids = m._engine_order_ids()
+    ids = m.S._engine_order_ids()
     assert ids == {"9001", "9002", "9003", "9004", "9005"}, ids
     for oid in ids:
         assert m.registry.owns(oid), oid
@@ -91,9 +91,9 @@ try:
     assert m.registry.tracked_pairs() == set()
     assert m.registry.owns(gi.buy_order_id)
 finally:
-    m._position_states.pop("testa_idr", None)
-    m.grid_mini.instances.remove(gi)
-    m.dca_smart.instances.pop("testc_idr", None)
+    m.S._position_states.pop("testa_idr", None)
+    m.S.grid_mini.instances.remove(gi)
+    m.S.dca_smart.instances.pop("testc_idr", None)
 print("T7 OK: order resting grid/DCA/SM terlindungi dari orphan cleanup")
 
 # --- T8: static — 3 dict lama benar-benar hilang, cleanup pakai owns()

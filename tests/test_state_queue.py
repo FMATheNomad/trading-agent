@@ -70,17 +70,17 @@ async def t4():
     orig_fill = m._handle_fill_event
 
     async def fake_check(pair, price):
-        assert m._state_lock.locked(), "handler tick harus jalan di dalam _state_lock"
+        assert m.S._state_lock.locked(), "handler tick harus jalan di dalam _state_lock"
         log.append(("tick", pair, price))
         await asyncio.sleep(0.01)  # titik di mana dulu task lain bisa nyelip
 
     async def fake_fill(pair, side, status):
-        assert m._state_lock.locked(), "handler fill harus jalan di dalam _state_lock"
+        assert m.S._state_lock.locked(), "handler fill harus jalan di dalam _state_lock"
         log.append(("fill", pair, status))
 
     async def fake_cycle():
         # meniru portfolio_cycle: pegang lock, mutasi, await di tengah
-        async with m._state_lock:
+        async with m.S._state_lock:
             for i in range(3):
                 log.append(("cycle", i, None))
                 await asyncio.sleep(0.005)
@@ -89,14 +89,14 @@ async def t4():
     m._handle_fill_event = fake_fill
     consumer = asyncio.create_task(m._state_consumer())
     try:
-        m.state_bus.publish_tick("btc_idr", 100.0)
+        m.S.state_bus.publish_tick("btc_idr", 100.0)
         await asyncio.sleep(0.02)
         cycle_task = asyncio.create_task(fake_cycle())
         # spam 3 tick + 1 fill SEMENTARA cycle megang lock: tidak boleh ada
         # mutasi yang nyelip di sela-sela cycle
         for i in range(3):
-            m.state_bus.publish_tick("eth_idr", 200.0 + i)
-        m.state_bus.publish_fill("dogi_idr", "sell", "FILLED")
+            m.S.state_bus.publish_tick("eth_idr", 200.0 + i)
+        m.S.state_bus.publish_fill("dogi_idr", "sell", "FILLED")
         await cycle_task
         for _ in range(100):
             if any(e[0] == "fill" for e in log):
@@ -107,8 +107,8 @@ async def t4():
         assert ci and ci == list(range(ci[0], ci[0] + len(ci))), f"cycle kepotong: {kinds}"
         assert ("tick", "eth_idr", 202.0) in log, log
         assert ("fill", "dogi_idr", "FILLED") in log, log
-        assert m.state_bus.pending() == 0, m.state_bus.pending()
-        assert m.state_bus.dropped_fills == 0
+        assert m.S.state_bus.pending() == 0, m.S.state_bus.pending()
+        assert m.S.state_bus.dropped_fills == 0
     finally:
         consumer.cancel()
         m._realtime_sltp_check = orig_check
@@ -132,19 +132,19 @@ assert "set_on_tick(_on_ws_tick)" in src and "set_on_fill(_on_ws_fill)" in src
 assert "set_on_tick(_realtime_sltp_check)" not in src
 assert src.count("await _realtime_sltp_check(") == 1, "realtime check harus cuma dipanggil consumer"
 assert "state_task = asyncio.create_task(_state_consumer())" in src
-assert "async with _state_lock:\n                await portfolio_cycle(client)" in src
+assert "async with S._state_lock:\n                await portfolio_cycle(client)" in src
 assert "state_task.cancel()" in src
 print("T6 OK: tick & fill masuk bus; hanya _state_consumer yang mengeksekusi")
 
 # --- T7: fungsi publisher tidak menyentuh state (dicek langsung: state kosong)
-before = (len(m.positions), dict(m._position_states), len(m.registry))
+before = (len(m.S.positions), dict(m.S._position_states), len(m.registry))
 for i in range(50):
     m._on_ws_tick("btc_idr", 600_000_000 + i)
 m._on_ws_fill("btcidr", "sell", "FILLED")
-after = (len(m.positions), dict(m._position_states), len(m.registry))
+after = (len(m.S.positions), dict(m.S._position_states), len(m.registry))
 assert before == after, "publisher WS tidak boleh mutasi state"
-assert m.state_bus.pending() == 2, m.state_bus.pending()
-m.state_bus.drain()
+assert m.S.state_bus.pending() == 2, m.S.state_bus.pending()
+m.S.state_bus.drain()
 print("T7 OK: 50 tick + 1 fillpublished = state tidak berubah, antrean 2 event")
 
 print("ALL STATE-QUEUE CHECKS PASSED")
