@@ -51,7 +51,7 @@ src = read("main.py")
 assert "global " not in src, "main.py masih punya pernyataan global"
 print("T2 OK: nol pernyataan global — mutasi state selalu eksplisit lewat S.")
 
-# --- T3: tidak ada referensi telanjang ke nama state di luar main()
+# --- T3: tidak ada referensi telanjang ke nama state di fungsi main.py
 # allowlist: correlation_risk punya parameter lokal bernama `positions` (bukan
 # state), dan main() punya bug lama shadow circuit-breaker yang sengaja dipertahankan.
 tree = ast.parse(src)
@@ -107,16 +107,18 @@ S._position_states.pop("q_idr")
 assert "7001" not in S._engine_order_ids()
 print("T6 OK: _engine_order_ids ikut pindah dan tetap jadi sumber id resting order")
 
-# --- T7: fungsi murni main.py masih jalan membaca state lewat S
+# --- T7: konsumen state (cycle + SM) tetap membaca state lewat S, bukan salinan
+from engine import cycle as C  # noqa: E402
+from engine import position_sm as P  # noqa: E402
 sig = {"aaa_idr": {"raw_signal": "BUY", "score": 3, "volatility": 1.0, "conviction": "HIGH"},
        "bbb_idr": {"raw_signal": "BUY", "score": 2, "volatility": 1.0, "conviction": "MED"}}
-reg = m.classify_regime(sig, None)
+reg = C.classify_regime(sig, None)
 assert reg["regime"] in ("BULL", "BEAR", "SIDEWAYS", "HIGH_VOL", "SIDEWAYS_LOW_VOL"), reg
-m._sm_init("smtest_idr", 100.0, 1.0, 2.0)
-assert m._sm_get("smtest_idr") is not None
-assert "smtest_idr" in S._position_states
-m._sm_cleanup("smtest_idr")
+assert C.S is S and P.S is S, "modul engine harus berbagi objek state yang sama"
+P._sm_init("smtest_idr", 100.0, 1.0, 2.0)
+assert P._sm_get("smtest_idr") is not None and "smtest_idr" in S._position_states
+P._sm_cleanup("smtest_idr")
 assert "smtest_idr" not in S._position_states
-print("T7 OK: classify_regime + position-SM membaca state lewat S tanpa error")
+print("T7 OK: engine.cycle + engine.position_sm pakai instance state yang identik")
 
 print("ALL ENGINE-STATE CHECKS PASSED")

@@ -240,8 +240,10 @@ code = ("import sys; sys.path.insert(0, %r); import engine.position_sm;"
 r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
 assert r.returncode == 0, r.stderr
 import main as m
-assert all(getattr(m, n) is getattr(ps, n) for n in MOVED), "main.py harus pakai fungsi yang sama"
-print("T9 OK: 11 fungsi pindah utuh, main.py jadi konsumen — nol circular import")
+for n in MOVED:
+    if hasattr(m, n):
+        assert getattr(m, n) is getattr(ps, n), f"main.py punya salinan {n}"
+print("T9 OK: 11 fungsi pindah utuh, main.py konsumen — nol circular import")
 
 # --- T10: body fungsi tidak berubah sedikit pun vs main.py sebelum ekstraksi
 before = ast.parse(open("/tmp/main_stage2_before.py").read()) if os.path.exists("/tmp/main_stage2_before.py") else None

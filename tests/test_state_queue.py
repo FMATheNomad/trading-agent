@@ -127,10 +127,22 @@ assert "state_bus.publish_tick" in read("main.py")
 print("T5 OK: WS loop manggil publisher sinkron, tidak men-spawn coroutine")
 
 # --- T6: main.py — callback WS cuma nitip pesan; mutasi lewat consumer
+
+
+def decision_code() -> str:
+    """main.py + engine/*.py = seluruh jalur keputusan bot (statis check)."""
+    import glob
+    parts = [read("main.py")]
+    for p in sorted(glob.glob(os.path.join(ROOT, "engine", "*.py"))):
+        parts.append(open(p, encoding="utf-8").read())
+    return "\n".join(parts)
+
+
 src = read("main.py")
 assert "set_on_tick(_on_ws_tick)" in src and "set_on_fill(_on_ws_fill)" in src
 assert "set_on_tick(_realtime_sltp_check)" not in src
 assert src.count("await _realtime_sltp_check(") == 1, "realtime check harus cuma dipanggil consumer"
+assert "await _realtime_sltp_check(" not in decision_code().replace(src, ""), "ada pemanggil realtime lain di engine/"
 assert "state_task = asyncio.create_task(_state_consumer())" in src
 assert "async with S._state_lock:\n                await portfolio_cycle(client)" in src
 assert "state_task.cancel()" in src

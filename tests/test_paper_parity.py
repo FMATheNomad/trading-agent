@@ -39,8 +39,21 @@ async def main():
 
 asyncio.run(main())
 
-# --- T3: static check — the old paper risk bypasses must be gone from main.py
-src = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "main.py")).read()
+# --- T3: static check — the old paper risk bypasses must be gone everywhere
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SRC = os.path.join(ROOT, "main.py")
+
+
+def decision_code() -> str:
+    """main.py + engine/*.py = seluruh jalur keputusan bot."""
+    import glob
+    parts = [open(SRC, encoding="utf-8").read()]
+    for p in sorted(glob.glob(os.path.join(ROOT, "engine", "*.py"))):
+        parts.append(open(p, encoding="utf-8").read())
+    return "\n".join(parts)
+
+
+src = decision_code()
 forbidden = [
     r"daily_limit = None",
     r"config\.MAX_OPEN_POSITIONS = 12",
@@ -52,5 +65,5 @@ forbidden = [
 for pat in forbidden:
     m = re.search(pat, src)
     assert not m, f"paper risk bypass still present: {pat}"
-print("T3 OK: all 6 paper risk bypasses removed from main.py")
+print("T3 OK: all 6 paper risk bypasses removed from main.py + engine/")
 print("ALL PAPER-PARITY CHECKS PASSED")

@@ -11,10 +11,15 @@ Bot trading kripto **100% engineering, zero AI cost** untuk Indodax.
 
 | File | Fungsi |
 |------|--------|
-| `main.py` | Orchestrator — portfolio cycle, momentum scanner, **state machine**, Telegram poller, deadman |
+| `main.py` | Entrypoint — boot, task WS/poller, momentum scanner, Telegram poller, deadman, graceful shutdown |
+| `engine/cycle.py` | **`portfolio_cycle`** — satu siklus keputusan regime → sinyal → order |
+| `engine/position_sm.py` | **State machine** TP/SL/trailing/pyramid per posisi, jalur realtime tick |
+| `engine/state.py` | Pemilik tunggal 50 state runtime bot |
+| `orders.py` | Registry order terpantau `(pair, kind)` — entry/sell/grid/dca |
+| `state_bus.py` | Antrean event WS; satu consumer serial dengan cycle lewat `S._state_lock` |
 | `rules.py` | **Regime-gated decision engine** — BULL/BEAR → momentum, SIDEWAYS → mean-reversion, HIGH_VOL → survival |
 | `risk_manager.py` | ATR SL/TP, **per-regime Kelly**, circuit breaker, validate_allocation |
-| `executor.py` | Indodax HMAC-SHA512 signing, market/maker_first/maker orders |
+| `executor.py` | Gerbang TAPI v2 (`X-APIKEY` + HMAC-SHA256 `Sign`), adapter field v1, rate limit, idempotensi |
 | `data_layer.py` | Indodax REST API (ticker, pairs, depth, OHLCV) |
 | `market_ws.py` | WebSocket realtime tickers (24h summary) |
 | `private_ws.py` | WebSocket order fill notification |

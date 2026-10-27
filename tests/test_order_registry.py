@@ -70,8 +70,8 @@ assert r3.owns(4321) and r3.owns("8765")
 assert r3.owns(9999) is False
 print("T6 OK: owns() gabung registry + engine source, id asing tetap asing")
 
-# --- T7: main.py wiring — order resting grid/DCA/SM tidak dianggap yatim
-assert len(m.registry._engine_sources) == 1, "main.py harus daftarkan 1 engine source"
+# --- T7: wiring jalur keputusan — order resting grid/DCA/SM tidak dianggap yatim
+assert len(m.registry._engine_sources) == 1, "engine.state harus daftarkan 1 engine source"
 m.S._position_states["testa_idr"] = {"tp_order_id": 9001, "sl_order_id": None}
 gi = GridInstance("testb_idr", 1000, 100000)
 gi.buy_order_id = 9002
@@ -97,14 +97,26 @@ finally:
 print("T7 OK: order resting grid/DCA/SM terlindungi dari orphan cleanup")
 
 # --- T8: static — 3 dict lama benar-benar hilang, cleanup pakai owns()
-src = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "main.py")).read()
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def decision_code() -> str:
+    """main.py + engine/*.py = seluruh jalur keputusan bot (statis check)."""
+    import glob
+    parts = [open(os.path.join(ROOT, "main.py"), encoding="utf-8").read()]
+    for p in sorted(glob.glob(os.path.join(ROOT, "engine", "*.py"))):
+        parts.append(open(p, encoding="utf-8").read())
+    return "\n".join(parts)
+
+
+src = decision_code()
 for dead in ["_pending_orders", "_pending_sells", "_tp_limit_orders"]:
-    assert dead not in src, f"{dead} masih dipakai di main.py"
+    assert dead not in src, f"{dead} masih dipakai di jalur keputusan"
 assert "registry.owns(oid)" in src, "orphan cleanup tidak lagi cek kepemilikan order"
 assert "set(_pending_orders.keys())" not in src
 print("T8 OK: tidak ada sisa state dict lama; cleanup berbasis kepemilikan id")
 
-# --- T9: ENTRY/SELL kinds dipakai main.py dengan field yang benar
+# --- T9: ENTRY/SELL kinds dipakai dengan field yang benar
 t = m.registry.add("xx_idr", ENTRY, 4242, side="buy", price=100, qty=0.5,
                    amount_idr=50, is_maker=True, atr_pct=1.2, client_order_id="fma1")
 assert t.side == "buy" and t.cycles == 0 and t.atr_pct == 1.2

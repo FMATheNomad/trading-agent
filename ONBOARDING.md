@@ -16,10 +16,15 @@ HMM Regime Gate → Strategi per Regime → State Machine → Market Buy + Limit
 
 | File | Fungsi | Keterangan |
 |------|--------|-----------|
-| `main.py` | Orchestrator — cycle, momentum scanner, state machine, Telegram | ~2200 baris |
+| `main.py` | Entrypoint saja — boot, WS task, poller, momentum scanner, Telegram, graceful shutdown | ~790 baris |
+| `engine/state.py` | Pemilik tunggal 50 state runtime (`positions`, streak, cooldown, `_position_states`) | ~100 baris |
+| `engine/cycle.py` | `portfolio_cycle` — regime → sinyal → order + `classify_regime`, `correlation_risk` | ~1400 baris |
+| `engine/position_sm.py` | State machine TP/SL/trailing/pyramid per posisi (`_sm_*`, `_realtime_sltp_check`) | ~265 baris |
+| `orders.py` | Registry order terpantau, `(pair, kind)` tunggal | ~130 baris |
+| `state_bus.py` | Antrean event WS (tick coalesce, fill terbatas) | ~82 baris |
 | `rules.py` | Decision engine — regime gate + momentum + mean-reversion | ~300 baris |
 | `config.py` | Semua parameter | ~150 baris |
-| `executor.py` | HMAC-SHA512 signing, order execution | ~140 baris |
+| `executor.py` | Gerbang TAPI v2 (HMAC-SHA256 `Sign`) + adapter v1, rate limit, idempotensi | ~330 baris |
 | `risk_manager.py` | ATR SL/TP, Kelly per regime, validate_allocation | ~260 baris |
 | `persist.py` | JSON state persistence | ~135 baris |
 | `db.py` | SQLite trade log | ~195 baris |
@@ -107,14 +112,19 @@ SM INIT → TP first @ ATR×2
 | `ATR_SL_MULTIPLIER` | 1.2 | config.py |
 | `ROTHSCHILD_INITIAL_SL_ATR` | 0.5 | config.py |
 | `ROTHSCHILD_TRAILING_SL_ATR` | 2.0 | config.py |
-| SL minimum floor | 1.5% | main.py `_sm_place_sl` |
+| SL minimum floor | 1.5% | engine/position_sm.py `_sm_place_sl` |
 | `DAILY_LOSS_FLOOR_IDR` | 15.000 | config.py |
 | `CIRCUIT_BREAKER_LIMIT` | 5 hari | config.py |
 | `CIRCUIT_BREAKER_HOURS` | 72 jam | config.py |
 | `MAX_SCAN_PAIRS` | 40 | config.py |
 | `MIN_24H_VOLUME_IDR` | 500.000.000 | config.py |
 
-## Key Variables in main.py
+## Key Variables in engine/state.py
+
+Semua nama di bawah ini diakses lewat `from engine import state as S` — tidak ada lagi
+`global` di file mana pun. Order yang menunggu tidak lagi di dict terpisah, tapi
+di `orders.registry` dengan `(pair, kind)`: `entry`, `sell`, `grid_buy`,
+`grid_sell`, `dca_buy`, `dca_tp`.
 
 | Variable | Type | Fungsi |
 |----------|------|--------|
@@ -122,8 +132,6 @@ SM INIT → TP first @ ATR×2
 | `_position_states` | dict[str, dict] | SM state per pair |
 | `_sm_cooldown` | dict[str, float] | Cooldown timestamp (24 jam) |
 | `_coin_blacklist` | set[str] | Pair diblokir setelah SL |
-| `_pending_orders` | dict[str, dict] | Limit buy pending (maker_first) |
-| `_pending_sells` | dict[str, dict] | Limit sell unfilled |
 | `_realtime_sold` | set[str] | Baru di-SM FILLED (cegah double sell) |
 | `_daily_loss_hit_today` | bool | Daily loss hold |
 | `_realized_pnl_idr` | float | Accumulated profit for compound |
